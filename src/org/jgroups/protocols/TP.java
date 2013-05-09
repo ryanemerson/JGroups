@@ -21,6 +21,7 @@ import java.net.NetworkInterface;
 import java.text.NumberFormat;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
 
 
@@ -463,6 +464,29 @@ public abstract class TP extends Protocol {
     @ManagedAttribute(description="Number of bytes received")
     protected long num_bytes_received=0;
 
+
+
+    @ManagedAttribute(description="Average (us) time to deliver a message (or batch), from reception to delivery")
+    public double getAverageDeliveryTime() {
+        return total_delivery_time.get() / num_deliveries.get() / 1000.0;
+    }
+    protected final AtomicLong total_delivery_time=new AtomicLong(0);
+    protected final AtomicLong num_deliveries=new AtomicLong(0);
+
+
+    @ManagedAttribute(description="Average time (in us) from message (or batch) reception " +
+      "until it is processed by the thread pool")
+    public double getAverageTimeTillProcessing() {
+        return total_time_till_processing.get() / processing_num.get() / 1000.0;
+    }
+    protected final AtomicLong total_time_till_processing=new AtomicLong(0);
+    protected final AtomicLong processing_num=new AtomicLong(0);
+
+
+
+    @ManagedAttribute(description="Number of messages rejected by the thread pool")
+    protected int num_rejected_msgs=0;
+
     /** The name of the group to which this member is connected. With a shared transport, the channel name is
      * in TP.ProtocolAdapter (cluster_name), and this field is not used */
     @ManagedAttribute(description="Channel (cluster) name")
@@ -649,6 +673,10 @@ public abstract class TP extends Protocol {
     public void resetStats() {
         num_msgs_sent=num_msgs_received=num_bytes_sent=num_bytes_received=0;
         num_oob_msgs_received=num_incoming_msgs_received=num_internal_msgs_received=0;
+        total_delivery_time.set(0);
+        num_deliveries.set(0);
+        total_time_till_processing.set(0);
+        processing_num.set(0);
     }
 
     public void registerProbeHandler(DiagnosticsHandler.ProbeHandler handler) {
@@ -1452,6 +1480,9 @@ public abstract class TP extends Protocol {
                 pool.execute(new MyHandler(msg, cluster_name, multicast));
             }
         }
+        catch(RejectedExecutionException rejected) {
+            num_rejected_msgs++;
+        }
         catch(Throwable t) {
             if(log.isErrorEnabled())
                 log.error(local_addr + ": failed handling incoming message", t);
@@ -1467,15 +1498,21 @@ public abstract class TP extends Protocol {
         protected final Message msg;
         protected final String  cluster_name;
         protected final boolean multicast;
+        protected final long    created; // timestamp (ns) when created
 
         public MyHandler(Message msg, String cluster_name, boolean multicast) {
             this.msg=msg;
             this.cluster_name=cluster_name;
             this.multicast=multicast;
+            this.created=stats? System.nanoTime() : 0;
         }
 
         public void run() {
             if(stats) {
+                long diff=System.nanoTime() - created;
+                total_time_till_processing.addAndGet(diff);
+                processing_num.incrementAndGet();
+
                 num_msgs_received++;
                 num_bytes_received+=msg.getLength();
             }
@@ -1489,19 +1526,30 @@ public abstract class TP extends Protocol {
                 }
             }
             passMessageUp(msg, cluster_name, true, multicast, true);
+            if(stats) {
+                long diff=System.nanoTime() - created;
+                total_delivery_time.addAndGet(diff);
+                num_deliveries.incrementAndGet();
+            }
         }
     }
 
 
     protected class BatchHandler implements Runnable {
         protected final MessageBatch batch;
+        protected final long         created; // timestamp (ns) when created
 
         public BatchHandler(final MessageBatch batch) {
             this.batch=batch;
+            this.created=stats? System.nanoTime() : 0;
         }
 
         public void run() {
             if(stats) {
+                long diff=System.nanoTime() - created;
+                total_time_till_processing.addAndGet(diff);
+                processing_num.incrementAndGet();
+
                 num_msgs_received+=batch.size();
                 num_bytes_received+=batch.length();
             }
@@ -1517,6 +1565,11 @@ public abstract class TP extends Protocol {
 
             if(enable_batching) {
                 passBatchUp(batch, true, true);
+                if(stats) {
+                    long diff=System.nanoTime() - created;
+                    total_delivery_time.addAndGet(diff);
+                    num_deliveries.incrementAndGet();
+                }
                 return;
             }
 
@@ -1527,6 +1580,11 @@ public abstract class TP extends Protocol {
                 catch(Throwable t) {
                     log.error(local_addr + ": failed passing up message: " + t);
                 }
+            }
+            if(stats) {
+                long diff=System.nanoTime() - created;
+                total_delivery_time.addAndGet(diff);
+                num_deliveries.incrementAndGet();
             }
         }
     }
