@@ -67,4 +67,8 @@
     <class id="105" name="org.jgroups.auth.MD5Token"/>
     <class id="106" name="org.jgroups.auth.X509Token"/>
     <class id="107" name="org.jgroups.protocols.UNICAST3$Header"/>
+
+    <!-- MY MAGIC NUMBERS -->
+    <class id="108" name="org.jgroups.protocols.HiTab.ProbeHeader"/>
+
 </magic-number-class-mapping>

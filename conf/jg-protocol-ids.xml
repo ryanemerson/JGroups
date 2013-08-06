@@ -65,5 +65,6 @@
     <class id="202" name="org.jgroups.tests.perf.MPerf"/>
 
     <!-- User-defined protocols should use IDs >= 1000 -->
+    <class id="1001" name="org.jgroups.protocols.HiTab.NMC"/>
 
 </protocol-ids>
