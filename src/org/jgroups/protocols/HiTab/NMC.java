@@ -6,13 +6,11 @@ import org.jgroups.annotations.Property;
 import org.jgroups.conf.PropertyConverters;
 import org.jgroups.stack.IpAddress;
 import org.jgroups.stack.Protocol;
-import org.jgroups.util.DefaultTimeScheduler;
 import org.jgroups.util.TimeScheduler;
 import org.jgroups.util.Tuple;
 import org.jgroups.util.UUID;
 
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * // TODO: Document this
@@ -58,9 +56,8 @@ public class NMC extends Protocol {
     private final ResponseTimes responseTimes = new ResponseTimes(minProbeFreq, directLatencyProb);
     private final GuaranteeCalculator guarantees = new GuaranteeCalculator();
     private final List<Address> members = new ArrayList<Address>(11);
-    private Map<Address,View> views = new ConcurrentHashMap<Address, View>();
     private Address localAddress = null;
-    private View view;
+    private View view = null;
     private Collection<PhysicalAddress> clusterMembers;
     private boolean isLeaving = false;
     private String groupAddress = null;
@@ -75,7 +72,7 @@ public class NMC extends Protocol {
         System.out.println("NMC");
         clusterMembers = new ArrayList<PhysicalAddress>();
 
-        TimeScheduler timer = new DefaultTimeScheduler(1);
+        TimeScheduler timer = getTransport().getTimer();
         timer.scheduleWithDynamicInterval(new ProbeScheduler());
     }
 
@@ -125,29 +122,25 @@ public class NMC extends Protocol {
 
             case Event.MSG:
                 System.out.println("*******EVENT := MSG");
-                sendProbes("");
-                return null;
+                return down_prot.down(event);
 
             case Event.FIND_INITIAL_MBRS:
                 System.out.println("*******EVENT := FIND_INITIAL_MBRS");
                 // TODO insert code to ensure that sufficient latencies have been recorded for each node
                 // Once received, return initial members
             case Event.FIND_ALL_VIEWS:
-                System.out.println("*******EVENT := FIND_ALL_VIEWS");
-                return new HashMap<Address, View>(views);
-
+//                System.out.println("*******EVENT := FIND_ALL_VIEWS");
+                // Just return this node's view as all nodes will eventually receive the same view due to probing
+                if (view != null) {
+                    return new View(view.getCreator(), view.getViewId().getId(), view.getMembers());
+                }
+//                return new View(view.getCreator(), view.getVid().getId(), view.getMembers());
+                return down_prot.down(event);
             case Event.TMP_VIEW:
                 System.out.println("*******EVENT := TMP_VIEW");
             case Event.VIEW_CHANGE:
                 System.out.println("*******EVENT := VIEW_CHANGE");
-                view = (View) event.getArg();
-                List<Address> tmp = view.getMembers();
-                if(tmp != null) {
-                    synchronized(members) {
-                        members.clear();
-                        members.addAll(tmp);
-                    }
-                }
+                updateView((View) event.getArg());
                 return down_prot.down(event);
 
             case Event.BECOME_SERVER: // called after client has joined and is fully working group member
@@ -166,7 +159,6 @@ public class NMC extends Protocol {
                 view = new View(localAddress, System.nanoTime(), new ArrayList<Address>(addresses));
 
                 System.out.println("LOCAL_ADDRESS := " + localAddress);
-
                 return down_prot.down(event);
 
             case Event.CONNECT:
@@ -199,13 +191,13 @@ public class NMC extends Protocol {
         ProbeData data = new ProbeData(localAddress, view, UUID.get(localAddress), Arrays.asList(physicalAddress), 0, System.nanoTime());
 
         ProbeHeader header = new ProbeHeader(ProbeHeader.PROBE_REQ, data, clusterName);
-        Collection<PhysicalAddress> clusterMembers = fetchClusterMembers(clusterName);
+        Collection<Address> clusterMembers = fetchClusterMembers(clusterName);
 
         if (clusterMembers == null) {
             multicastProbes(data, header);
         }
         else {
-            unicastProbes(data, header);
+            unicastProbes(clusterMembers, data, header);
         }
     }
 
@@ -222,8 +214,8 @@ public class NMC extends Protocol {
         down_prot.down(new Event(Event.MSG, message));
     }
 
-    public void unicastProbes(ProbeData data, ProbeHeader header) {
-        for (final Address address : members) {
+    public void unicastProbes(Collection<Address> destinations, ProbeData data, ProbeHeader header) {
+        for (final Address address : destinations) {
             if (address.equals(localAddress)) {
                 continue;
             }
@@ -302,9 +294,10 @@ public class NMC extends Protocol {
     }
 
     // TODO Fetch initial cluster members from xml file if specified
-    public Collection<PhysicalAddress> fetchClusterMembers(String clusterName) {
+    public Collection<Address> fetchClusterMembers(String clusterName) {
         return null;
-//        return new HashSet<PhysicalAddress>(initial_hosts);
+//        view = new View(localAddress, System.nanoTime(), new ArrayList<Address>(initial_hosts));
+//        return new HashSet<Address>(initial_hosts);
     }
 
     /**
@@ -343,7 +336,7 @@ public class NMC extends Protocol {
 
         private boolean receiveInitialProbes() {
             Map<Address, Integer> initialProbes = responseTimes.getInitialProbes();
-            if (members.size() > 1 && initialProbes.keySet().size() > 0) {
+            if (members.size() >= minimumNodes && initialProbes.keySet().size() > 0) {
                 for (Address address : initialProbes.keySet()) {
                     if (initialProbes.get(address) <= 10) // TODO change 10 to a configurable value
                         return false;
