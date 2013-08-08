@@ -1,0 +1,51 @@
+package org.jgroups.protocols.HiTab;
+
+/**
+ * // TODO: Document this
+ *
+ * @author ryan
+ * @since 4.0
+ */
+public class HiTabEvent {
+    public static final int NMC_READY = 1; // arg = View (current view of the cluster from this node
+    public static final int CLOCK_SYNCHRONISED = 2; // arg = null
+    public static final int GET_NMC_TIMES = 3; // arg = null --> NMCData
+
+    private final int type;
+    private final Object arg;
+
+    public HiTabEvent(int type) {
+        this.type = type;
+        this.arg = null;
+    }
+
+    public HiTabEvent(int type, Object arg) {
+        this.type = type;
+        this.arg = arg;
+    }
+
+    public final int getType() {
+        return type;
+    }
+
+    public Object getArg() {
+        return arg;
+    }
+
+    public static String type2String(int t) {
+        switch(t) {
+            case NMC_READY:	                return "NMC_READY";
+            case CLOCK_SYNCHRONISED:        return "CLOCK_SYNCHRONISED";
+            case GET_NMC_TIMES:             return "GET_NMC_TIMES";
+            default:                        return "UNDEFINED(" + t + ")";
+        }
+    }
+
+    @Override
+    public String toString() {
+        return "HiTabEvent{" +
+                "type=" + type2String(type) +
+                ", arg=" + arg +
+                '}';
+    }
+}
