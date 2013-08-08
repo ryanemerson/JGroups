@@ -121,36 +121,28 @@ public class NMC extends Protocol {
         switch (event.getType()) {
 
             case Event.MSG:
-                System.out.println("*******EVENT := MSG");
                 return down_prot.down(event);
 
             case Event.FIND_INITIAL_MBRS:
-                System.out.println("*******EVENT := FIND_INITIAL_MBRS");
                 // TODO insert code to ensure that sufficient latencies have been recorded for each node
                 // Once received, return initial members
             case Event.FIND_ALL_VIEWS:
-//                System.out.println("*******EVENT := FIND_ALL_VIEWS");
                 // Just return this node's view as all nodes will eventually receive the same view due to probing
                 if (view != null) {
                     return new View(view.getCreator(), view.getViewId().getId(), view.getMembers());
                 }
-//                return new View(view.getCreator(), view.getVid().getId(), view.getMembers());
                 return down_prot.down(event);
+
             case Event.TMP_VIEW:
-                System.out.println("*******EVENT := TMP_VIEW");
             case Event.VIEW_CHANGE:
-                System.out.println("*******EVENT := VIEW_CHANGE");
                 updateView((View) event.getArg());
                 return down_prot.down(event);
 
             case Event.BECOME_SERVER: // called after client has joined and is fully working group member
-                System.out.println("*******EVENT := BECOME_SERVER");
                 down_prot.down(event);
                 return null;
 
             case Event.SET_LOCAL_ADDRESS:
-                System.out.println("*******EVENT := SET_LOCAL_ADDRESS");
-
                 localAddress = (Address) event.getArg();
                 addMember(localAddress);
 
@@ -162,13 +154,9 @@ public class NMC extends Protocol {
                 return down_prot.down(event);
 
             case Event.CONNECT:
-                System.out.println("*******EVENT := CONNECT");
             case Event.CONNECT_WITH_STATE_TRANSFER:
-                System.out.println("*******EVENT := CONNECT_WITH_STATE_TRANSFER");
             case Event.CONNECT_USE_FLUSH:
-                System.out.println("*******EVENT := CONNECT_USE_FLUSH");
             case Event.CONNECT_WITH_STATE_TRANSFER_USE_FLUSH:
-                System.out.println("*******EVENT := CONNECT_WITH_STATE_TRANSFER_USE_FLUSH");
                 isLeaving = false;
                 groupAddress = (String) event.getArg();
                 System.out.println("Group := " + groupAddress);
@@ -176,7 +164,6 @@ public class NMC extends Protocol {
             // TODO HANDLE CONNECT
 
             case Event.DISCONNECT:
-                System.out.println("*******EVENT := DISCONNECT");
                 isLeaving=true;
                 // TODO HANDLE DISCONNECT
                 return down_prot.down(event);
@@ -312,6 +299,8 @@ public class NMC extends Protocol {
                 if (guarantees.receiveInitialProbes()) {
                     System.out.println("INITIAL PROBES RECEIVED!");
                     guarantees.setInitialProbePeriod();
+                    // TODO replace with user defined object
+                    down_prot.up(new Event(Event.USER_DEFINED, new HiTabEvent(HiTabEvent.NMC_READY, view)));
                 }
             }
 

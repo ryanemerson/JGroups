@@ -44,7 +44,7 @@ public class PCSynch extends Protocol {
 
     private View view;
     private VirtualClock clock;
-    private Address currentMaster;
+    private Address master;
     private Address localAddress;
     private TimeScheduler timer;
     private boolean synchronised;
@@ -95,9 +95,13 @@ public class PCSynch extends Protocol {
                         return null;
                 }
             case Event.USER_DEFINED:
-                view = (View) event.getArg();
-                startClockSynch();
-                return null;
+                HiTabEvent e = (HiTabEvent) event.getArg();
+                switch (e.getType()) {
+                    case HiTabEvent.NMC_READY:
+                        view = (View) e.getArg();
+                        startClockSynch();
+                        return null;
+                }
         }
         return up_prot.up(event);
     }
@@ -142,16 +146,13 @@ public class PCSynch extends Protocol {
         public void run() {
             long startTime = clock.getTime();
             int messagesSent = 0;
-
-            Address master = view.getMembers().get(0); // Need to make this consistent for all nodes, when dynamic discovery is used
-            currentMaster = master;
+            master = view.getMembers().get(0); // Need to make this consistent for all nodes, when dynamic discovery is used
 
             // If this node is the master then no need to synch
-            if (!localAddress.equals(currentMaster)) {
+            if (!localAddress.equals(master)) {
                 newSynchAttempt(); // Reset booleans
                 while (messagesSent < maxSynchMessages && !synchronised) {
                     sendRequest(master);
-
                     try {
                         Thread.sleep(attemptDuration);
                     } catch (InterruptedException e) {
@@ -161,11 +162,17 @@ public class PCSynch extends Protocol {
                 }
             } else {
                 System.out.println("Do nothing, I'm the master");
+                return;
             }
-            if (messagesSent < maxSynchMessages && synchronised)
+
+            if (synchronised) {
                 System.out.println("Synch succeeded");
-            else if (messagesSent >= maxSynchMessages)
+                Event event = new Event(Event.USER_DEFINED, new HiTabEvent(HiTabEvent.CLOCK_SYNCHRONISED));
+                up_prot.up(event);
+                // down_prot.down(event);
+            } else {
                 System.out.println("message limit reached");
+            }
         }
 
         public void sendRequest(Address master) {
