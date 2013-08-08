@@ -66,5 +66,6 @@
 
     <!-- User-defined protocols should use IDs >= 1000 -->
     <class id="1001" name="org.jgroups.protocols.HiTab.NMC"/>
+    <class id="1002" name="org.jgroups.protocols.HiTab.PCSynch"/>
 
 </protocol-ids>

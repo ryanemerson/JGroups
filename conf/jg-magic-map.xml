@@ -70,5 +70,6 @@
 
     <!-- MY MAGIC NUMBERS -->
     <class id="108" name="org.jgroups.protocols.HiTab.ProbeHeader"/>
+    <class id="109" name="org.jgroups.protocols.HiTab.PCSynchHeader"/>
 
 </magic-number-class-mapping>
