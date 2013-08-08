@@ -94,6 +94,10 @@ public class PCSynch extends Protocol {
                     default:
                         return null;
                 }
+            case Event.VIEW_CHANGE:
+                if (synchronised) // If not synchronised then don't update as the old view is still being used
+                    view = (View) event.getArg();
+                return up_prot.up(event);
             case Event.USER_DEFINED:
                 HiTabEvent e = (HiTabEvent) event.getArg();
                 switch (e.getType()) {
