@@ -276,6 +276,7 @@ public class NMC extends Protocol {
                     members.addAll(newView.getMembers());
                 }
                 view = new View(localAddress, System.nanoTime(), members);
+                up_prot.up(new Event((Event.VIEW_CHANGE), view));
             }
         }
     }
