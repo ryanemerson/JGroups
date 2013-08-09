@@ -9,7 +9,8 @@ package org.jgroups.protocols.HiTab;
 public class HiTabEvent {
     public static final int NMC_READY = 1; // arg = View (current view of the cluster from this node
     public static final int CLOCK_SYNCHRONISED = 2; // arg = null
-    public static final int GET_NMC_TIMES = 3; // arg = null --> NMCData
+    public static final int GET_CLOCK_TIME = 3; // arg = null --> Long
+    public static final int GET_NMC_TIMES = 4; // arg = null --> NMCData
 
     private final int type;
     private final Object arg;
@@ -36,6 +37,7 @@ public class HiTabEvent {
         switch(t) {
             case NMC_READY:	                return "NMC_READY";
             case CLOCK_SYNCHRONISED:        return "CLOCK_SYNCHRONISED";
+            case GET_CLOCK_TIME:            return "GET_CLOCK_TIME";
             case GET_NMC_TIMES:             return "GET_NMC_TIMES";
             default:                        return "UNDEFINED(" + t + ")";
         }

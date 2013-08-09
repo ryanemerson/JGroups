@@ -113,6 +113,14 @@ public class PCSynch extends Protocol {
     @Override
     public Object down(Event event) {
         switch (event.getType()) {
+            case Event.USER_DEFINED:
+                HiTabEvent e = (HiTabEvent) event.getArg();
+                switch (e.getType()) {
+                    case HiTabEvent.GET_CLOCK_TIME:
+                        return clock.getTime();
+                    default:
+                        return down_prot.down(event);
+                }
             case Event.SET_LOCAL_ADDRESS:
                 localAddress = (Address) event.getArg();
                 return down_prot.down(event);
