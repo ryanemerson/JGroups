@@ -16,17 +16,11 @@ final public class ResponseTimes {
     private final List<Long> nextProbePeriods; // Milliseconds
     private final Map<Address, Integer> initialProbes;
     private boolean initialProbesReceived;
+    private double directLatencyProbability; // e.g 0.9999
     private volatile double potentialProbePeriod; // Milliseconds
-    private volatile double q;
-    private volatile double eta; // Milliseconds
     private volatile double averageLatency; // Nanoseconds
     private volatile int minimumProbePeriod; // Milliseconds
-    private volatile int numberOfMessageCopies;
-    private volatile int omega; // Milliseconds
-    private volatile int capD; // Milliseconds
-    private volatile int capS; // Milliseconds
-    private volatile int xMax; // Milliseconds
-    private double directLatencyProbability; // e.g 0.9999
+    private volatile NMCData nmcData;
 
     public ResponseTimes(int minimumProbePeriod, double directLatencyProbability) {
         this.minimumProbePeriod = minimumProbePeriod;
@@ -39,13 +33,7 @@ final public class ResponseTimes {
 
         initialProbesReceived = false;
         potentialProbePeriod = -1;
-        q = 0.0;
-        eta = 0.0;
-        numberOfMessageCopies = 0;
-        omega = 0;
-        capD = 0;
-        capS = 0;
-        xMax = 0;
+        nmcData = new NMCData(0,0,0,0,0,0);
         averageLatency = 0.0;
     }
 
@@ -89,60 +77,12 @@ final public class ResponseTimes {
         }
     }
 
-    public double getQ() {
-        return q;
+    public NMCData getNmcData() {
+        return nmcData;
     }
 
-    public void setQ(double newQ) {
-        q = newQ;
-    }
-
-    public void setNumberOfMessageCopies(int copies) {
-        numberOfMessageCopies = copies;
-    }
-
-    public int getNumberOfMessageCopies() {
-        return numberOfMessageCopies;
-    }
-
-    public void setOmega(int newOmega) {
-        omega = newOmega;
-    }
-
-    public int getOmega() {
-        return omega;
-    }
-
-    public void setEta(double newEta) {
-        eta = (newEta == 0) ? 1 : newEta;
-    }
-
-    public double getEta() {
-        return eta;
-    }
-
-    public void setCapD(int newD) {
-        capD = newD;
-    }
-
-    public int getCapD() {
-        return capD;
-    }
-
-    public void setCapS(int newS) {
-        capS = newS;
-    }
-
-    public int getCapS() {
-        return capS;
-    }
-
-    public void setXMax(int maxLatency) {
-        xMax = maxLatency;
-    }
-
-    public int getXMax() {
-        return xMax;
+    public void updateValues(NMCData newData) {
+        nmcData = newData;
     }
 
     public double getAverageLatency() {
@@ -292,16 +232,16 @@ final public class ResponseTimes {
     @Override
     public String toString() {
         return "ResponseTimes{" +
-                "q=" + q +
-                ", eta=" + eta +
+                "probesSent=" + probesSent +
+                ", latencyTimes=" + latencyTimes +
+                ", nextProbePeriods=" + nextProbePeriods +
+                ", initialProbes=" + initialProbes +
+                ", initialProbesReceived=" + initialProbesReceived +
+                ", directLatencyProbability=" + directLatencyProbability +
+                ", potentialProbePeriod=" + potentialProbePeriod +
                 ", averageLatency=" + averageLatency +
                 ", minimumProbePeriod=" + minimumProbePeriod +
-                ", numberOfMessageCopies=" + numberOfMessageCopies +
-                ", omega=" + omega +
-                ", capD=" + capD +
-                ", capS=" + capS +
-                ", xMax=" + xMax +
-                ", directLatencyProbability=" + directLatencyProbability +
+                ", nmcData=" + nmcData +
                 '}';
     }
 }
