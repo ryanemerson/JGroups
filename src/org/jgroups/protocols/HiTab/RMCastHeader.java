@@ -1,6 +1,7 @@
 package org.jgroups.protocols.HiTab;
 
 import org.jgroups.Address;
+import org.jgroups.Global;
 import org.jgroups.Header;
 import org.jgroups.util.Util;
 
@@ -71,7 +72,7 @@ public class RMCastHeader extends Header {
 
     @Override
     public int size() {
-        return id.size() + Util.size(disseminator) + Util.size(copy) + Util.size(copyTotal);
+        return id.size() + Util.size(disseminator) + (Global.INT_SIZE * 2);
     }
 
     @Override
