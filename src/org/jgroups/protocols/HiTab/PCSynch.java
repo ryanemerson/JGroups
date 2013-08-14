@@ -34,7 +34,7 @@ public class PCSynch extends Protocol {
 
     @Property(name = "max_latency", description = "2 ∗ U is the maximum round trip delay allowed, hence U − min" +
             "is the maximum error done by reading the clock of another slave. In nanoseconds")
-    private long maxLatency = 1000000; // U
+    private int maxLatency = 1000000; // U
 
     @Property(name = "max_synch_messages", description = "the number of messages sent to synchronise. The higher this " +
             "number is, the higher the probability of success is but in the other hand if you send too many messages " +
@@ -118,6 +118,8 @@ public class PCSynch extends Protocol {
                 switch (e.getType()) {
                     case HiTabEvent.GET_CLOCK_TIME:
                         return clock.getTime();
+                    case HiTabEvent.GET_CLOCK_ERROR:
+                        return maxLatency;
                     default:
                         return down_prot.down(event);
                 }
