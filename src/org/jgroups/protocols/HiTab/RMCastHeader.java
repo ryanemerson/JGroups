@@ -42,10 +42,6 @@ public class RMCastHeader extends Header {
         this.id = id;
     }
 
-    public Address getOriginator() {
-        return id.getOriginator();
-    }
-
     public Address getDisseminator() {
         return disseminator;
     }
