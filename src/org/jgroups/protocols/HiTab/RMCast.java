@@ -67,6 +67,16 @@ public class RMCast extends Protocol {
             case Event.SET_LOCAL_ADDRESS:
                 localAddress = (Address) event.getArg();
                 return down_prot.down(event);
+
+            case Event.USER_DEFINED:
+                HiTabEvent e = (HiTabEvent) event.getArg();
+                switch (e.getType()) {
+                    case HiTabEvent.BROADCAST_COMPLETE:
+                        MessageId id = (MessageId) e.getArg();
+                        return messageRecords.get(id).broadcastComplete();
+                    default:
+                        return down_prot.down(event);
+                }
             default:
                 return down_prot.down(event);
         }
@@ -114,6 +124,7 @@ public class RMCast extends Protocol {
         final Message message = (Message) event.getArg();
         final NMCData data = getNMCData();
         final short headerId;
+        final int messageCopy;
 
         short protocolId = ClassConfigurator.getProtocolId(HiTab.class);
         RMCastHeader existingHeader = (RMCastHeader) message.getHeader(protocolId);
@@ -123,21 +134,33 @@ public class RMCast extends Protocol {
                 down_prot.down(event);
                 return;
             }
+
             headerId = protocolId;
-            existingHeader.setCopyTotal(data.getMessageCopies());
-            existingHeader.setDisseminator(localAddress);
+            switch (((HiTabHeader) existingHeader).getType()) {
+                case HiTabHeader.BROADCAST:
+                    existingHeader.setCopyTotal(data.getMessageCopies());
+                    existingHeader.setDisseminator(localAddress);
+                    messageCopy = 0;
+                    break;
+                case HiTabHeader.RETRANSMISSION:
+                    messageCopy = existingHeader.getCopyTotal();
+                    break;
+                default:
+                    messageCopy = 0;
+            }
         } else {
             headerId = this.id;
             MessageId msgId = new MessageId(System.currentTimeMillis(), localAddress);
+            messageCopy = 0;
             final RMCastHeader header = new RMCastHeader(msgId, localAddress,
-                    0, data.getMessageCopies());
+                    messageCopy, data.getMessageCopies());
             message.putHeader(this.id, header);
         }
 
         timer.execute(new Runnable() {
             @Override
             public void run() {
-                for (int i = 0; i <= data.getMessageCopies(); i++) {
+                for (int i = messageCopy; i <= data.getMessageCopies(); i++) {
                     ((RMCastHeader) message.getHeader(headerId)).setCopy(i);
                     down_prot.down(new Event(Event.MSG, message));
                     try {
@@ -285,6 +308,10 @@ public class RMCast extends Protocol {
 
         public void setCrashNotified(boolean crashNotified) {
             this.crashNotified = crashNotified;
+        }
+
+        public boolean broadcastComplete() {
+            return largestCopyReceived == totalCopies;
         }
 
         @Override

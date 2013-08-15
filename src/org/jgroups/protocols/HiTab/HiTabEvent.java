@@ -12,6 +12,7 @@ public class HiTabEvent {
     public static final int GET_CLOCK_TIME = 3; // arg = null --> Long
     public static final int GET_CLOCK_ERROR = 4; // arg = null --> Long
     public static final int GET_NMC_TIMES = 5; // arg = null --> NMCData
+    public static final int BROADCAST_COMPLETE = 6; // arg = MessageId --> Boolean
 
     private final int type;
     private final Object arg;
@@ -41,6 +42,7 @@ public class HiTabEvent {
             case GET_CLOCK_TIME:            return "GET_CLOCK_TIME";
             case GET_CLOCK_ERROR:           return "GET_CLOCK_ERROR";
             case GET_NMC_TIMES:             return "GET_NMC_TIMES";
+            case BROADCAST_COMPLETE:        return "BROADCAST_COMPLETE";
             default:                        return "UNDEFINED(" + t + ")";
         }
     }
