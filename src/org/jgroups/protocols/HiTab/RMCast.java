@@ -58,11 +58,10 @@ public class RMCast extends Protocol {
     }
 
     @Override
-    public Object down(final Event event) {
+    public Object down(Event event) {
         switch (event.getType()) {
             case Event.MSG:
-                Message message = (Message) event.getArg();
-                broadcastMessage(message);
+                broadcastMessage(event);
                 return null;
 
             case Event.SET_LOCAL_ADDRESS:
@@ -92,7 +91,7 @@ public class RMCast extends Protocol {
             return;
         }
 
-        if (header.getDisseminator() == header.getOriginator() && !record.isCrashNotified()) {
+        if (header.getDisseminator() == header.getId().getOriginator() && !record.isCrashNotified()) {
             // TODO SEND NO CRASH NOTIFICATION
             // Effectively cancels the CrashedTimeout as nothing will happen once this is set to true
             record.setCrashNotified(true);
@@ -102,31 +101,36 @@ public class RMCast extends Protocol {
             record.setLargestCopyReceived(header.getCopy());
         } else {
 
-            if (!header.getOriginator().equals(localAddress)
+            if (!header.getId().getOriginator().equals(localAddress)
                     && header.getCopy() > record.getLargestCopyReceived()
                     || (header.getCopy() == record.getLargestCopyReceived() && (header.getDisseminator() == header
-                    .getOriginator() || getNodeSeniority(header.getDisseminator()) < getNodeSeniority(record.getBroadcastLeader())))) {
+                    .getId().getOriginator() || getNodeSeniority(header.getDisseminator()) < getNodeSeniority(record.getBroadcastLeader())))) {
                 responsivenessTimeout(record, header);
             }
         }
     }
 
-    public void broadcastMessage(final Message message) {
+    public void broadcastMessage(Event event) {
+        final Message message = (Message) event.getArg();
         final NMCData data = getNMCData();
         final short headerId;
 
-        short magicNumber = ClassConfigurator.getMagicNumber(HiTabHeader.class);
-        RMCastHeader existingHeader = (RMCastHeader) message.getHeader(magicNumber);
+        short protocolId = ClassConfigurator.getProtocolId(HiTab.class);
+        RMCastHeader existingHeader = (RMCastHeader) message.getHeader(protocolId);
         // If HiTab header is present, set the rmsys values in that header
         if (existingHeader != null) {
-            headerId = magicNumber;
+            if(((HiTabHeader)existingHeader).getType() != HiTabHeader.BROADCAST) {
+                down_prot.down(event);
+                return;
+            }
+            headerId = protocolId;
             existingHeader.setCopyTotal(data.getMessageCopies());
             existingHeader.setDisseminator(localAddress);
         } else {
             headerId = this.id;
             MessageId msgId = new MessageId(System.currentTimeMillis(), localAddress);
             final RMCastHeader header = new RMCastHeader(msgId, localAddress,
-                    0, getNMCData().getMessageCopies());
+                    0, data.getMessageCopies());
             message.putHeader(this.id, header);
         }
 
@@ -156,10 +160,10 @@ public class RMCast extends Protocol {
                     header.setDisseminator(localAddress);
                     header.setCopy(messageCopy);
 
-                    short magicNumber = ClassConfigurator.getMagicNumber(HiTabHeader.class);
-                    RMCastHeader existingHeader = (RMCastHeader) message.getHeader(magicNumber);
+                    short protocolId = ClassConfigurator.getProtocolId(HiTab.class);
+                    RMCastHeader existingHeader = (RMCastHeader) message.getHeader(protocolId);
                     if (existingHeader != null)
-                        message.putHeader(magicNumber, header);
+                        message.putHeader(protocolId, header);
                     else
                         message.putHeader(id, header);
 
