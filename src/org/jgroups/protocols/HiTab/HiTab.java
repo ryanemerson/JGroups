@@ -8,12 +8,14 @@ import org.jgroups.annotations.Property;
 import org.jgroups.stack.Protocol;
 import org.jgroups.util.TimeScheduler;
 
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 /**
  * // TODO: Document this
@@ -27,14 +29,22 @@ public class HiTab extends Protocol {
               + "before delivering a message.  This value is equal to the minimum broadcast rate allowed by the system")
     private int ackWait = 2000;
 
+    @Property(name = "number_of_old_messages", description = "The minimum number of old messages that should be stored by " +
+             "HiTab.  A large value increases the chance that a lost message will be recoverable.  A smaller value " +
+             "reduces the protocols memory consumption.")
+    private int numberOfSequences = 100;
+
+    @Property(name = "garbage_collection", description = "How often, in minutes, the system performs garbage collection of old messages")
+    private int garbageCollectionRate = 10;
+
     private HiTabBuffer buffer;
     private Address localAddress = null;
     private TimeScheduler timer;
     private View view;
 
     private long sequence;
-    private Map<MessageId, Message> messageStore;
-    private Map<MessageId, Boolean> requestStatus;
+    final private Map<MessageId, Message> messageStore = new ConcurrentHashMap<MessageId, Message>();
+    final private Map<MessageId, Boolean> requestStatus = new ConcurrentHashMap<MessageId, Boolean>();
     private ExecutorService executor;
 
     public HiTab() {
@@ -45,8 +55,6 @@ public class HiTab extends Protocol {
         System.out.println("Init");
         timer = getTransport().getTimer();
         buffer = new HiTabBuffer(this, ackWait);
-        requestStatus = new ConcurrentHashMap<MessageId, Boolean>();
-        messageStore = new ConcurrentHashMap<MessageId, Message>();
     }
 
     @Override
@@ -55,6 +63,7 @@ public class HiTab extends Protocol {
         // Thread dedicated to delivering messages.  Required, so must be separate from the default thread pool
         executor = Executors.newSingleThreadExecutor();
         executor.execute(new DeliverMessages());
+        timer.scheduleWithFixedDelay(new GarbageCollection(), garbageCollectionRate, garbageCollectionRate, TimeUnit.MINUTES);
     }
 
     @Override
@@ -216,6 +225,20 @@ public class HiTab extends Protocol {
         return requestStatus.get(id);
     }
 
+    private void collectGarbage() {
+        synchronized (messageStore) {
+            Iterator<MessageId> i = messageStore.keySet().iterator();
+            while (i.hasNext()) {
+                MessageId id = i.next();
+                long seqDifference = buffer.getSequence(id.getOriginator()) - id.getSequence();
+                boolean broadcastComplete = (Boolean) down_prot.down(new Event(Event.USER_DEFINED,
+                        new HiTabEvent(HiTabEvent.BROADCAST_COMPLETE, id)));
+                if (seqDifference > numberOfSequences && broadcastComplete)
+                    i.remove();
+            }
+        }
+    }
+
     final class RequestTimeout implements Runnable {
         private final MessageId id;
         RequestTimeout(MessageId id) {
@@ -263,6 +286,13 @@ public class HiTab extends Protocol {
                     break;
                 }
             }
+        }
+    }
+
+    final class GarbageCollection implements Runnable {
+        @Override
+        public void run(){
+            collectGarbage();
         }
     }
 }

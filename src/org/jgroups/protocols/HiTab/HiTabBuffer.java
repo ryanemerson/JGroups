@@ -18,18 +18,16 @@ import java.util.concurrent.ConcurrentHashMap;
 public class HiTabBuffer {
 
     final private HiTab hitab;
-//    final private Map<MessageId, Message> messageStore; // Store the actual message that will be passed up
     final private LinkedList<MessageRecord> buffer; // Stores the message record
     final private Map<Address, Long> sequenceRecord; // Stores the largest delivered sequence for each known node
     final private int ackWait;
     final private long maxError; // The maximum error rate of the probabilistic clock synch
     final private MessageRecord lastDeliveredMessage; // The timestamp of the last message that was delivered;
-    private View view; // The lastest view of the cluster
+    private View view; // The latest view of the cluster
 
     public HiTabBuffer(HiTab hitab, int ackWait) {
         this.hitab = hitab;
         this.ackWait = ackWait;
-//        this.messageStore = new ConcurrentHashMap<MessageId, Message>();
         this.buffer = new LinkedList<MessageRecord>();
         this.sequenceRecord = new ConcurrentHashMap<Address, Long>();
         this.maxError = (Integer) hitab.down(new Event(Event.USER_DEFINED, new HiTabEvent(HiTabEvent.GET_CLOCK_ERROR)));
@@ -55,10 +53,60 @@ public class HiTabBuffer {
                 System.err.println("Last Delivered := " + lastDeliveredMessage);
 
                 // Increment expected sequence number to stop subsequent messages from blocking
-                long expectedSequence = sequenceRecord.get(record.id.getOriginator()) + 1;
+                long expectedSequence = getSequence(record.id.getOriginator()) + 1;
                 sequenceRecord.put(record.id.getOriginator(), expectedSequence);
             }
         }
+    }
+
+    public List<Message> process() throws InterruptedException {
+        List<Message> deliverable = new ArrayList<Message>();
+        synchronized (buffer) {
+            while (buffer.isEmpty()) {
+                buffer.wait();
+            }
+
+            MessageRecord record = buffer.getFirst();
+            if (record.placeholder) {
+                hitab.sendPlaceholderRequest(record.id, record.getHeader().getAckInformer());
+                buffer.wait();
+            }
+
+            long expectedSequence = getSequence(record.id.getOriginator());
+            if (record.id.getSequence() > expectedSequence) {
+                hitab.sendSequenceRequest(record.id.getOriginator(), expectedSequence);
+                buffer.wait();
+            }
+
+            Iterator<MessageRecord> i = buffer.iterator();
+            while (i.hasNext()) {
+                MessageRecord r = i.next();
+                if(!r.placeholder && r.deliveryTime <= hitab.getCurrentTime()) {
+                    expectedSequence = getSequence(r.id.getOriginator());
+                    if (r.id.getSequence() == expectedSequence) {
+                        deliverable.add(r.message);
+                        i.remove();
+                        sequenceRecord.put(r.id.getOriginator(), ++expectedSequence);
+                    }
+                } else {
+                    break;
+                }
+            }
+            return deliverable;
+        }
+    }
+
+    public void addPlaceholder(MessageId id) {
+        if (oldSequence(id))
+            return;
+
+        synchronized (buffer) {
+            addNewPlaceholder(id);
+        }
+    }
+
+    public long getSequence(Address origin) {
+        return sequenceRecord.get(origin);
     }
 
     private void calculateDeliveryTime(MessageRecord record) {
@@ -80,7 +128,6 @@ public class HiTabBuffer {
 
     private void addMessage(MessageRecord record) {
         // Add the message to the message store
-//        messageStore.put(record.id, record.message);
         if (buffer.isEmpty()) {
             buffer.add(record);
             buffer.notify();
@@ -169,15 +216,6 @@ public class HiTabBuffer {
         }
     }
 
-    public void addPlaceholder(MessageId id) {
-        if (oldSequence(id))
-            return;
-
-        synchronized (buffer) {
-            addNewPlaceholder(id);
-        }
-    }
-
     private void addPlaceholders(List<MessageId> ackList) {
         if (ackList.size() < 1)
             return;
@@ -236,43 +274,6 @@ public class HiTabBuffer {
         }
     }
 
-    public List<Message> process() throws InterruptedException {
-        List<Message> deliverable = new ArrayList<Message>();
-        synchronized (buffer) {
-            while (buffer.isEmpty()) {
-                buffer.wait();
-            }
-
-            MessageRecord record = buffer.getFirst();
-            if (record.placeholder) {
-                hitab.sendPlaceholderRequest(record.id, record.getHeader().getAckInformer());
-                buffer.wait();
-            }
-
-            long expectedSequence = sequenceRecord.get(record.id.getOriginator());
-            if (record.id.getSequence() > expectedSequence) {
-                hitab.sendSequenceRequest(record.id.getOriginator(), expectedSequence);
-                buffer.wait();
-            }
-
-            Iterator<MessageRecord> i = buffer.iterator();
-            while (i.hasNext()) {
-                MessageRecord r = i.next();
-                if(!r.placeholder && r.deliveryTime <= hitab.getCurrentTime()) {
-                    expectedSequence = sequenceRecord.get(r.id.getOriginator());
-                    if (r.id.getSequence() == expectedSequence) {
-                        deliverable.add(r.message);
-                        i.remove();
-                        sequenceRecord.put(r.id.getOriginator(), ++expectedSequence);
-                    }
-                } else {
-                    break;
-                }
-            }
-            return deliverable;
-        }
-    }
-
     private void updateSequences(View view) {
         for (Address address : view.getMembers()) {
             if (!sequenceRecord.containsKey(address))
@@ -291,7 +292,7 @@ public class HiTabBuffer {
     }
 
     private boolean oldSequence(MessageId id) {
-        long expectedSequence = sequenceRecord.get(id.getOriginator());
+        long expectedSequence = getSequence(id.getOriginator());
         return id.getSequence() < expectedSequence;
     }
 
@@ -316,7 +317,6 @@ public class HiTabBuffer {
 
         MessageRecord(Message message) {
             this.message = message;
-//            this.id = getHeader().getId();
             this.id = ((HiTabHeader) message.getHeader(ClassConfigurator.getProtocolId(HiTab.class))).getId();
             this.placeholder = false;
             this.readyToDeliver = false;
