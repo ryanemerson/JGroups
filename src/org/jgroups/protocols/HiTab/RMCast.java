@@ -79,7 +79,12 @@ public class RMCast extends Protocol {
                 switch (e.getType()) {
                     case HiTabEvent.BROADCAST_COMPLETE:
                         MessageId id = (MessageId) e.getArg();
-                        return messageRecords.get(id).broadcastComplete();
+
+                        MessageRecord record = messageRecords.get(id);
+                        boolean complete = true;
+                        if (record != null)
+                           complete = record.broadcastComplete();
+                        return complete;
                     default:
                         return down_prot.down(event);
                 }

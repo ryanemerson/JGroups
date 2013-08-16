@@ -155,9 +155,16 @@ public class HiTab extends Protocol {
         message.setFlag(Message.Flag.DONT_BUNDLE);
     }
 
-    // No need to reset flags as they should still be in place from the original broadcast
     private void resendMessage(MessageId id) {
         Message message = messageStore.get(id);
+        resendMessage(message);
+    }
+
+    // No need to reset flags as they should still be in place from the original broadcast
+    private void resendMessage(Message message) {
+        if (message == null) {
+            System.out.println("Message is null");
+        }
         HiTabHeader header = (HiTabHeader) message.getHeader(this.id);
         header.setType(HiTabHeader.RETRANSMISSION);
         down_prot.down(new Event(Event.MSG, message));
@@ -168,13 +175,17 @@ public class HiTab extends Protocol {
         Message requestedMessage = getMessageBySequence(id);
         if (requestedMessage == null)
             return;
+        // Reload the actual id, so that the equals method will correctly return true when searching our records
+        // This is necessary because the sequence request will be missing the originator field
+        // Therefore the equals method will return false if the above id is used, even if we have the message
+        id = ((HiTabHeader)requestedMessage.getHeader(this.id)).getId();
         if (validRequest(id)) {
             requestStatus.put(id, false);
             if (id.getOriginator().equals(localAddress)) {
                 resendMessage(id);
                 requestStatus.remove(id);
             } else {
-                timer.execute(new RequestTimeout(id));
+                timer.execute(new RequestTimeout(requestedMessage));
             }
         }
 
@@ -187,13 +198,14 @@ public class HiTab extends Protocol {
             buffer.addPlaceholder(id);
             return;
         }
+
         if (validRequest(id)) {
             requestStatus.put(id, false);
             if (header.getAckInformer().equals(localAddress)) {
                 resendMessage(id);
                 requestStatus.remove(id);
             } else {
-                timer.execute(new RequestTimeout(id));
+                timer.execute(new RequestTimeout(requestedMessage));
             }
         }
     }
@@ -219,10 +231,11 @@ public class HiTab extends Protocol {
 
     // Returns true if a request status cannot be found, as this means that the request has been satisfied!
     private boolean requestSatisfied(MessageId id) {
-        if (requestStatus.get(id) == null) {
+        Boolean satisfied = requestStatus.get(id);
+        if (satisfied == null) {
             return true;
         }
-        return requestStatus.get(id);
+        return satisfied;
     }
 
     private void collectGarbage() {
@@ -240,9 +253,9 @@ public class HiTab extends Protocol {
     }
 
     final class RequestTimeout implements Runnable {
-        private final MessageId id;
-        RequestTimeout(MessageId id) {
-            this.id = id;
+        final private Message message;
+        RequestTimeout(Message message) {
+            this.message = message;
         }
 
         @Override
@@ -254,7 +267,8 @@ public class HiTab extends Protocol {
             } catch (InterruptedException e) {
             }
 
-            if (requestStatus.get(id))
+            MessageId id = ((HiTabHeader) message.getHeader(HiTab.this.id)).getId();
+            if (requestSatisfied(id))
                 requestStatus.remove(id);
             else {
                 Random r = new Random();
@@ -264,10 +278,10 @@ public class HiTab extends Protocol {
                 } catch (InterruptedException e) {
                 }
 
-                if (requestStatus.get(id))
+                if (requestSatisfied(id))
                     requestStatus.remove(id);
                 else {
-                    resendMessage(id);
+                    resendMessage(message);
                 }
             }
         }
