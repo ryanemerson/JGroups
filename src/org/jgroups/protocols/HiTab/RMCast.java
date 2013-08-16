@@ -45,12 +45,18 @@ public class RMCast extends Protocol {
             case Event.MSG:
                 Message message = (Message) event.getArg();
                 RMCastHeader header = (RMCastHeader) message.getHeader(this.id);
-                if (header == null)
-                    return up_prot.up(event);
-
-                receivedMessages.put(header.getId(), message); // Store actual message, need for retransmission
-                handleMessage(event, header);
-                return null;
+                if (header == null) {
+                    header = (RMCastHeader) message.getHeader(ClassConfigurator.getProtocolId(HiTab.class));
+                    if (header == null)
+                        return up_prot.up(event);
+                }
+                if (((HiTabHeader)header).getType() == HiTabHeader.BROADCAST) {
+                    receivedMessages.put(header.getId(), message); // Store actual message, need for retransmission
+                    handleMessage(event, header);
+                    return null;
+                }
+                // If its not a broadcast, then it must be a request or a retransmission. Send to HiTab protocol
+                return up_prot.up(event);
             case Event.VIEW_CHANGE:
                 view = (View) event.getArg();
         }
@@ -82,7 +88,18 @@ public class RMCast extends Protocol {
         }
     }
 
-    public void handleMessage(Event event, RMCastHeader header) {
+    public NMCData getNMCData() {
+        return (NMCData) down_prot.down(new Event(Event.USER_DEFINED, new HiTabEvent(HiTabEvent.GET_NMC_TIMES)));
+    }
+
+    public int getNodeSeniority(Address node) {
+        if (node == null) {
+            return Integer.MAX_VALUE;
+        }
+        return view.getMembers().indexOf(node);
+    }
+
+    private void handleMessage(Event event, RMCastHeader header) {
         final MessageRecord record;
         synchronized (messageRecords) {
             if (!messageRecords.containsKey(header.getId())) {
@@ -95,32 +112,32 @@ public class RMCast extends Protocol {
             }
         }
 
-        System.out.println(header);
-
-        if (record.getLargestCopyReceived() == header.getCopyTotal() && record.crashNotified) {
+        if (record.largestCopyReceived == header.getCopyTotal() && record.crashNotified) {
+            messageRecords.remove(record.id);
+            receivedMessages.remove(record.id);
             return;
         }
 
-        if (header.getDisseminator() == header.getId().getOriginator() && !record.isCrashNotified()) {
+        if (header.getDisseminator() == header.getId().getOriginator() && !record.crashNotified) {
             // TODO SEND NO CRASH NOTIFICATION
             // Effectively cancels the CrashedTimeout as nothing will happen once this is set to true
-            record.setCrashNotified(true);
+            record.crashNotified = true;
         }
 
         if (header.getCopy() == header.getCopyTotal()) {
-            record.setLargestCopyReceived(header.getCopy());
+            record.largestCopyReceived = header.getCopy();
         } else {
 
             if (!header.getId().getOriginator().equals(localAddress)
-                    && header.getCopy() > record.getLargestCopyReceived()
-                    || (header.getCopy() == record.getLargestCopyReceived() && (header.getDisseminator() == header
-                    .getId().getOriginator() || getNodeSeniority(header.getDisseminator()) < getNodeSeniority(record.getBroadcastLeader())))) {
+                    && header.getCopy() > record.largestCopyReceived
+                    || (header.getCopy() == record.largestCopyReceived && (header.getDisseminator() == header
+                    .getId().getOriginator() || getNodeSeniority(header.getDisseminator()) < getNodeSeniority(record.broadcastLeader)))) {
                 responsivenessTimeout(record, header);
             }
         }
     }
 
-    public void broadcastMessage(Event event) {
+    private void broadcastMessage(Event event) {
         final Message message = (Message) event.getArg();
         final NMCData data = getNMCData();
         final short headerId;
@@ -173,13 +190,13 @@ public class RMCast extends Protocol {
         });
     }
 
-    public void disseminateMessage(final MessageRecord record, final RMCastHeader header) {
+    private void disseminateMessage(final MessageRecord record, final RMCastHeader header) {
         timer.execute(new Runnable() {
             @Override
             public void run() {
-                while (record.getLargestCopyReceived() < header.getCopyTotal() && record.getBroadcastLeader().equals(localAddress)) {
+                while (record.largestCopyReceived < header.getCopyTotal() && record.broadcastLeader.equals(localAddress)) {
                     Message message = receivedMessages.get(header.getId());
-                    int messageCopy = Math.max(record.getLastBroadcast() + 1, record.getLargestCopyReceived());
+                    int messageCopy = Math.max(record.lastBroadcast + 1, record.largestCopyReceived);
                     header.setDisseminator(localAddress);
                     header.setCopy(messageCopy);
 
@@ -192,17 +209,19 @@ public class RMCast extends Protocol {
 
                     down_prot.down(new Event(Event.MSG, message));
                     // Update to show that the largestCopy received == last broadcast i.e we're the disseminator
-                    record.setLargestCopyReceived(messageCopy);
-                    record.setLastBroadcast(messageCopy);
+                    record.largestCopyReceived = messageCopy;
+                    record.lastBroadcast = messageCopy;
                 }
+                messageRecords.remove(record.id);
+                receivedMessages.remove(record.id);
             }
         });
     }
 
-    public void responsivenessTimeout(final MessageRecord record, final RMCastHeader header) {
+    private void responsivenessTimeout(final MessageRecord record, final RMCastHeader header) {
         final NMCData data = getNMCData();
-        record.setLargestCopyReceived(header.getCopy());
-        record.setBroadcastLeader(header.getDisseminator());
+        record.largestCopyReceived = header.getCopy();
+        record.broadcastLeader = header.getDisseminator();
 
         // Set Timeout 2 for n + w
         final int timeout = (int) Math.ceil(data.getEta() + data.getOmega());
@@ -215,8 +234,8 @@ public class RMCast extends Protocol {
                     // TODO insert log statement
                 }
 
-                if (record.getLargestCopyReceived() < header.getCopyTotal()) {
-                    record.setBroadcastLeader(null);
+                if (record.largestCopyReceived < header.getCopyTotal()) {
+                    record.broadcastLeader = null;
                     try {
                         Random r = new Random();
                         int eta = (int) data.getEta();
@@ -225,24 +244,13 @@ public class RMCast extends Protocol {
                     } catch (InterruptedException e) {
                         // TODO insert log statement
                     }
-                    if (record.getLargestCopyReceived() < header.getCopyTotal() && record.getBroadcastLeader() == null) {
-                        record.setBroadcastLeader(localAddress);
+                    if (record.largestCopyReceived < header.getCopyTotal() && record.broadcastLeader == null) {
+                        record.broadcastLeader = localAddress;
                         disseminateMessage(record, header);
                     }
                 }
             }
         });
-    }
-
-    public NMCData getNMCData() {
-        return (NMCData) down_prot.down(new Event(Event.USER_DEFINED, new HiTabEvent(HiTabEvent.GET_NMC_TIMES)));
-    }
-
-    public int getNodeSeniority(Address node) {
-        if (node == null) {
-            return Integer.MAX_VALUE;
-        }
-        return view.getMembers().indexOf(node);
     }
 
     final class MessageRecord {
@@ -267,46 +275,6 @@ public class RMCast extends Protocol {
             this.largestCopyReceived = largestCopyReceived;
             this.broadcastLeader = broadcastLeader;
             this.lastBroadcast = lastBroadcast;
-            this.crashNotified = crashNotified;
-        }
-
-        public MessageId getId() {
-            return id;
-        }
-
-        public int getTotalCopies() {
-            return totalCopies;
-        }
-
-        public int getLargestCopyReceived() {
-            return largestCopyReceived;
-        }
-
-        public void setLargestCopyReceived(int largestCopyReceived) {
-            this.largestCopyReceived = largestCopyReceived;
-        }
-
-        public Address getBroadcastLeader() {
-            return broadcastLeader;
-        }
-
-        public void setBroadcastLeader(Address broadcastLeader) {
-            this.broadcastLeader = broadcastLeader;
-        }
-
-        public int getLastBroadcast() {
-            return lastBroadcast;
-        }
-
-        public void setLastBroadcast(int lastBroadcast) {
-            this.lastBroadcast = lastBroadcast;
-        }
-
-        public boolean isCrashNotified() {
-            return crashNotified;
-        }
-
-        public void setCrashNotified(boolean crashNotified) {
             this.crashNotified = crashNotified;
         }
 
