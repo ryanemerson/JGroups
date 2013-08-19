@@ -53,6 +53,10 @@ public class NMC extends Protocol {
     @Property(name="minimum_nodes", description="The minimum number of nodes allowed in a cluster")
     private int minimumNodes = 2;
 
+    @Property(name = "probe_size", description =  "The minimum size of a probe message, not including its headers. " +
+             "This should be >= the max message size allowed by the broadcasting protocols further up the stack")
+    private int probeSize = 2048;
+
     private final ResponseTimes responseTimes = new ResponseTimes(minProbeFreq, directLatencyProb);
     private final GuaranteeCalculator guarantees = new GuaranteeCalculator();
     private final List<Address> members = new ArrayList<Address>(11);
@@ -197,9 +201,11 @@ public class NMC extends Protocol {
     }
 
     public void multicastProbes(ProbeData data, ProbeHeader header) {
-        final Message message = new Message(null);
-        message.setFlag(Message.Flag.INTERNAL, Message.Flag.DONT_BUNDLE);
-        message.putHeader(this.id, header);
+        final Message message = new Message(null)
+                .setFlag(Message.Flag.INTERNAL, Message.Flag.DONT_BUNDLE)
+                .putHeader(this.id, header)
+                // Create empty payload to ensure the probe is at least as large as the minimum probe size
+                .setBuffer(Arrays.copyOf(new byte[0], probeSize));
 
         for (Address address : members) {
             if(!localAddress.equals(address))
@@ -234,7 +240,10 @@ public class NMC extends Protocol {
         probeData = new ProbeData(localAddress, view, UUID.get(localAddress), physicalAddresses, responseTimes.getNmcData().getXMax(), probeData.getTimeSent());
 
         final ProbeHeader header = new ProbeHeader(ProbeHeader.PROBE_RSP, probeData);
-        final Message response = new Message(messageSource).setFlag(Message.Flag.INTERNAL, Message.Flag.DONT_BUNDLE).putHeader(this.id, header);
+        final Message response = new Message(messageSource)
+                .setFlag(Message.Flag.INTERNAL, Message.Flag.DONT_BUNDLE)
+                .putHeader(this.id, header)
+                .setBuffer(Arrays.copyOf(new byte[0], probeSize));
 
         down_prot.down(new Event(Event.MSG, response));
     }
