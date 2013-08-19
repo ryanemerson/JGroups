@@ -160,7 +160,7 @@ public class NMC extends Protocol {
 
                 List<Address> addresses = new ArrayList<Address>();
                 addresses.add(localAddress);
-                view = new View(localAddress, System.nanoTime(), new ArrayList<Address>(addresses));
+                view = new View(localAddress, 0, new ArrayList<Address>(addresses));
 
                 System.out.println("LOCAL_ADDRESS := " + localAddress);
                 return down_prot.down(event);
@@ -292,7 +292,7 @@ public class NMC extends Protocol {
                         members.add(localAddress);
                     members.addAll(newView.getMembers());
                 }
-                view = new View(localAddress, System.nanoTime(), members);
+                view = new View(localAddress, view.getViewId().getId() + 1, members);
                 up_prot.up(new Event((Event.VIEW_CHANGE), view));
             }
         }
