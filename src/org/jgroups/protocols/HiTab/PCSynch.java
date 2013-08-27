@@ -133,7 +133,7 @@ public class PCSynch extends Protocol {
     private void sendResponse(PCSynchData data) {
         final PCSynchData rspData = new PCSynchData(localAddress, clock.getTime(), data);
         final PCSynchHeader rspHeader = new PCSynchHeader(PCSynchHeader.SYNCH_RSP, rspData);
-        final Message response = new Message(rspData.getSlave()).setFlag(Message.Flag.INTERNAL, Message.Flag.DONT_BUNDLE).putHeader(id, rspHeader);
+        final Message response = new Message(rspData.getSlave()).setFlag(Message.Flag.DONT_BUNDLE).putHeader(id, rspHeader);
         down_prot.down(new Event(Event.MSG, response));
     }
 
@@ -192,7 +192,7 @@ public class PCSynch extends Protocol {
         public void sendRequest(Address master) {
             final PCSynchData data = new PCSynchData(localAddress, clock.getTime());
             final PCSynchHeader header = new PCSynchHeader(PCSynchHeader.SYNCH_REQ, data);
-            final Message response = new Message(master).setFlag(Message.Flag.INTERNAL, Message.Flag.DONT_BUNDLE).putHeader(id, header);
+            final Message response = new Message(master).setFlag(Message.Flag.DONT_BUNDLE).putHeader(id, header);
             down_prot.down(new Event(Event.MSG, response));
         }
 

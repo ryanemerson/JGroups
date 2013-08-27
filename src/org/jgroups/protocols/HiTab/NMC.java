@@ -202,7 +202,7 @@ public class NMC extends Protocol {
 
     public void multicastProbes(ProbeData data, ProbeHeader header) {
         final Message message = new Message(null)
-                .setFlag(Message.Flag.INTERNAL, Message.Flag.DONT_BUNDLE)
+                .setFlag(Message.Flag.DONT_BUNDLE)
                 .putHeader(this.id, header)
                 // Create empty payload to ensure the probe is at least as large as the minimum probe size
                 .setBuffer(Arrays.copyOf(new byte[0], probeSize));
@@ -222,7 +222,7 @@ public class NMC extends Protocol {
             }
 
             final Message message = new Message(address);
-            message.setFlag(Message.Flag.INTERNAL, Message.Flag.DONT_BUNDLE);
+            message.setFlag(Message.Flag.DONT_BUNDLE);
             message.putHeader(this.id, header);
 
             responseTimes.addSentProbe(address, data);
@@ -241,7 +241,7 @@ public class NMC extends Protocol {
 
         final ProbeHeader header = new ProbeHeader(ProbeHeader.PROBE_RSP, probeData);
         final Message response = new Message(messageSource)
-                .setFlag(Message.Flag.INTERNAL, Message.Flag.DONT_BUNDLE)
+                .setFlag(Message.Flag.DONT_BUNDLE)
                 .putHeader(this.id, header)
                 .setBuffer(Arrays.copyOf(new byte[0], probeSize));
 

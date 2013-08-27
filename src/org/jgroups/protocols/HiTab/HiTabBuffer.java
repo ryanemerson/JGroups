@@ -1,9 +1,6 @@
 package org.jgroups.protocols.HiTab;
 
-import org.jgroups.Address;
-import org.jgroups.Event;
-import org.jgroups.Message;
-import org.jgroups.View;
+import org.jgroups.*;
 import org.jgroups.conf.ClassConfigurator;
 
 import java.util.*;
@@ -22,7 +19,7 @@ public class HiTabBuffer {
     final private Map<Address, Long> sequenceRecord; // Stores the largest delivered sequence for each known node
     final private int ackWait;
     final private long maxError; // The maximum error rate of the probabilistic clock synch
-    final private MessageRecord lastDeliveredMessage; // The timestamp of the last message that was delivered;
+    private MessageRecord lastDeliveredMessage; // The timestamp of the last message that was delivered;
     private View view; // The latest view of the cluster
 
     public HiTabBuffer(HiTab hitab, int ackWait) {
@@ -34,27 +31,28 @@ public class HiTabBuffer {
         this.lastDeliveredMessage = null;
     }
 
-    public void addMessage(Message message, View view) {
+    public boolean addMessage(Message message, View view) {
         this.view = view;
         updateSequences(view);
 
         MessageRecord record = new MessageRecord(message);
         synchronized (buffer) {
             if (oldSequence(record))
-                return;
+                return false;
 
             calculateDeliveryTime(record);
             if (validMsgTime(record)) {
                 addPlaceholders(record);
                 addMessage(record);
+                return true;
             } else {
                 System.err.println("Message REJECTED as it has arrived too late");
                 System.err.println("Rejected Message := " + message);
                 System.err.println("Last Delivered := " + lastDeliveredMessage);
 
                 // Increment expected sequence number to stop subsequent messages from blocking
-                long expectedSequence = getSequence(record.id.getOriginator()) + 1;
-                sequenceRecord.put(record.id.getOriginator(), expectedSequence);
+                updateSequence(record, record.id.getOriginator());
+                return false;
             }
         }
     }
@@ -68,45 +66,35 @@ public class HiTabBuffer {
 
             MessageRecord record = buffer.getFirst();
             if (record.placeholder) {
-                hitab.sendPlaceholderRequest(record.id, record.getHeader().getAckInformer());
-                buffer.wait();
+                System.out.println("SEND PLACEHOLDER REQUEST | " + record.id);
+                hitab.sendPlaceholderRequest(record.id, record.ackInformer);
+                buffer.wait(100);
             }
 
             long expectedSequence = getSequence(record.id.getOriginator());
             if (record.id.getSequence() > expectedSequence) {
+                System.out.println("SEND SEQUENCE REQUEST - Expected Sequence := " + expectedSequence + " | Actual Sequence := " + record.id.getSequence() + record);
                 hitab.sendSequenceRequest(record.id.getOriginator(), expectedSequence);
-                buffer.wait();
+                buffer.wait(100);
             }
 
             Iterator<MessageRecord> i = buffer.iterator();
             while (i.hasNext()) {
-                MessageRecord r = i.next();
-                if(!r.placeholder && r.deliveryTime <= hitab.getCurrentTime()) {
-                    expectedSequence = getSequence(r.id.getOriginator());
-                    if (r.id.getSequence() == expectedSequence) {
-                        deliverable.add(r.message);
+                record = i.next();
+                if(!record.placeholder && record.deliveryTime <= hitab.getCurrentTime()) {
+                    expectedSequence = getSequence(record.id.getOriginator());
+                    if (record.id.getSequence() == expectedSequence) {
+                        updateSequence(record, record.id.getOriginator());
+                        deliverable.add(record.message);
                         i.remove();
-                        sequenceRecord.put(r.id.getOriginator(), ++expectedSequence);
                     }
                 } else {
                     break;
                 }
+                lastDeliveredMessage = record;
             }
             return deliverable;
         }
-    }
-
-    public void addPlaceholder(MessageId id) {
-        if (oldSequence(id))
-            return;
-
-        synchronized (buffer) {
-            addNewPlaceholder(id);
-        }
-    }
-
-    public long getSequence(Address origin) {
-        return sequenceRecord.get(origin);
     }
 
     private void calculateDeliveryTime(MessageRecord record) {
@@ -137,6 +125,7 @@ public class HiTabBuffer {
         int placeholderIndex = buffer.indexOf(record);
         if (placeholderIndex > -1) {
             buffer.set(placeholderIndex, record);
+            System.out.println("Replace Placeholder");
             buffer.notify();
             return;
         }
@@ -216,23 +205,32 @@ public class HiTabBuffer {
         }
     }
 
-    private void addPlaceholders(List<MessageId> ackList) {
+    public void addPlaceholder(Address ackInformer, MessageId id) {
+        if (oldSequence(id))
+            return;
+
+        synchronized (buffer) {
+            addNewPlaceholder(ackInformer, id);
+        }
+    }
+
+    private void addPlaceholders(Address ackInformer, List<MessageId> ackList) {
         if (ackList.size() < 1)
             return;
 
         for (MessageId id : ackList) {
-            addNewPlaceholder(id);
+            addNewPlaceholder(ackInformer, id);
         }
     }
 
     private void addPlaceholders(MessageRecord record) {
-        addPlaceholders(record.getHeader().getAckList());
+        addPlaceholders(record.ackInformer, record.getHeader().getAckList());
     }
 
 
-    private void addNewPlaceholder(MessageId id) {
+    private void addNewPlaceholder(Address ackInformer, MessageId id) {
         boolean messageReceived;
-        MessageRecord placeholder = new MessageRecord(id);
+        MessageRecord placeholder = new MessageRecord(ackInformer, id);
         messageReceived = buffer.contains(placeholder); // Message has already been received, do nothing
         if (oldSequence(placeholder) || !validMsgTime(placeholder) || messageReceived || buffer.contains(placeholder))
             return;
@@ -274,10 +272,22 @@ public class HiTabBuffer {
         }
     }
 
+    public long getSequence(Address origin) {
+        return sequenceRecord.get(origin);
+    }
+
+    private void updateSequence(MessageRecord record, Address origin) {
+        synchronized (sequenceRecord) {
+            sequenceRecord.put(origin, sequenceRecord.get(origin) + 1);
+        }
+    }
+
     private void updateSequences(View view) {
         for (Address address : view.getMembers()) {
-            if (!sequenceRecord.containsKey(address))
-                sequenceRecord.put(address, 0L);
+            synchronized (sequenceRecord) {
+                if (!sequenceRecord.containsKey(address))
+                    sequenceRecord.put(address, 0L);
+            }
         }
     }
 
@@ -287,6 +297,8 @@ public class HiTabBuffer {
         } else if (record.id.getTimestamp() >= lastDeliveredMessage.id.getTimestamp()) {
             return true;
         } else {
+            System.out.println("This TS := " + record.id.getTimestamp());
+            System.out.println("Last TS := " + lastDeliveredMessage.id.getTimestamp());
             return false;
         }
     }
@@ -297,39 +309,44 @@ public class HiTabBuffer {
     }
 
     private boolean oldSequence(MessageRecord record) {
-        return oldSequence(record.getHeader().getId());
+        return oldSequence(record.id);
     }
 
     final class MessageRecord {
         final private MessageId id;
         private Message message;
+        private Address ackInformer;
         private boolean placeholder;
         private boolean readyToDeliver;
         private long deliveryTime;
 
-        MessageRecord(MessageId id, Message message, boolean placeholder, boolean readyToDeliver, long deliveryTime) {
+        MessageRecord(MessageId id, Message message, Address ackInformer, boolean placeholder, boolean readyToDeliver, long deliveryTime) {
             this.id = id;
             this.message = message;
+            this.ackInformer = ackInformer;
             this.placeholder = placeholder;
             this.readyToDeliver = readyToDeliver;
             this.deliveryTime = deliveryTime;
         }
 
         MessageRecord(Message message) {
+            HiTabHeader header = (HiTabHeader) message.getHeader(ClassConfigurator.getProtocolId(HiTab.class));
+            this.id = header.getId();
             this.message = message;
-            this.id = ((HiTabHeader) message.getHeader(ClassConfigurator.getProtocolId(HiTab.class))).getId();
+            this.ackInformer = header.getAckInformer();
             this.placeholder = false;
             this.readyToDeliver = false;
             this.deliveryTime = -1;
         }
 
         // Placeholder constructor
-        MessageRecord(MessageId id) {
+        MessageRecord(Address ackInformer, MessageId id) {
             this.id = id;
-            message = null;
-            placeholder = true;
-            readyToDeliver = false;
-            deliveryTime = -1;
+            this.message = null;
+            this.ackInformer = ackInformer;
+            this.placeholder = true;
+            this.readyToDeliver = false;
+            this.deliveryTime = -1;
         }
 
         HiTabHeader getHeader() {
@@ -343,14 +360,14 @@ public class HiTabBuffer {
 
             MessageRecord that = (MessageRecord) o;
 
-            if (!id.equals(that.id)) return false;
+            if (id != null ? !id.equals(that.id) : that.id != null) return false;
 
             return true;
         }
 
         @Override
         public int hashCode() {
-            return id.hashCode();
+            return id != null ? id.hashCode() : 0;
         }
 
         @Override
@@ -358,6 +375,7 @@ public class HiTabBuffer {
             return "MessageRecord{" +
                     "id=" + id +
                     ", message=" + message +
+                    ", ackInformer=" + ackInformer +
                     ", placeholder=" + placeholder +
                     ", readyToDeliver=" + readyToDeliver +
                     ", deliveryTime=" + deliveryTime +

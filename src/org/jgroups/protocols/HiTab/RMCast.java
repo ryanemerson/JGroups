@@ -8,9 +8,11 @@ import org.jgroups.conf.ClassConfigurator;
 import org.jgroups.stack.Protocol;
 import org.jgroups.util.TimeScheduler;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 
 /**
  * A protocol that handles the broadcasting of messages but provides no ordering
@@ -23,15 +25,18 @@ public class RMCast extends Protocol {
     private final Map<MessageId, Message> receivedMessages = new ConcurrentHashMap<MessageId, Message>();
     private Address localAddress = null;
     private TimeScheduler timer;
+    private Executor threadPool;
     private View view;
 
     @Override
     public void init() throws Exception {
         timer = getTransport().getTimer();
+        threadPool = getTransport().getDefaultThreadPool();
     }
 
     @Override
     public void start() throws Exception {
+        System.out.println("START RMCAST!!!!!!");
         super.start();
     }
 
@@ -44,18 +49,21 @@ public class RMCast extends Protocol {
         switch (event.getType()) {
             case Event.MSG:
                 Message message = (Message) event.getArg();
+                if (message.isFlagSet(Message.Flag.OOB))
+                    return up_prot.up(event);
                 RMCastHeader header = (RMCastHeader) message.getHeader(this.id);
                 if (header == null) {
                     header = (RMCastHeader) message.getHeader(ClassConfigurator.getProtocolId(HiTab.class));
                     if (header == null)
                         return up_prot.up(event);
                 }
-                if (((HiTabHeader)header).getType() == HiTabHeader.BROADCAST) {
+                byte type = ((HiTabHeader)header).getType();
+                if (type == HiTabHeader.BROADCAST || type == HiTabHeader.RETRANSMISSION) {
                     receivedMessages.put(header.getId(), message); // Store actual message, need for retransmission
                     handleMessage(event, header);
                     return null;
                 }
-                // If its not a broadcast, then it must be a request or a retransmission. Send to HiTab protocol
+                // If its not a Broadcast or Retransmission, then it must be a request. Send to HiTab protocol
                 return up_prot.up(event);
             case Event.VIEW_CHANGE:
                 view = (View) event.getArg();
@@ -67,6 +75,7 @@ public class RMCast extends Protocol {
     public Object down(Event event) {
         switch (event.getType()) {
             case Event.MSG:
+                Message message = (Message) event.getArg();
                 broadcastMessage(event);
                 return null;
 
@@ -85,6 +94,8 @@ public class RMCast extends Protocol {
                         if (record != null)
                            complete = record.broadcastComplete();
                         return complete;
+                    case HiTabEvent.COLLECT_GARBAGE:
+                        collectGarbage((List<MessageId>) e.getArg());
                     default:
                         return down_prot.down(event);
                 }
@@ -118,8 +129,6 @@ public class RMCast extends Protocol {
         }
 
         if (record.largestCopyReceived == header.getCopyTotal() && record.crashNotified) {
-            messageRecords.remove(record.id);
-            receivedMessages.remove(record.id);
             return;
         }
 
@@ -179,7 +188,7 @@ public class RMCast extends Protocol {
             message.putHeader(this.id, header);
         }
 
-        timer.execute(new Runnable() {
+        threadPool.execute(new Runnable() {
             @Override
             public void run() {
                 for (int i = messageCopy; i <= data.getMessageCopies(); i++) {
@@ -196,7 +205,7 @@ public class RMCast extends Protocol {
     }
 
     private void disseminateMessage(final MessageRecord record, final RMCastHeader header) {
-        timer.execute(new Runnable() {
+        threadPool.execute(new Runnable() {
             @Override
             public void run() {
                 while (record.largestCopyReceived < header.getCopyTotal() && record.broadcastLeader.equals(localAddress)) {
@@ -217,8 +226,6 @@ public class RMCast extends Protocol {
                     record.largestCopyReceived = messageCopy;
                     record.lastBroadcast = messageCopy;
                 }
-                messageRecords.remove(record.id);
-                receivedMessages.remove(record.id);
             }
         });
     }
@@ -230,7 +237,7 @@ public class RMCast extends Protocol {
 
         // Set Timeout 2 for n + w
         final int timeout = (int) Math.ceil(data.getEta() + data.getOmega());
-        timer.execute(new Runnable() {
+        threadPool.execute(new Runnable() {
             @Override
             public void run() {
                 try {
@@ -256,6 +263,15 @@ public class RMCast extends Protocol {
                 }
             }
         });
+    }
+
+    private void  collectGarbage(List<MessageId> messages) {
+        synchronized (messageRecords) {
+            for (MessageId message : messages) {
+                messageRecords.remove(message);
+                receivedMessages.remove(message);
+            }
+        }
     }
 
     final class MessageRecord {
