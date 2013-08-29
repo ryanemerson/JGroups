@@ -187,6 +187,7 @@ public class HiTabHeader extends RMCastHeader {
         for (int i = 0; i < length; i++) {
             id = new MessageId();
             id.readFrom(in);
+            ackList.add(id);
         }
         return ackList;
     }
