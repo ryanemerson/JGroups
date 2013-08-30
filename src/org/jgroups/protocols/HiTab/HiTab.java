@@ -34,7 +34,6 @@ public class HiTab extends Protocol {
     private HiTabBuffer buffer;
     private Address localAddress = null;
     private TimeScheduler timer;
-    private Executor threadPool;
 
     private View view;
 
@@ -51,7 +50,6 @@ public class HiTab extends Protocol {
     public void init() throws Exception{
         timer = getTransport().getTimer();
         buffer = new HiTabBuffer(this, ackWait);
-        threadPool = getTransport().getDefaultThreadPool();
     }
 
     @Override
@@ -92,7 +90,7 @@ public class HiTab extends Protocol {
                             ackMessage(header.getId());
                         break;
                     case HiTabHeader.PLACEHOLDER_REQUEST:
-                        handlePlaceholdeRequest(header);
+                        handlePlaceholderRequest(header);
                         break;
                     case HiTabHeader.SEQUENCE_REQUEST:
                         handleSequenceRequest(header);
@@ -163,6 +161,11 @@ public class HiTab extends Protocol {
 
     private void resendMessage(MessageId id) {
         Message message = messageStore.get(id);
+        // setDest(null) Necessary to ensure that the retransmission is broadcast to all nodes
+        // Mainly useful for testing that the placeholder request is working
+        // i.e. we can send a message to one destination and because of the acks this message will be considered lost by other nodes
+        if (message.getDest() != null)
+            message.setDest(null);
         resendMessage(message);
     }
 
@@ -188,13 +191,13 @@ public class HiTab extends Protocol {
                 resendMessage(id);
                 requestStatus.remove(id);
             } else {
-                threadPool.execute(new RequestTimeout(requestedMessage));
+                requestTimeout(requestedMessage);
             }
         }
 
     }
 
-    private void handlePlaceholdeRequest(HiTabHeader header) {
+    private void handlePlaceholderRequest(HiTabHeader header) {
         MessageId id = header.getId();
         Message requestedMessage = messageStore.get(id);
         if (requestedMessage == null) {
@@ -208,7 +211,7 @@ public class HiTab extends Protocol {
                 resendMessage(id);
                 requestStatus.remove(id);
             } else {
-                threadPool.execute(new RequestTimeout(requestedMessage));
+                requestTimeout(requestedMessage);
             }
         }
     }
@@ -279,39 +282,31 @@ public class HiTab extends Protocol {
             down_prot.down(new Event(Event.USER_DEFINED, new HiTabEvent(HiTabEvent.COLLECT_GARBAGE, garbage)));
     }
 
-    final class RequestTimeout implements Runnable {
-        final private Message message;
-        RequestTimeout(Message message) {
-            this.message = message;
-        }
-
-        @Override
-        public void run() {
-            NMCData data = getNMCData();
-            try {
-                int delay = (int) Math.ceil(data.getOmega() + data.getXMax());
-                Thread.sleep(delay);
-            } catch (InterruptedException e) {
-            }
-
-            MessageId id = ((HiTabHeader) message.getHeader(HiTab.this.id)).getId();
-            if (requestSatisfied(id))
-                requestStatus.remove(id);
-            else {
-                Random r = new Random();
-                int delay = r.nextInt((int) Math.ceil(data.getEta()));
-                try {
-                    Thread.sleep(delay);
-                } catch (InterruptedException e) {
-                }
-
+    private void requestTimeout(final Message message) {
+        final NMCData data = getNMCData();
+        int delay = (int) Math.ceil(data.getOmega() + data.getXMax());
+        timer.schedule(new Runnable() {
+            @Override
+            public void run() {
+                final MessageId id = ((HiTabHeader) message.getHeader(HiTab.this.id)).getId();
                 if (requestSatisfied(id))
                     requestStatus.remove(id);
                 else {
-                    resendMessage(message);
+                    Random r = new Random();
+                    int delay = r.nextInt((int) Math.ceil(data.getEta()));
+                    timer.schedule(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (requestSatisfied(id))
+                                requestStatus.remove(id);
+                            else {
+                                resendMessage(message);
+                            }
+                        }
+                    }, delay, TimeUnit.MILLISECONDS);
                 }
             }
-        }
+        }, delay, TimeUnit.MILLISECONDS);
     }
 
     final class DeliverMessages implements Runnable {

@@ -47,8 +47,8 @@ public class HiTabBuffer {
                 return true;
             } else {
                 System.err.println("Message REJECTED as it has arrived too late");
-                System.err.println("Rejected Message := " + message);
-                System.err.println("Last Delivered := " + lastDeliveredMessage);
+                System.err.println("Rejected Message := " + record.id);
+                System.err.println("Last Delivered := " + lastDeliveredMessage.id);
 
                 // Increment expected sequence number to stop subsequent messages from blocking
                 updateSequence(record, record.id.getOriginator());
@@ -68,14 +68,14 @@ public class HiTabBuffer {
             if (record.placeholder) {
                 System.out.println("SEND PLACEHOLDER REQUEST | " + record.id);
                 hitab.sendPlaceholderRequest(record.id, record.ackInformer);
-                buffer.wait(100);
+                buffer.wait();
             }
 
             long expectedSequence = getSequence(record.id.getOriginator());
             if (record.id.getSequence() > expectedSequence) {
                 System.out.println("SEND SEQUENCE REQUEST - Expected Sequence := " + expectedSequence + " | Actual Sequence := " + record.id.getSequence() + record);
                 hitab.sendSequenceRequest(record.id.getOriginator(), expectedSequence);
-                buffer.wait(100);
+                buffer.wait();
             }
 
             Iterator<MessageRecord> i = buffer.iterator();
@@ -125,7 +125,6 @@ public class HiTabBuffer {
         int placeholderIndex = buffer.indexOf(record);
         if (placeholderIndex > -1) {
             buffer.set(placeholderIndex, record);
-            System.out.println("Replace Placeholder");
             buffer.notify();
             return;
         }
@@ -205,21 +204,12 @@ public class HiTabBuffer {
         }
     }
 
-    public void addPlaceholder(Address ackInformer, MessageId id) {
-        if (oldSequence(id))
+    public void addPlaceholders(Address ackInformer, List<MessageId> ackList) {
+        if (ackList.size() < 1) {
             return;
-
-        synchronized (buffer) {
-            addNewPlaceholder(ackInformer, id);
         }
-    }
-
-    private void addPlaceholders(Address ackInformer, List<MessageId> ackList) {
-        if (ackList.size() < 1)
-            return;
-
         for (MessageId id : ackList) {
-            addNewPlaceholder(ackInformer, id);
+            addPlaceholder(ackInformer, id);
         }
     }
 
@@ -228,45 +218,50 @@ public class HiTabBuffer {
     }
 
 
-    private void addNewPlaceholder(Address ackInformer, MessageId id) {
-        boolean messageReceived;
-        MessageRecord placeholder = new MessageRecord(ackInformer, id);
-        messageReceived = buffer.contains(placeholder); // Message has already been received, do nothing
-        if (oldSequence(placeholder) || !validMsgTime(placeholder) || messageReceived || buffer.contains(placeholder))
+    public void addPlaceholder(Address ackInformer, MessageId id) {
+        if (oldSequence(id))
             return;
 
-        if (buffer.isEmpty()) {
-            buffer.add(placeholder);
-            return;
-        }
+        synchronized (buffer) {
+            boolean messageReceived;
+            MessageRecord placeholder = new MessageRecord(ackInformer, id);
+            if (oldSequence(placeholder) || !validMsgTime(placeholder) || buffer.contains(placeholder)) {
+                return;
+            }
 
-        if (placeholder.id.getTimestamp() < buffer.getFirst().id.getTimestamp()) {
-            buffer.add(0, placeholder);
-        } else if (placeholder.id.getTimestamp() > buffer.getLast().id.getTimestamp()) {
-            buffer.add(buffer.size(), placeholder);
-        } else {
-            MessageRecord previous = null;
-            MessageRecord next = null;
-            for (int i = 0; i < buffer.size(); i++) {
-                int index = -1;
-                previous = next;
-                next = buffer.get(i);
+            if (buffer.isEmpty()) {
+                buffer.add(placeholder);
+                return;
+            }
 
-                // If the times are original timestamp is the same for two messages, tie-break
-                // Preference is given to the node which has the lowest index in the view
-                if (id.getTimestamp() == next.id.getTimestamp()) {
-                    if (view.getMembers().indexOf(id.getOriginator()) > view.getMembers().indexOf(next.id.getOriginator())) {
-                        index = i;
-                        index++;
+            if (placeholder.id.getTimestamp() < buffer.getFirst().id.getTimestamp()) {
+                buffer.add(0, placeholder);
+            } else if (placeholder.id.getTimestamp() > buffer.getLast().id.getTimestamp()) {
+                buffer.add(buffer.size(), placeholder);
+            } else {
+                MessageRecord previous;
+                MessageRecord next = null;
+                for (int i = 0; i < buffer.size(); i++) {
+                    int index = i;
+                    previous = next;
+                    next = buffer.get(i);
+
+                    // If the times are original timestamp is the same for two messages, tie-break
+                    // Preference is given to the node which has the lowest index in the view
+                    if (id.getTimestamp() == next.id.getTimestamp()) {
+                        if (view.getMembers().indexOf(id.getOriginator()) > view.getMembers().indexOf(next.id.getOriginator())) {
+                            index = i;
+                            index++;
+                        }
+                        buffer.add(index, placeholder);
+                        break;
                     }
-                    buffer.add(index, placeholder);
-                    break;
-                }
-                if (previous != null && placeholder.id.getTimestamp() > previous.id.getTimestamp()
-                        && placeholder.id.getTimestamp() < next.id.getTimestamp()) {
-                    index = i;
-                    buffer.add(index, placeholder);
-                    break;
+                    if (previous != null && placeholder.id.getTimestamp() > previous.id.getTimestamp()
+                            && placeholder.id.getTimestamp() < next.id.getTimestamp()) {
+                        index = i;
+                        buffer.add(index, placeholder);
+                        break;
+                    }
                 }
             }
         }
@@ -294,13 +289,8 @@ public class HiTabBuffer {
     private boolean validMsgTime(MessageRecord record) {
         if (lastDeliveredMessage == null) {
             return true;
-        } else if (record.id.getTimestamp() >= lastDeliveredMessage.id.getTimestamp()) {
-            return true;
-        } else {
-            System.out.println("This TS := " + record.id.getTimestamp());
-            System.out.println("Last TS := " + lastDeliveredMessage.id.getTimestamp());
-            return false;
         }
+        return record.id.getTimestamp() >= lastDeliveredMessage.id.getTimestamp();
     }
 
     private boolean oldSequence(MessageId id) {
