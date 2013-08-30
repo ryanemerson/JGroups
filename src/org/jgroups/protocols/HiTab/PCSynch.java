@@ -7,6 +7,7 @@ import org.jgroups.View;
 import org.jgroups.annotations.Property;
 import org.jgroups.stack.Protocol;
 import org.jgroups.util.TimeScheduler;
+import org.jgroups.util.Util;
 
 import java.util.concurrent.TimeUnit;
 
@@ -167,11 +168,7 @@ public class PCSynch extends Protocol {
                 newSynchAttempt(); // Reset booleans
                 while (messagesSent < maxSynchMessages && !synchronised) {
                     sendRequest(master);
-                    try {
-                        Thread.sleep(attemptDuration);
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();  // TODO: Customise this generated block
-                    }
+                    Util.sleep(attemptDuration);
                     messagesSent++;
                 }
             } else {
@@ -183,10 +180,10 @@ public class PCSynch extends Protocol {
                 System.out.println("Synch succeeded");
                 Event event = new Event(Event.USER_DEFINED, new HiTabEvent(HiTabEvent.CLOCK_SYNCHRONISED));
                 up_prot.up(event);
-                // down_prot.down(event);
             } else {
                 System.out.println("message limit reached");
             }
+            System.out.println(down_prot.down(new Event(Event.USER_DEFINED, new HiTabEvent(HiTabEvent.GET_NMC_TIMES))));
         }
 
         public void sendRequest(Address master) {

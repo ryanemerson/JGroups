@@ -453,28 +453,18 @@ public class NMC extends Protocol {
                             }
                         }
                     }
-
                     // Calculate Q
                     double q = calculateQ();
 
                     // Calculate RHO
                     int rho = calculateRho(q);
-//                    responseTimes.setNumberOfMessageCopies(rho);
 
                     // Calculate omega (w)
                     int omega = dPrime - d;
-//                    responseTimes.setOmega(omega);
-
                     // Calculate 1 - e - Np / d = 0.99
                     double eta = Math.ceil(-1 * d * Math.log(1 - 0.9999));
-//                    responseTimes.setEta(eta);
-
                     int capD = (int) Math.ceil(maxLatency + (rho * eta));
                     int capS = (int) Math.ceil(maxLatency + ((rho + 2) * eta) + omega);
-
-//                    responseTimes.setCapD(capD);
-//                    responseTimes.setCapS(capS);
-//                    responseTimes.setXMax(maxLatency);
 
                     responseTimes.updateValues(new NMCData(eta, rho, omega, capD, capS, maxLatency));
                 }
@@ -513,7 +503,6 @@ public class NMC extends Protocol {
 
                 // Calculate Q
                 q = (double) lostProbes / probes.size();
-//                responseTimes.setQ(q);
             }
             return q;
         }
