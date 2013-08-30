@@ -7,12 +7,13 @@ import org.jgroups.View;
 import org.jgroups.conf.ClassConfigurator;
 import org.jgroups.stack.Protocol;
 import org.jgroups.util.TimeScheduler;
+import org.jgroups.util.Util;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
 
 /**
  * A protocol that handles the broadcasting of messages but provides no ordering
@@ -25,13 +26,11 @@ public class RMCast extends Protocol {
     private final Map<MessageId, Message> receivedMessages = new ConcurrentHashMap<MessageId, Message>();
     private Address localAddress = null;
     private TimeScheduler timer;
-    private Executor threadPool;
     private View view;
 
     @Override
     public void init() throws Exception {
         timer = getTransport().getTimer();
-        threadPool = getTransport().getDefaultThreadPool();
     }
 
     @Override
@@ -75,7 +74,6 @@ public class RMCast extends Protocol {
     public Object down(Event event) {
         switch (event.getType()) {
             case Event.MSG:
-                Message message = (Message) event.getArg();
                 broadcastMessage(event);
                 return null;
 
@@ -188,24 +186,15 @@ public class RMCast extends Protocol {
             message.putHeader(this.id, header);
         }
 
-        threadPool.execute(new Runnable() {
-            @Override
-            public void run() {
-                for (int i = messageCopy; i <= data.getMessageCopies(); i++) {
-                    ((RMCastHeader) message.getHeader(headerId)).setCopy(i);
-                    down_prot.down(new Event(Event.MSG, message));
-                    try {
-                        Thread.sleep(Math.round(data.getEta()));
-                    } catch (InterruptedException e) {
-                        e.printStackTrace(); // TODO insert log
-                    }
-                }
-            }
-        });
+        for (int i = messageCopy; i <= data.getMessageCopies(); i++) {
+            ((RMCastHeader) message.getHeader(headerId)).setCopy(i);
+            down_prot.down(new Event(Event.MSG, message));
+            Util.sleep(Math.round(data.getEta()));
+        }
     }
 
     private void disseminateMessage(final MessageRecord record, final RMCastHeader header) {
-        threadPool.execute(new Runnable() {
+        timer.execute(new Runnable() {
             @Override
             public void run() {
                 while (record.largestCopyReceived < header.getCopyTotal() && record.broadcastLeader.equals(localAddress)) {
@@ -237,32 +226,31 @@ public class RMCast extends Protocol {
 
         // Set Timeout 2 for n + w
         final int timeout = (int) Math.ceil(data.getEta() + data.getOmega());
-        threadPool.execute(new Runnable() {
+        timer.schedule(new Runnable() {
+//        timer.execute(new Runnable() {
             @Override
             public void run() {
-                try {
-                    Thread.sleep(timeout);
-                } catch (InterruptedException e) {
-                    // TODO insert log statement
-                }
+//                Util.sleep(timeout);
 
                 if (record.largestCopyReceived < header.getCopyTotal()) {
                     record.broadcastLeader = null;
-                    try {
-                        Random r = new Random();
-                        int eta = (int) data.getEta();
-                        int ran = r.nextInt(eta < 1 ? eta + 1 : eta);
-                        Thread.sleep(ran);
-                    } catch (InterruptedException e) {
-                        // TODO insert log statement
-                    }
-                    if (record.largestCopyReceived < header.getCopyTotal() && record.broadcastLeader == null) {
-                        record.broadcastLeader = localAddress;
-                        disseminateMessage(record, header);
-                    }
+                    Random r = new Random();
+                    int eta = (int) data.getEta();
+                    int ran = r.nextInt(eta < 1 ? eta + 1 : eta);
+                    Util.sleep(ran);
+                    timer.schedule(new Runnable() {
+                        public void run() {
+                            record.broadcastLeader = localAddress;
+                            disseminateMessage(record, header);
+                        }
+                    }, ran, TimeUnit.MILLISECONDS);
+//                    if (record.largestCopyReceived < header.getCopyTotal() && record.broadcastLeader == null) {
+//                        record.broadcastLeader = localAddress;
+//                        disseminateMessage(record, header);
+//                    }
                 }
             }
-        });
+        }, timeout, TimeUnit.MILLISECONDS);
     }
 
     private void  collectGarbage(List<MessageId> messages) {
