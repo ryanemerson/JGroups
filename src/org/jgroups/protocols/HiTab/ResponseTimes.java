@@ -156,7 +156,6 @@ final public class ResponseTimes {
         synchronized (probesSent) {
             for (Long key : probesSent.keySet()) {
                 ProbeRecord probe = probesSent.get(key);
-
                 if ((System.nanoTime() - probe.getTimeSent()) / 1000000 > freshnessDuration) {
                     probesSent.remove(key);
                 }
@@ -167,10 +166,13 @@ final public class ResponseTimes {
     // FRESHNESS_DURATION must be nanoseconds
     public void removeStaleLatencies(long freshnessDuration) {
         synchronized (latencyTimes) {
-            for (Address address : latencyTimes.keySet()) {
-                for (LatencyTime latency : latencyTimes.get(address)) {
+            Iterator<Address> it = latencyTimes.keySet().iterator();
+            while (it.hasNext())  {
+                Iterator<LatencyTime> i = latencyTimes.get(it.next()).iterator();
+                while (i.hasNext()) {
+                    LatencyTime latency = i.next();
                     if ((System.nanoTime() - latency.getFreshness()) / 1000000 > freshnessDuration) {
-                        latencyTimes.get(address).remove(latency);
+                        i.remove();
                     }
                 }
             }
