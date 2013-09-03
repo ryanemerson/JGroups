@@ -115,16 +115,19 @@ public class RMCast extends Protocol {
 
     private void handleMessage(Event event, RMCastHeader header) {
         final MessageRecord record;
+        boolean oldMessage;
         synchronized (messageRecords) {
-            if (!messageRecords.containsKey(header.getId())) {
-                up_prot.up(event); // Deliver to the above layer (Application or HiTab)
-
+            oldMessage = messageRecords.containsKey(header.getId());
+            if (!oldMessage) {
                 record = new MessageRecord(header.getId(), header.getCopyTotal());
                 messageRecords.put(header.getId(), record); // Copy received
             } else {
                 record = messageRecords.get(header.getId());
             }
         }
+
+        if (!oldMessage)
+            up_prot.up(event); // Deliver to the above layer (Application or HiTab)
 
         if (record.largestCopyReceived == header.getCopyTotal() && record.crashNotified) {
             return;
@@ -139,7 +142,6 @@ public class RMCast extends Protocol {
         if (header.getCopy() == header.getCopyTotal()) {
             record.largestCopyReceived = header.getCopy();
         } else {
-
             if (!header.getId().getOriginator().equals(localAddress)
                     && header.getCopy() > record.largestCopyReceived
                     || (header.getCopy() == record.largestCopyReceived && (header.getDisseminator() == header
@@ -186,10 +188,19 @@ public class RMCast extends Protocol {
             message.putHeader(this.id, header);
         }
 
+        // Using timer instead of Thread.sleep is MUCH faster!
+        Runnable r = new Runnable() {
+            @Override
+            public void run() {
+                down_prot.down(new Event(Event.MSG, message));
+            }
+        };
         for (int i = messageCopy; i <= data.getMessageCopies(); i++) {
             ((RMCastHeader) message.getHeader(headerId)).setCopy(i);
-            down_prot.down(new Event(Event.MSG, message));
-            Util.sleep(Math.round(data.getEta()));
+            if (i == 0)
+                timer.execute(r);
+            else
+                timer.schedule(r, i * Math.round(data.getEta()), TimeUnit.MILLISECONDS);
         }
     }
 
