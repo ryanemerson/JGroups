@@ -48,7 +48,7 @@ public class PCSynch extends Protocol {
     private Address master;
     private Address localAddress;
     private TimeScheduler timer;
-    private boolean synchronised;
+    private volatile boolean synchronised;
     private boolean attemptSucceed;
 
     @Override
@@ -106,6 +106,10 @@ public class PCSynch extends Protocol {
                         view = (View) e.getArg();
                         startClockSynch();
                         return null;
+                    case HiTabEvent.GET_CLOCK_TIME:
+                        return clock.getTime();
+                    case HiTabEvent.GET_CLOCK_ERROR:
+                        return maxLatency;
                 }
         }
         return up_prot.up(event);
@@ -148,16 +152,19 @@ public class PCSynch extends Protocol {
             attemptSucceed = true;
             final long M = data.getRequestTime() + D * (1 + 2 * rho);
             clock.startSynchronisation(clockAdjustmentTime, M);
-            timer.schedule(new Runnable() {
-                public void run() {
-                    clock.finishSynchronisation(clockAdjustmentTime, M);
-                    synchronised = true;
-                }
-            }, clockAdjustmentTime, TimeUnit.MILLISECONDS);
+//            timer.schedule(new Runnable() {
+//                public void run() {
+//                    clock.finishSynchronisation(clockAdjustmentTime, M);
+//                    synchronised = true;
+//                }
+//            }, clockAdjustmentTime / 1000000, TimeUnit.MILLISECONDS);
+            // Timer schedule no longer used as it was causing a discrepancy in the clock times -- INVESTIGATE FURTHER! -- SEE PAPER
+            clock.finishSynchronisation(clockAdjustmentTime, M);
+            synchronised = true;
         }
     }
 
-    final public class RequestSender implements Runnable {
+    final public class RequestSender implements Runnable{
         public void run() {
             long startTime = clock.getTime();
             int messagesSent = 0;
@@ -178,6 +185,7 @@ public class PCSynch extends Protocol {
 
             if (synchronised) {
                 System.out.println("Synch succeeded");
+                System.out.println("clock diff := " + clock.getDifference());
                 Event event = new Event(Event.USER_DEFINED, new HiTabEvent(HiTabEvent.CLOCK_SYNCHRONISED));
                 up_prot.up(event);
             } else {
