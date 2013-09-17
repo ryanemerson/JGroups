@@ -32,15 +32,17 @@ public class HiTab extends Protocol {
     private int garbageCollectionRate = 10;
 
     private HiTabBuffer buffer;
-    private Address localAddress = null;
+    public Address localAddress = null; // TODO CHANGE TO PRIVATE
     private TimeScheduler timer;
 
     private View view;
 
     private volatile long sequence = 0L;
+    private volatile long lastBroadcastTime = 0L;
+    private volatile Future<?> sendBlankMessage = null;
     final private Map<MessageId, Message> messageStore = new ConcurrentHashMap<MessageId, Message>();
-    final private Map<MessageId, Boolean> requestStatus = new ConcurrentHashMap<MessageId, Boolean>();
     final private BlockingQueue<MessageId> acks = new ArrayBlockingQueue<MessageId>(20, true);
+    final private Set<MessageId> requestStatus = Collections.synchronizedSet(new HashSet<MessageId>());
     private ExecutorService executor;
 
     public HiTab() {
@@ -75,24 +77,34 @@ public class HiTab extends Protocol {
                     return up_prot.up(event);
 
                 HiTabHeader header = (HiTabHeader) message.getHeader(this.id);
-                if (header == null) {
+                if (header == null)
                     return up_prot.up(event);
-                }
 
                 switch (header.getType()) {
+                    case HiTabHeader.EMPTY_ACK_MESSAGE:
+                        buffer.addPlaceholders(header.getAckInformer(), header.getAckList());
+                        break;
                     case HiTabHeader.RETRANSMISSION:
-                        requestStatus.put(header.getId(), true);
+                        System.out.println("Retransmission received | " + header.getId());
+                        requestStatus.remove(header.getId());
                         if (messageStore.containsKey(header.getId()))
                             break;
                     case HiTabHeader.BROADCAST:
                         messageStore.put(header.getId(), message);
-                        if (buffer.addMessage(message, view))
-                            ackMessage(header.getId());
+                        buffer.addMessage(message, view);
                         break;
                     case HiTabHeader.PLACEHOLDER_REQUEST:
+                        System.out.println("Placeholder Request received | " + header.getId());
+                        if (message.getSrc().equals(localAddress))
+                            break;
+
                         handlePlaceholderRequest(header);
                         break;
                     case HiTabHeader.SEQUENCE_REQUEST:
+                        System.out.println("Sequence Request received | " + header.getId());
+                        if (message.getSrc().equals(localAddress))
+                            break;
+
                         handleSequenceRequest(header);
                         break;
                 }
@@ -101,6 +113,15 @@ public class HiTab extends Protocol {
                 return null;
             case Event.VIEW_CHANGE:
                 view = (View) event.getArg();
+                break;
+            case Event.USER_DEFINED:
+                HiTabEvent e = (HiTabEvent) event.getArg();
+                switch (e.getType()) {
+                    case HiTabEvent.ACK_MESSAGE:
+                        ackMessage((MessageId) e.getArg());
+                        break;
+                }
+                return null;
         }
         return up_prot.up(event);
     }
@@ -146,17 +167,41 @@ public class HiTab extends Protocol {
 
     private void sendRequest(HiTabHeader header) {
         Message message = new Message();
-        message.putHeader(this.id, header);
-        message.setFlag(Message.Flag.DONT_BUNDLE);
+        message.putHeader(this.id, header)
+               .setFlag(Message.Flag.DONT_BUNDLE);
         down_prot.down(new Event(Event.MSG, message));
     }
 
     private void sendMessage(Message message) {
+        if (sendBlankMessage != null)
+            sendBlankMessage.cancel(false);
         NMCData data = getNMCData();
         MessageId id = new MessageId(getCurrentTime(), localAddress, sequence++);
         HiTabHeader header = new HiTabHeader(id, HiTabHeader.BROADCAST, data.getCapD(), data.getCapS(), data.getXMax(), localAddress, getMessageAcks());
-        message.putHeader(this.id, header);
-        message.setFlag(Message.Flag.DONT_BUNDLE);
+        message.putHeader(this.id, header)
+               .setFlag(Message.Flag.DONT_BUNDLE);
+        ackTimeout();
+    }
+
+    private void sendBlankMessage() {
+        if (acks.size() > 0) {
+            MessageId id = new MessageId(-1, localAddress, -1);
+            HiTabHeader header = HiTabHeader.createAckInformer(id, localAddress, getMessageAcks());
+            Message blankMessage = new Message(null, new byte[0]);
+            blankMessage.putHeader(this.id, header)
+                    .setFlag(Message.Flag.DONT_BUNDLE);
+            down_prot.down(new Event(Event.MSG, blankMessage));
+        }
+        ackTimeout();
+    }
+
+    private void ackTimeout() {
+        sendBlankMessage = timer.schedule(new Runnable() {
+            @Override
+            public void run() {
+                sendBlankMessage();
+            }
+        }, ackWait, TimeUnit.MILLISECONDS);
     }
 
     private void resendMessage(MessageId id) {
@@ -171,6 +216,7 @@ public class HiTab extends Protocol {
 
     // No need to reset flags as they should still be in place from the original broadcast
     private void resendMessage(Message message) {
+        System.out.println("Resend Message!");
         HiTabHeader header = (HiTabHeader) message.getHeader(this.id);
         header.setType(HiTabHeader.RETRANSMISSION);
         down_prot.down(new Event(Event.MSG, message));
@@ -179,22 +225,23 @@ public class HiTab extends Protocol {
     private void handleSequenceRequest(HiTabHeader header) {
         MessageId id = header.getId();
         Message requestedMessage = getMessageBySequence(id);
-        if (requestedMessage == null)
+        if (requestedMessage == null) {
+            System.out.println("Requested Message == null");
             return;
+        }
         // Reload the actual id, so that the equals method will correctly return true when searching our records
         // This is necessary because the sequence request will be missing the originator field
         // Therefore the equals method will return false if the above id is used, even if we have the message
         id = ((HiTabHeader)requestedMessage.getHeader(this.id)).getId();
         if (validRequest(id)) {
-            requestStatus.put(id, false);
+            System.out.println("Valid Sequence Request | id := " + id);
+            requestStatus.add(id);
             if (id.getOriginator().equals(localAddress)) {
                 resendMessage(id);
-                requestStatus.remove(id);
             } else {
                 requestTimeout(requestedMessage);
             }
         }
-
     }
 
     private void handlePlaceholderRequest(HiTabHeader header) {
@@ -206,10 +253,9 @@ public class HiTab extends Protocol {
         }
 
         if (validRequest(id)) {
-            requestStatus.put(id, false);
+            requestStatus.add(id);
             if (header.getAckInformer().equals(localAddress)) {
                 resendMessage(id);
-                requestStatus.remove(id);
             } else {
                 requestTimeout(requestedMessage);
             }
@@ -217,17 +263,14 @@ public class HiTab extends Protocol {
     }
 
     private boolean validRequest(MessageId id) {
-        if (!requestSatisfied(id))
+        if (requestInProgress(id))
             return false;
 
-        boolean broadcastComplete = (Boolean) down_prot.down(new Event(Event.USER_DEFINED,
+        return (Boolean) down_prot.down(new Event(Event.USER_DEFINED,
                 new HiTabEvent(HiTabEvent.BROADCAST_COMPLETE, id)));
-        if (!broadcastComplete)
-            return false;
-        return true;
     }
 
-    private Message getMessageBySequence(MessageId id) {
+    public Message getMessageBySequence(MessageId id) {
         for (MessageId msgId : messageStore.keySet()) {
             if (id.getSequence() == msgId.getSequence() && id.getOriginator().equals(msgId.getOriginator()))
                 return messageStore.get(msgId);
@@ -236,23 +279,25 @@ public class HiTab extends Protocol {
     }
 
     // Returns true if a request status cannot be found, as this means that the request has been satisfied!
-    private boolean requestSatisfied(MessageId id) {
-        Boolean satisfied = requestStatus.get(id);
-        if (satisfied == null) {
-            return true;
-        }
-        return satisfied;
+    private boolean requestInProgress(MessageId id) {
+        return requestStatus.contains(id);
     }
 
 
     private void ackMessage(MessageId id) {
-        synchronized (acks) {
-            if (!acks.contains(id)) {
-                try {
-                    acks.put(id);
-                } catch (InterruptedException e) {
-                    e.printStackTrace();  // TODO: Customise this generated block
-                }
+        // If timestamp == -1 then the message was a EMPTY_ACK_MESSAGE and should not be acknowledged
+        if (id.getTimestamp() == -1)
+            return;
+
+        if (!acks.contains(id)) {
+            try {
+                // Prevents deadlock as .put() blocks
+                // This becomes a problem as sendBlankMessage() and ackTimeout() utilise the same timer threads as
+                // The disseminator tasks.  Therefore with put() it is possible for all running threads to block,
+                // preventing the ackTimeout() task from ever executing. (Because a new thread will not be created)
+                while (acks.offer(id, 500000, TimeUnit.NANOSECONDS));
+            } catch (InterruptedException e) {
+                e.printStackTrace();  // TODO: Customise this generated block
             }
         }
     }
@@ -289,19 +334,14 @@ public class HiTab extends Protocol {
             @Override
             public void run() {
                 final MessageId id = ((HiTabHeader) message.getHeader(HiTab.this.id)).getId();
-                if (requestSatisfied(id))
-                    requestStatus.remove(id);
-                else {
+                if (!requestInProgress(id)) {
                     Random r = new Random();
                     int delay = r.nextInt((int) Math.ceil(data.getEta()));
                     timer.schedule(new Runnable() {
                         @Override
                         public void run() {
-                            if (requestSatisfied(id))
-                                requestStatus.remove(id);
-                            else {
+                            if (!requestInProgress(id))
                                 resendMessage(message);
-                            }
                         }
                     }, delay, TimeUnit.MILLISECONDS);
                 }

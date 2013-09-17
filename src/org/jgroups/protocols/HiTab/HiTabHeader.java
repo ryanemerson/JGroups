@@ -22,6 +22,7 @@ public class HiTabHeader extends RMCastHeader {
     public static final byte RETRANSMISSION = 2;
     public static final byte PLACEHOLDER_REQUEST = 3;
     public static final byte SEQUENCE_REQUEST = 4;
+    public static final byte EMPTY_ACK_MESSAGE = 5;
 
     private byte type = 0;
     private int capD = -1;
@@ -31,6 +32,10 @@ public class HiTabHeader extends RMCastHeader {
     private List<MessageId> ackList = null;
 
     public HiTabHeader() {
+    }
+
+    public static HiTabHeader createAckInformer(MessageId id, Address ackInformer, List<MessageId> ackList) {
+        return new HiTabHeader(id, EMPTY_ACK_MESSAGE, -1, -1, -1, ackInformer, ackList);
     }
 
     public static HiTabHeader createPlaceholder(MessageId id, Address ackInformer) {
@@ -163,6 +168,7 @@ public class HiTabHeader extends RMCastHeader {
             case RETRANSMISSION:            return "RETRANSMISSION";
             case PLACEHOLDER_REQUEST:       return "PLACEHOLDER_REQUEST";
             case SEQUENCE_REQUEST:          return "SEQUENCE_REQUEST";
+            case EMPTY_ACK_MESSAGE:        return "EMPTY_ACK_MESSAGE";
             default:                        return "UNDEFINED(" + t + ")";
         }
     }

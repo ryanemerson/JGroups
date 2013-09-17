@@ -95,16 +95,13 @@ public class NMC extends Protocol {
             case Event.MSG:
                 Message message = (Message) event.getArg();
                 ProbeHeader header = (ProbeHeader) message.getHeader(this.id);
-
                 if (header == null)
                     return up_prot.up(event);
 
-                ProbeData probeData = header.getData();
-
-                if (message.getSrc().equals(localAddress)) {
+                if (message.getSrc().equals(localAddress))
                     return null;
-                }
 
+                ProbeData probeData = header.getData();
                 switch (header.getType()) {
                     case ProbeHeader.PROBE_REQ:
                         handleRequest(probeData, message.getSrc());
@@ -123,10 +120,6 @@ public class NMC extends Protocol {
     @Override
     public Object down(Event event) {
         switch (event.getType()) {
-
-            case Event.MSG:
-                return down_prot.down(event);
-
             case Event.USER_DEFINED:
                 HiTabEvent e = (HiTabEvent) event.getArg();
                 switch (e.getType()) {
@@ -140,15 +133,14 @@ public class NMC extends Protocol {
                 // Once received, return initial members
             case Event.FIND_ALL_VIEWS:
                 // Just return this node's view as all nodes will eventually receive the same view due to probing
-                if (view != null) {
+                if (view != null)
                     return new View(view.getCreator(), view.getViewId().getId(), view.getMembers());
-                }
-                return down_prot.down(event);
+                break;
 
             case Event.TMP_VIEW:
             case Event.VIEW_CHANGE:
                 updateView((View) event.getArg());
-                return down_prot.down(event);
+                break;
 
             case Event.BECOME_SERVER: // called after client has joined and is fully working group member
                 down_prot.down(event);
@@ -163,7 +155,7 @@ public class NMC extends Protocol {
                 view = new View(localAddress, 0, new ArrayList<Address>(addresses));
 
                 System.out.println("LOCAL_ADDRESS := " + localAddress);
-                return down_prot.down(event);
+                break;
 
             case Event.CONNECT:
             case Event.CONNECT_WITH_STATE_TRANSFER:
@@ -172,17 +164,15 @@ public class NMC extends Protocol {
                 isLeaving = false;
                 groupAddress = (String) event.getArg();
                 System.out.println("Group := " + groupAddress);
-                return down_prot.down(event);
+                break;
             // TODO HANDLE CONNECT
 
             case Event.DISCONNECT:
                 isLeaving=true;
                 // TODO HANDLE DISCONNECT
-                return down_prot.down(event);
-
-            default:
-                return down_prot.down(event);
+                break;
         }
+        return down_prot.down(event);
     }
 
     public void sendProbes(String clusterName) {
@@ -317,7 +307,6 @@ public class NMC extends Protocol {
                 if (guarantees.receiveInitialProbes()) {
                     System.out.println("INITIAL PROBES RECEIVED!");
                     guarantees.setInitialProbePeriod();
-                    // TODO replace with user defined object
                     down_prot.up(new Event(Event.USER_DEFINED, new HiTabEvent(HiTabEvent.NMC_READY, view)));
                 }
             }
@@ -462,7 +451,7 @@ public class NMC extends Protocol {
                     // Calculate omega (w)
                     int omega = dPrime - d;
                     // Calculate 1 - e - Np / d = 0.99
-                    double eta = Math.ceil(-1 * d * Math.log(1 - 0.9999));
+                    double eta = Math.ceil(-1 * d * Math.log(1 - 0.99));
                     int capD = (int) Math.ceil(maxLatency + (rho * eta));
                     int capS = (int) Math.ceil(maxLatency + ((rho + 2) * eta) + omega);
 
