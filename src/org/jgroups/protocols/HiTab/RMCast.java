@@ -358,7 +358,7 @@ public class RMCast extends Protocol {
         }
 
         public boolean broadcastComplete() {
-            return largestCopyReceived == totalCopies;
+            return largestCopyReceived == totalCopies || lastBroadcast == totalCopies;
         }
 
         @Override
