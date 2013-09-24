@@ -274,16 +274,18 @@ public class NMC extends Protocol {
     }
 
     public void updateView(View newView) {
-        if (view.getVid().compareTo(newView.getVid()) < 0) {
-            if (!view.getMembers().equals(newView.getMembers())) {
-                synchronized(members) {
-                    members.clear();
-                    if(!newView.getMembers().contains(localAddress))
-                        members.add(localAddress);
-                    members.addAll(newView.getMembers());
+        synchronized (view) {
+            if (view.getVid().compareTo(newView.getVid()) < 0) {
+                if (!view.getMembers().equals(newView.getMembers())) {
+                    synchronized(members) {
+                        members.clear();
+                        if(!newView.getMembers().contains(localAddress))
+                            members.add(localAddress);
+                        members.addAll(newView.getMembers());
+                    }
+                    view = new View(localAddress, view.getViewId().getId() + 1, members);
+                    up_prot.up(new Event((Event.VIEW_CHANGE), view));
                 }
-                view = new View(localAddress, view.getViewId().getId() + 1, members);
-                up_prot.up(new Event((Event.VIEW_CHANGE), view));
             }
         }
     }
