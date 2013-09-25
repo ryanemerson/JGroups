@@ -14,6 +14,7 @@ import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * A protocol that handles the broadcasting of messages but provides no ordering
@@ -117,7 +118,6 @@ public class RMCast extends Protocol {
     }
 
     private void handleMessage(Event event, RMCastHeader header) {
-//        System.out.println("RECEIVED | " + header.getId() + " | " + header);
         final MessageRecord record;
         MessageRecord newRecord = new MessageRecord(header);
         MessageRecord tmp = (MessageRecord) ((ConcurrentHashMap)messageRecords).putIfAbsent(header.getId(), newRecord);
@@ -125,6 +125,8 @@ public class RMCast extends Protocol {
             up_prot.up(event); // Deliver to the above layer (Application or HiTab) if this is the first time RMCast has received M
             record = newRecord;
         } else {
+            if (((HiTabHeader)header).getType() == HiTabHeader.RETRANSMISSION)
+                up_prot.up(event);
             record = tmp;
         }
 
@@ -251,11 +253,11 @@ public class RMCast extends Protocol {
         private final int totalCopies;
         private final int delay;
         private final short headerId;
-        private int currentCopy;
+        private final AtomicInteger currentCopy;
 
         public MessageBroadcaster(Message message, int currentCopy, int totalCopies, int delay, short headerId) {
             this.message = message;
-            this.currentCopy = currentCopy;
+            this.currentCopy = new AtomicInteger(currentCopy);
             this.totalCopies = totalCopies;
             this.delay = delay;
             this.headerId = headerId;
@@ -263,14 +265,13 @@ public class RMCast extends Protocol {
 
         @Override
         public void run() {
-            ((RMCastHeader) message.getHeader(headerId)).setCopy(currentCopy);
+            ((RMCastHeader) message.getHeader(headerId)).setCopy(currentCopy.getAndIncrement());
             down_prot.down(new Event(Event.MSG, message));
-            currentCopy++;
         }
 
         @Override
         public long nextInterval() {
-            if (currentCopy > totalCopies)
+            if (currentCopy.intValue() > totalCopies)
                 return 0;
             return delay;
         }
@@ -358,6 +359,10 @@ public class RMCast extends Protocol {
         }
 
         public boolean broadcastComplete() {
+            if (largestCopyReceived != totalCopies && lastBroadcast != totalCopies) {
+                System.out.println(toString());
+                System.out.println(receivedMessages.containsKey(id));
+            }
             return largestCopyReceived == totalCopies || lastBroadcast == totalCopies;
         }
 
