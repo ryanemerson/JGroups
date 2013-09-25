@@ -9,6 +9,7 @@ import org.jgroups.conf.ClassConfigurator;
 import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -24,24 +25,28 @@ public class HiTabBuffer {
     final private Condition notEmpty;
     final private HiTab hitab;
     final private LinkedList<MessageRecord> buffer; // Stores the message record
-    final private Map<Address, Long> sequenceRecord; // Stores the largest delivered sequence for each known node
+    final private Map<Address, AtomicLong> sequenceRecord; // Stores the largest delivered sequence for each known node
     final private int ackWait;
     final private long maxError; // The maximum error rate of the probabilistic clock synch
     private volatile MessageRecord lastDeliveredMessage; // The timestamp of the last message that was delivered;
     private View view; // The latest view of the cluster
 
     final private Queue<MessageRecord> recordQueue; // Stores message records before they are processed
-
-    volatile int count = 0;
+    final private AtomicLong sequenceBlock;
+    private volatile boolean isBlocked;
+    private volatile Address originBlock;
 
     public HiTabBuffer(HiTab hitab, int ackWait) {
         this.hitab = hitab;
         this.ackWait = ackWait;
         this.buffer = new LinkedList<MessageRecord>();
         this.recordQueue = new ConcurrentLinkedQueue<MessageRecord>();
-        this.sequenceRecord = Collections.synchronizedMap(new HashMap<Address, Long>());
         this.maxError = (Integer) hitab.down(new Event(Event.USER_DEFINED, new HiTabEvent(HiTabEvent.GET_CLOCK_ERROR)));
         this.lastDeliveredMessage = null;
+        this.sequenceRecord = Collections.synchronizedMap(new HashMap<Address, AtomicLong>());
+        this.isBlocked = false;
+        this.sequenceBlock = new AtomicLong(-1);
+        this.originBlock = null;
 
         // Needed to ensure threads are treated fairly, important for ensuring that messages aren't rejected
         // because their handling thread could not aquire the lock.
@@ -61,15 +66,17 @@ public class HiTabBuffer {
         if (validMsgTime(record)) {
             addRecordToQueue(record);
         } else {
-            updateSequence(record);
+            // Update the expected sequence for this origin to be equal to the rejected message's seq + 1
+            // Necessary to prevent process() from entering an infinite loop of sendSequenceRequests!
+            sequenceRecord.get(record.id.getOriginator()).set(record.id.getSequence() + 1);
+            processBlockedMessage(record);
 
             HiTabHeader h = (HiTabHeader) message.getHeader((short) 1004);
             long currentTime = (Long) hitab.down(new Event(Event.USER_DEFINED, new HiTabEvent(HiTabEvent.GET_CLOCK_TIME)));
             long timeTaken = currentTime - h.getId().getTimestamp();
             System.err.println("****    Message REJECTED as it has arrived too late | " + timeTaken);
-            System.err.println("****    Rejected Message := " + record.id + " | " + count);
-            System.err.println("****    Last Delivered   := " + lastDeliveredMessage.id + " | " + count);
-            count++;
+            System.err.println("****    Rejected Message := " + record.id);
+            System.err.println("****    Last Delivered   := " + lastDeliveredMessage.id);
         }
     }
 
@@ -241,38 +248,36 @@ public class HiTabBuffer {
             while(recordQueue.isEmpty() && buffer.isEmpty())
                 notEmpty.await(1, TimeUnit.MILLISECONDS);
 
-            MessageRecord newRecord;
-            while ((newRecord = recordQueue.poll()) != null) {
-                if (newRecord.placeholder) {
-                    addPlaceholderToBuffer(newRecord);
-                }
-                else {
-                    addMessageToBuffer(newRecord);
-                }
-            }
-
-            // Occurs if a placeholder was rejected
-            if (buffer.isEmpty()) {
+            queueToBuffer();
+            // The buffer can be empty if a placeholder is rejected
+            if (buffer.isEmpty())
                 return deliverable;
-            }
 
             MessageRecord record = buffer.getFirst();
             long expectedSequence = getSequence(record.id.getOriginator());
             if (record.id.getSequence() > expectedSequence) {
                 if(!record.id.getOriginator().equals(hitab.localAddress)) {
-                    System.out.println("SEND SEQUENCE REQUEST - Expected Sequence := " + expectedSequence + " | Actual Sequence := " + record.id.getSequence() + record);
+                    System.out.println("SEND SEQUENCE REQUEST - " + record.id.getOriginator() + " Expected Sequence := " + expectedSequence + " | Actual Sequence := " + record.id);
                     hitab.sendSequenceRequest(record.id.getOriginator(), expectedSequence);
+                    isBlocked = true;
+                    sequenceBlock.set(expectedSequence);
+                    originBlock = record.id.getOriginator();
                 }
-                notEmpty.await(1, TimeUnit.MILLISECONDS);
+                notEmpty.await(hitab.getRequestTimeout(), TimeUnit.MILLISECONDS);
                 return deliverable;
             }
 
+            // If blocked return nothing.  We should not be able to deliver any messages to the application until
+            // the request sequence has been retrieved
+            if (isBlocked)
+                return deliverable;
+
             if (record.placeholder) {
                 if(!record.id.getOriginator().equals(hitab.localAddress)) {
-                    System.out.println("SEND PLACEHOLDER REQUEST | " + record.id);
+                    System.out.println("SEND PLACEHOLDER REQUEST | " + record.id + " | " + System.nanoTime());
                     hitab.sendPlaceholderRequest(record.id, record.ackInformer);
                 }
-                notEmpty.await(1, TimeUnit.MILLISECONDS);
+                notEmpty.await(hitab.getRequestTimeout(), TimeUnit.MILLISECONDS);
                 return deliverable;
             }
 
@@ -281,13 +286,14 @@ public class HiTabBuffer {
                 record = i.next();
                 if(!record.placeholder && hitab.getCurrentTime() >= record.deliveryTime) {
                     expectedSequence = getSequence(record.id.getOriginator());
-                    if (record.id.getSequence() == expectedSequence) {
-                        updateSequence(record);
+                    if (record.id.getSequence() <= expectedSequence) {
+                        if (record.id.getSequence() == expectedSequence)
+                            updateSequence(record);
                         deliverable.add(record.message);
                         i.remove();
                         lastDeliveredMessage = record;
                     } else {
-                        System.out.println("Unexpected sequence number");
+                        System.out.println("Unexpected sequence number | Actual := " + record.id.getSequence() + " | Expected := " + expectedSequence);
                         break;
                     }
                 } else {
@@ -302,23 +308,41 @@ public class HiTabBuffer {
         return deliverable;
     }
 
+
+    private void processBlockedMessage(MessageRecord record) {
+        if (originBlock != null && record.id.getOriginator().equals(originBlock) && record.id.getSequence() == sequenceBlock.longValue()) {
+            System.out.println("Blocking message received! | " + record.id);
+            isBlocked = false;
+            sequenceBlock.set(-1);
+            originBlock = null;
+        }
+    }
+
+    private void queueToBuffer() {
+        MessageRecord newRecord;
+        while ((newRecord = recordQueue.poll()) != null) {
+            processBlockedMessage(newRecord);
+
+            if (newRecord.placeholder)
+                addPlaceholderToBuffer(newRecord);
+            else
+                addMessageToBuffer(newRecord);
+        }
+    }
+
     public long getSequence(Address origin) {
-        return sequenceRecord.get(origin);
+        return sequenceRecord.get(origin).longValue();
     }
 
     private void updateSequence(MessageRecord record) {
-//        synchronized (sequenceRecord) {
-            Address origin = record.id.getOriginator();
-            sequenceRecord.put(origin, sequenceRecord.get(origin) + 1);
-//        }
+        sequenceRecord.get(record.id.getOriginator()).incrementAndGet();
     }
 
     private void updateSequences(View view) {
         for (Address address : view.getMembers()) {
-//            ((ConcurrentHashMap)sequenceRecord).putIfAbsent(address, 0L);
             synchronized (sequenceRecord) {
                 if (!sequenceRecord.containsKey(address))
-                    sequenceRecord.put(address, 0L);
+                    sequenceRecord.put(address, new AtomicLong());
             }
         }
     }
