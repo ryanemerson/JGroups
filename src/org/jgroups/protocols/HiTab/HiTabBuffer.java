@@ -62,22 +62,23 @@ public class HiTabBuffer {
         if (oldSequence(record))
             return;
 
-        calculateDeliveryTime(record);
-        if (validMsgTime(record)) {
-            addRecordToQueue(record);
-        } else {
-            // Update the expected sequence for this origin to be equal to the rejected message's seq + 1
-            // Necessary to prevent process() from entering an infinite loop of sendSequenceRequests!
-            sequenceRecord.get(record.id.getOriginator()).set(record.id.getSequence() + 1);
-            processBlockedMessage(record);
-
-            HiTabHeader h = (HiTabHeader) message.getHeader((short) 1004);
-            long currentTime = (Long) hitab.down(new Event(Event.USER_DEFINED, new HiTabEvent(HiTabEvent.GET_CLOCK_TIME)));
-            long timeTaken = currentTime - h.getId().getTimestamp();
-            System.err.println("****    Message REJECTED as it has arrived too late | " + timeTaken);
-            System.err.println("****    Rejected Message := " + record.id);
-            System.err.println("****    Last Delivered   := " + lastDeliveredMessage.id);
-        }
+        addRecordToQueue(record);
+//        calculateDeliveryTime(record);
+//        if (validMsgTime(record)) {
+//            addRecordToQueue(record);
+//        } else {
+//            // Update the expected sequence for this origin to be equal to the rejected message's seq + 1
+//            // Necessary to prevent process() from entering an infinite loop of sendSequenceRequests!
+//            sequenceRecord.get(record.id.getOriginator()).set(record.id.getSequence() + 1);
+//            processBlockedMessage(record);
+//
+//            HiTabHeader h = (HiTabHeader) message.getHeader((short) 1004);
+//            long currentTime = (Long) hitab.down(new Event(Event.USER_DEFINED, new HiTabEvent(HiTabEvent.GET_CLOCK_TIME)));
+//            long timeTaken = currentTime - h.getId().getTimestamp();
+//            System.err.println("****    Message REJECTED as it has arrived too late | " + timeTaken);
+//            System.err.println("****    Rejected Message := " + record.id);
+//            System.err.println("****    Last Delivered   := " + lastDeliveredMessage.id);
+//        }
     }
 
     private void calculateDeliveryTime(MessageRecord record) {
@@ -321,12 +322,26 @@ public class HiTabBuffer {
     private void queueToBuffer() {
         MessageRecord newRecord;
         while ((newRecord = recordQueue.poll()) != null) {
-            processBlockedMessage(newRecord);
-
             if (newRecord.placeholder)
                 addPlaceholderToBuffer(newRecord);
-            else
-                addMessageToBuffer(newRecord);
+            else {
+                calculateDeliveryTime(newRecord);
+                if (validMsgTime(newRecord)) {
+                    processBlockedMessage(newRecord);
+                    addMessageToBuffer(newRecord);
+                } else {
+                    // Update the expected sequence for this origin to be equal to the rejected message's seq + 1
+                    // Necessary to prevent process() from entering an infinite loop of sendSequenceRequests!
+                    sequenceRecord.get(newRecord.id.getOriginator()).set(newRecord.id.getSequence() + 1);
+                    processBlockedMessage(newRecord);
+
+                    long currentTime = (Long) hitab.down(new Event(Event.USER_DEFINED, new HiTabEvent(HiTabEvent.GET_CLOCK_TIME)));
+                    long timeTaken = currentTime - newRecord.id.getTimestamp();
+                    System.err.println("****    Message REJECTED as it has arrived too late | " + timeTaken);
+                    System.err.println("****    Rejected Message := " + newRecord.id);
+                    System.err.println("****    Last Delivered   := " + lastDeliveredMessage.id);
+                }
+            }
         }
     }
 
