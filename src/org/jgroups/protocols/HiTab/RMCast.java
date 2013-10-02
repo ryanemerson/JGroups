@@ -193,8 +193,7 @@ public class RMCast extends Protocol {
                     initialCopy, data.getMessageCopies());
             message.putHeader(this.id, header);
         }
-        // Using timer instead of Thread.sleep is MUCH faster!
-        timer.scheduleWithDynamicInterval(new MessageBroadcaster(message, initialCopy, totalCopies, (int) data.getEta(), headerId));
+        timer.execute(new MessageBroadcaster(message, initialCopy, totalCopies, (int) data.getEta(), headerId));
     }
 
     private void cancelOldTask(MessageRecord record, Future task, Map<MessageId, Future> map) {
@@ -225,7 +224,7 @@ public class RMCast extends Protocol {
                             record.broadcastLeader = localAddress;
                             Future oldFuture = disseminatorTasks.get(record.id);
                             if (oldFuture == null) {
-                                Future dissTask = timer.scheduleWithDynamicInterval(new MessageDisseminator(record, header, (int) data.getEta()));
+                                Future dissTask = timer.schedule(new MessageDisseminator(record, header, (int) data.getEta()), 0, TimeUnit.MILLISECONDS);
                                 cancelOldTask(record, dissTask, disseminatorTasks);
                             }
                         }
@@ -248,7 +247,7 @@ public class RMCast extends Protocol {
         }
     }
 
-    final class MessageBroadcaster implements Runnable, TimeScheduler.Task {
+    final class MessageBroadcaster implements Runnable {
         private final Message message;
         private final int totalCopies;
         private final int delay;
@@ -267,17 +266,19 @@ public class RMCast extends Protocol {
         public void run() {
             ((RMCastHeader) message.getHeader(headerId)).setCopy(currentCopy.getAndIncrement());
             down_prot.down(new Event(Event.MSG, message));
+            executeAgain();
         }
 
-        @Override
-        public long nextInterval() {
-            if (currentCopy.intValue() > totalCopies)
-                return 0;
-            return delay;
+        // We use this instead of timer.scheduleWithDynamicInterval because using timer.execute() executes the initial task
+        // 6 times faster than using DynamicInterval.  Thus the first message copy is sent down the stack within a sixth
+        // of the time it takes with DynamicInterval.
+        public void executeAgain() {
+            if (currentCopy.intValue() <= totalCopies)
+                timer.schedule(new MessageBroadcaster(message, currentCopy.intValue(), totalCopies, delay, headerId), delay, TimeUnit.MILLISECONDS);
         }
     }
 
-    final class MessageDisseminator implements Runnable, TimeScheduler.Task {
+    final class MessageDisseminator implements Runnable {
         private final Message message;
         private final MessageRecord record;
         private final RMCastHeader header;
@@ -311,19 +312,14 @@ public class RMCast extends Protocol {
                 record.ackNotified = true;
                 up_prot.up(new Event(Event.USER_DEFINED, new HiTabEvent(HiTabEvent.ACK_MESSAGE, record.id)));
             }
+            executeAgain();
         }
 
-        @Override
-        public long nextInterval() {
-            if (header == null) {
-                System.out.println("HEADER IS NULL");
-            } else if (record == null) {
-                System.out.println("Record is null");
-            }
-
+        // We use this instead of timer.scheduleWithDynamicInterval because using timer.execute() executes the initial task
+        // 6 times faster than using DynamicInterval.
+        public void executeAgain() {
             if (record.largestCopyReceived < header.getCopyTotal() && record.broadcastLeader.equals(localAddress))
-                return delay;
-            return -1;
+                timer.schedule(new MessageDisseminator(record, header, delay), delay, TimeUnit.MILLISECONDS);
         }
     }
 
@@ -362,6 +358,7 @@ public class RMCast extends Protocol {
             if (largestCopyReceived != totalCopies && lastBroadcast != totalCopies) {
                 System.out.println(toString());
                 System.out.println(receivedMessages.containsKey(id));
+                System.out.println(messageRecords.get(id));
             }
             return largestCopyReceived == totalCopies || lastBroadcast == totalCopies;
         }
