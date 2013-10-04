@@ -349,7 +349,8 @@ public class NMC extends Protocol {
             Map<Address, List<LatencyTime>> latencies = responseTimes.getAllTimes();
             LatencyTime largest = new LatencyTime(0,0);
             for (List<LatencyTime> list : latencies.values()) {
-                LatencyTime l = Collections.max(list);
+                List<LatencyTime> newList = new ArrayList<LatencyTime>(list);
+                LatencyTime l = Collections.max(newList);
                 if (l.compareTo(largest) > 0)
                     largest = l;
             }
