@@ -38,16 +38,17 @@ public class HiTab extends Protocol {
     private HiTabBuffer buffer;
     public Address localAddress = null; // TODO CHANGE TO PRIVATE
     private TimeScheduler timer;
+    private long maxError; // The maximum error rate of the probabilistic clock synch
 
     private View view;
 
-    private volatile long lastBroadcastTime = 0L;
     private volatile Future<?> sendBlankMessage = null;
     final private Map<MessageId, Message> messageStore = new ConcurrentHashMap<MessageId, Message>();
     final private BlockingQueue<MessageId> acks = new ArrayBlockingQueue<MessageId>(20, true);
     final private Map<MessageId, Long> requestStatus = new ConcurrentHashMap<MessageId, Long>();
     final private Map<MessageId, Future> requests = new ConcurrentHashMap<MessageId, Future>();
     final private AtomicInteger sequence = new AtomicInteger();
+    final private Map<MessageId, Future> sentMessages = new ConcurrentHashMap<MessageId, Future>();
     private ExecutorService executor;
 
     public HiTab() {
@@ -57,6 +58,7 @@ public class HiTab extends Protocol {
     public void init() throws Exception{
         timer = getTransport().getTimer();
         buffer = new HiTabBuffer(this, ackWait);
+        maxError = (Integer) down(new Event(Event.USER_DEFINED, new HiTabEvent(HiTabEvent.GET_CLOCK_ERROR)));
     }
 
     @Override
@@ -93,9 +95,15 @@ public class HiTab extends Protocol {
                         if (request != null)
                             request.cancel(false);
 
-                        if (message.getSrc().equals(localAddress) || messageStore.containsKey(header.getId()))
+                        if (messageStore.containsKey(header.getId()))
                             break;
                     case HiTabHeader.BROADCAST:
+                        if (header.getId().getOriginator().equals(localAddress)) {
+                            Future abortMessage = sentMessages.get(header.getId());
+                            if (abortMessage != null)
+                                abortMessage.cancel(true);
+                            sentMessages.remove(header.getId());
+                        }
                         messageStore.put(header.getId(), message);
                         buffer.addMessage(message, view);
                         break;
@@ -104,11 +112,11 @@ public class HiTab extends Protocol {
                             break;
                         handlePlaceholderRequest(header);
                         break;
-                    case HiTabHeader.SEQUENCE_REQUEST:
-                        if (message.getSrc().equals(localAddress))
-                            break;
-                        handleSequenceRequest(header);
-                        break;
+                    case HiTabHeader.ABORT_MESSAGE:
+                        if (message.getSrc().equals(localAddress)) {
+                            sentMessages.remove(header.getId());
+                        }
+                        buffer.removeAbortedMessage(header.getId());
                 }
                 // Return null so that the up event only occurrs if a message has been delivered from the buffer
                 // or its not HiTab message or is OOB
@@ -150,14 +158,6 @@ public class HiTab extends Protocol {
         sendRequest(header);
     }
 
-    public void sendSequenceRequest(Address origin, long sequence) {
-        HiTabHeader header = HiTabHeader.createSequenceRequest(origin, sequence);
-        if (!requestInProgress(header.getId())) {
-            requestStatus.put(header.getId(), System.nanoTime());
-            sendRequest(header);
-        }
-    }
-
     public long getCurrentTime() {
         return (Long) down_prot.down(new Event(Event.USER_DEFINED, new HiTabEvent(HiTabEvent.GET_CLOCK_TIME)));
     }
@@ -166,8 +166,24 @@ public class HiTab extends Protocol {
         return (NMCData) down_prot.down(new Event(Event.USER_DEFINED, new HiTabEvent(HiTabEvent.GET_NMC_TIMES)));
     }
 
+    public long calculateDeliveryDelay(NMCData data, HiTabHeader header) {
+        // Return in milliseconds
+        return TimeUnit.MILLISECONDS.convert(calculateDeliveryTime(data, header) - getCurrentTime(), TimeUnit.NANOSECONDS);
+    }
+
+    public long calculateDeliveryTime(NMCData data, HiTabHeader header) {
+        int timeout1 = (int) Math.ceil(data.getEta() + data.getOmega());
+        int x = (int) Math.ceil(data.getOmega() + (2 * data.getEta()));
+        int latencyPeriod = Math.max(header.getCapD(), header.getXMax() + header.getCapS());
+
+        int delay = timeout1 + header.getXMax() + x + ackWait + latencyPeriod;
+        long delayNano = delay * 1000000L;
+
+        return header.getId().getTimestamp() + delayNano + maxError;
+    }
+
     private void deliverMessage(Message message) {
-//        System.out.println("^^^^ Deliver | " + ((HiTabHeader)message.getHeader((short)1004)).getId());
+//        System.out.println("Delivered | " + ((HiTabHeader)message.getHeader((short)1004)).getId());
         up_prot.up(new Event(Event.MSG, message));
     }
 
@@ -183,14 +199,28 @@ public class HiTab extends Protocol {
         if (sendBlankMessage != null)
             sendBlankMessage.cancel(false);
         NMCData data = getNMCData();
-        MessageId id;
+        final MessageId id;
         synchronized (sequence) {
             id = new MessageId(getCurrentTime(), localAddress, sequence.getAndIncrement());
         }
+
         HiTabHeader header = new HiTabHeader(id, HiTabHeader.BROADCAST, data.getCapD(), data.getCapS(), data.getXMax(), localAddress, getMessageAcks());
         message.putHeader(this.id, header)
                .setFlag(Message.Flag.DONT_BUNDLE);
         ackTimeout();
+
+        // If the message is a multicast then initate the abort procedure, otherwise do nothing
+        // The abort sequence is not relevant for non multicasts as this node will never receive the message so the abort
+        // cannot be cancelled.
+        if (message.dest() == null) {
+            Future f = timer.schedule(new Runnable() {
+                @Override
+                public void run() {
+                    sendAbortMessage(id);
+                }
+            }, calculateDeliveryDelay(getNMCData(), header), TimeUnit.MILLISECONDS);
+            sentMessages.put(id, f);
+        }
     }
 
     private void sendBlankMessage() {
@@ -203,6 +233,15 @@ public class HiTab extends Protocol {
             down_prot.down(new Event(Event.MSG, blankMessage));
         }
         ackTimeout();
+    }
+
+    public void sendAbortMessage(MessageId id) {
+        if (messageStore.containsKey(id))
+            return;
+//        System.out.println("Send Abort Message | " + id);
+        HiTabHeader header = HiTabHeader.createAbortMessage(id);
+        sendRequest(header);
+        // TODO throw exception so that the application knows the message has failed
     }
 
     private void ackTimeout() {
@@ -229,27 +268,6 @@ public class HiTab extends Protocol {
         HiTabHeader header = (HiTabHeader) message.getHeader(this.id);
         header.setType(HiTabHeader.RETRANSMISSION);
         down_prot.down(new Event(Event.MSG, message));
-    }
-
-    private void handleSequenceRequest(HiTabHeader header) {
-        MessageId id = header.getId();
-        Message requestedMessage = getMessageBySequence(id);
-        if (requestedMessage == null) {
-            System.out.println("Requested Message == null | " + id);
-            return;
-        }
-        // Reload the actual id, so that the equals method will correctly return true when searching our records
-        // This is necessary because the sequence request will be missing the originator field
-        // Therefore the equals method will return false if the above id is used, even if we have the message
-        id = ((HiTabHeader)requestedMessage.getHeader(this.id)).getId();
-        if (validRequest(id)) {
-//            System.out.println("Valid Sequence Request | id := " + id);
-//            requestStatus.put(id, System.nanoTime());
-            if (id.getOriginator().equals(localAddress))
-                resendMessage(id);
-            else
-                requestTimeout(id, requestedMessage);
-        }
     }
 
     private void handlePlaceholderRequest(HiTabHeader header) {
@@ -350,7 +368,6 @@ public class HiTab extends Protocol {
         Future f = timer.schedule(new Runnable() {
             @Override
             public void run() {
-//                final MessageId id = ((HiTabHeader) message.getHeader(HiTab.this.id)).getId();
                 if (!requestInProgress(id)) {
                     Random r = new Random();
                     int delay = r.nextInt((int) Math.ceil(data.getEta()));
@@ -390,7 +407,7 @@ public class HiTab extends Protocol {
 
     final class GarbageCollection implements Runnable {
         @Override
-        public void run(){
+        public void run() {
             collectGarbage();
         }
     }

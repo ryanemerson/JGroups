@@ -21,8 +21,8 @@ public class HiTabHeader extends RMCastHeader {
     public static final byte BROADCAST = 1;
     public static final byte RETRANSMISSION = 2;
     public static final byte PLACEHOLDER_REQUEST = 3;
-    public static final byte SEQUENCE_REQUEST = 4;
-    public static final byte EMPTY_ACK_MESSAGE = 5;
+    public static final byte EMPTY_ACK_MESSAGE = 4;
+    public static final byte ABORT_MESSAGE = 5;
 
     private byte type = 0;
     private int capD = -1;
@@ -42,9 +42,8 @@ public class HiTabHeader extends RMCastHeader {
         return new HiTabHeader(id, PLACEHOLDER_REQUEST, -1, -1, -1, ackInformer, null);
     }
 
-    public static HiTabHeader createSequenceRequest(Address originator, long sequence) {
-        MessageId id = new MessageId(-1, originator, sequence);
-        return new HiTabHeader(id, SEQUENCE_REQUEST, -1, -1, -1, null, null);
+    public static HiTabHeader createAbortMessage(MessageId id) {
+        return new HiTabHeader(id, ABORT_MESSAGE, -1, -1, -1, id.getOriginator(), null);
     }
 
     public HiTabHeader(MessageId id, byte type, int capD, int capS, int xMax, Address ackInformer, List<MessageId> ackList) {
@@ -167,8 +166,8 @@ public class HiTabHeader extends RMCastHeader {
             case BROADCAST:	                return "BROADCAST";
             case RETRANSMISSION:            return "RETRANSMISSION";
             case PLACEHOLDER_REQUEST:       return "PLACEHOLDER_REQUEST";
-            case SEQUENCE_REQUEST:          return "SEQUENCE_REQUEST";
-            case EMPTY_ACK_MESSAGE:        return "EMPTY_ACK_MESSAGE";
+            case EMPTY_ACK_MESSAGE:         return "EMPTY_ACK_MESSAGE";
+            case ABORT_MESSAGE:             return "ABORT_MESSAGE";
             default:                        return "UNDEFINED(" + t + ")";
         }
     }
