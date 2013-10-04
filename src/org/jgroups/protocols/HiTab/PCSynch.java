@@ -1,14 +1,14 @@
 package org.jgroups.protocols.HiTab;
 
-import org.jgroups.Address;
-import org.jgroups.Event;
-import org.jgroups.Message;
-import org.jgroups.View;
+import org.jgroups.*;
 import org.jgroups.annotations.Property;
 import org.jgroups.stack.Protocol;
+import org.jgroups.util.SizeStreamable;
 import org.jgroups.util.TimeScheduler;
 import org.jgroups.util.Util;
 
+import java.io.DataInput;
+import java.io.DataOutput;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -48,7 +48,8 @@ public class PCSynch extends Protocol {
     private Address master;
     private Address localAddress;
     private TimeScheduler timer;
-    private volatile boolean synchronised;
+    private volatile boolean synchronised = false;
+    private volatile boolean synchInProgress = false;
     private boolean attemptSucceed;
 
     @Override
@@ -84,8 +85,8 @@ public class PCSynch extends Protocol {
                 if (clock == null) // Do nothing if this nodes clock has not being created yet
                     return null;
 
-                PCSynchData data  = header.getData();
-                switch (header.getType()) {
+                PCSynchData data  = header.data;
+                switch (header.type) {
                     case PCSynchHeader.SYNCH_REQ:
                         sendResponse(data);
                         return null;
@@ -138,35 +139,37 @@ public class PCSynch extends Protocol {
     private void sendResponse(PCSynchData data) {
         final PCSynchData rspData = new PCSynchData(localAddress, clock.getTime(), data);
         final PCSynchHeader rspHeader = new PCSynchHeader(PCSynchHeader.SYNCH_RSP, rspData);
-        final Message response = new Message(rspData.getSlave()).setFlag(Message.Flag.DONT_BUNDLE).putHeader(id, rspHeader);
+        final Message response = new Message(rspData.slave).setFlag(Message.Flag.DONT_BUNDLE).putHeader(id, rspHeader);
         down_prot.down(new Event(Event.MSG, response));
     }
 
     private void handleResponse(PCSynchData data) {
         long timeReceived = clock.getTime();
-        long D = (Math.abs(data.getRequestTime() - timeReceived)) / 2;
+        long D = (Math.abs(data.requestTime - timeReceived)) / 2;
 
         // Only proceed if the half trip time is less than the maximum allowed latency.
         // Ensures that the synchronisation is accurate enough
         if (D < maxLatency) {
+            if (synchInProgress)
+                return;
+
+            synchInProgress = true;
             attemptSucceed = true;
-            final long M = data.getRequestTime() + D * (1 + 2 * rho);
+            final long M = data.responseTime + D;
+//            final long M = data.getResponseTime() + D * (1 + 2 * rho) - 0 * rho;
             clock.startSynchronisation(clockAdjustmentTime, M);
-//            timer.schedule(new Runnable() {
-//                public void run() {
-//                    clock.finishSynchronisation(clockAdjustmentTime, M);
-//                    synchronised = true;
-//                }
-//            }, clockAdjustmentTime / 1000000, TimeUnit.MILLISECONDS);
-            // Timer schedule no longer used as it was causing a discrepancy in the clock times -- INVESTIGATE FURTHER! -- SEE PAPER
-            clock.finishSynchronisation(clockAdjustmentTime, M);
-            synchronised = true;
+            timer.schedule(new Runnable() {
+                public void run() {
+                    clock.finishSynchronisation(clockAdjustmentTime, M);
+                    synchronised = true;
+                    synchInProgress = false;
+                }
+            }, clockAdjustmentTime, TimeUnit.MILLISECONDS);
         }
     }
 
     final public class RequestSender implements Runnable{
         public void run() {
-            long startTime = clock.getTime();
             int messagesSent = 0;
             master = view.getMembers().get(0); // Need to make this consistent for all nodes, when dynamic discovery is used
 
@@ -197,13 +200,130 @@ public class PCSynch extends Protocol {
         public void sendRequest(Address master) {
             final PCSynchData data = new PCSynchData(localAddress, clock.getTime());
             final PCSynchHeader header = new PCSynchHeader(PCSynchHeader.SYNCH_REQ, data);
-            final Message response = new Message(master).setFlag(Message.Flag.DONT_BUNDLE).putHeader(id, header);
-            down_prot.down(new Event(Event.MSG, response));
+            final Message request = new Message(master).setFlag(Message.Flag.DONT_BUNDLE).putHeader(id, header);
+            down_prot.down(new Event(Event.MSG, request));
         }
 
         public void newSynchAttempt() {
             synchronised = false;
             attemptSucceed = false;
+        }
+    }
+
+    protected static class PCSynchHeader extends Header {
+        public static final byte SYNCH_REQ = 1;
+        public static final byte SYNCH_RSP = 2;
+
+        private byte type = 0;
+        private PCSynchData data = null;
+        private String clusterName = null;
+
+        public PCSynchHeader() {
+        }
+
+        public PCSynchHeader(byte type, PCSynchData data) {
+            this.type = type;
+            this.data = data;
+        }
+
+        @Override
+        public int size() {
+            int retval = Global.BYTE_SIZE * 3; // type, data presence and cluster_name presence
+            if(data != null)
+                retval += data.size();
+            if(clusterName != null)
+                retval += clusterName.length() + 2;
+            return retval;
+        }
+
+        @Override
+        public void writeTo(DataOutput out) throws Exception {
+            out.writeByte(type);
+            Util.writeStreamable(data, out);
+            Util.writeString(clusterName, out);
+        }
+
+        @Override
+        public void readFrom(DataInput in) throws Exception {
+            type = in.readByte();
+            data = (PCSynchData) Util.readStreamable(PCSynchData.class, in);
+            clusterName = Util.readString(in);
+        }
+
+        @Override
+        public String toString() {
+            StringBuilder sb = new StringBuilder();
+            sb.append("[PCSynchMsg: type=" + typeToString(type));
+            if(data != null)
+                sb.append(", arg=" + data);
+            if(clusterName != null)
+                sb.append(", cluster=").append(clusterName);
+            sb.append(']');
+            return sb.toString();
+        }
+
+        String typeToString(byte type) {
+            switch(type) {
+                case SYNCH_REQ: return "SYNCH_REQ";
+                case SYNCH_RSP: return "SYNCH_RSP";
+                default:        return "<unknown type(" + type + ")>";
+            }
+        }
+    }
+
+    protected static class PCSynchData implements SizeStreamable {
+        private Address slave = null; // Address of the slave node trying to synch
+        private Address master = null; // Address of the master node
+        private long requestTime = -1; // Time that the original request was sent
+        private long responseTime = -1; // Sending time of a response message
+
+        public PCSynchData() {
+        }
+
+        PCSynchData(Address slave, long timeSent) {
+            this.slave = slave;
+            this.requestTime = timeSent;
+        }
+
+        PCSynchData(Address slave, Address master, long requestTime, long responseTime) {
+            this(slave, requestTime);
+            this.master = master;
+            this.responseTime = responseTime;
+        }
+
+        PCSynchData(Address master, long responseTime, PCSynchData request) {
+            this(request.slave, master, request.requestTime, responseTime);
+        }
+
+        @Override
+        public int size() {
+            return Util.size(slave) + Util.size(master) + Util.size(requestTime) + Util.size(responseTime);
+        }
+
+        @Override
+        public void writeTo(DataOutput out) throws Exception {
+            Util.writeAddress(slave, out);
+            Util.writeAddress(master, out);
+            out.writeLong(requestTime);
+            out.writeLong(responseTime);
+        }
+
+        @Override
+        public void readFrom(DataInput in) throws Exception {
+            slave = Util.readAddress(in);
+            master = Util.readAddress(in);
+            requestTime = in.readLong();
+            responseTime = in.readLong();
+        }
+
+        @Override
+        public String toString() {
+            return "PCSynchData{" +
+                    "slave=" + slave +
+                    ", master=" + master +
+                    ", requestTime=" + requestTime +
+                    ", responseTime=" + responseTime +
+                    '}';
         }
     }
 
