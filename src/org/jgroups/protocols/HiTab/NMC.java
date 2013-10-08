@@ -606,10 +606,11 @@ public class NMC extends Protocol {
         // FRESHNESS_DURATION must be nanoseconds
         public void removeStaleProbes(long freshnessDuration) {
             synchronized (probesSent) {
-                for (Long key : probesSent.keySet()) {
-                    ProbeRecord probe = probesSent.get(key);
-                    if ((System.nanoTime() - probe.timeSent) / 1000000 > freshnessDuration)
-                        probesSent.remove(key);
+                Iterator<Long> i = probesSent.keySet().iterator();
+                while (i.hasNext()) {
+                    Long timeSent = i.next();
+                    if ((System.nanoTime() - timeSent) / 1000000 > freshnessDuration)
+                        i.remove();
                 }
             }
         }
