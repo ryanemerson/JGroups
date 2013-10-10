@@ -68,10 +68,13 @@
     <class id="106" name="org.jgroups.auth.X509Token"/>
     <class id="107" name="org.jgroups.protocols.UNICAST3$Header"/>
 
+
     <!-- MY MAGIC NUMBERS -->
-    <class id="108" name="org.jgroups.protocols.HiTab.ProbeHeader"/>
-    <class id="109" name="org.jgroups.protocols.HiTab.PCSynchHeader"/>
+    <class id="108" name="org.jgroups.protocols.HiTab.NMC$ProbeHeader"/>
+    <class id="109" name="org.jgroups.protocols.HiTab.PCSynch$PCSynchHeader"/>
     <class id="110" name="org.jgroups.protocols.HiTab.RMCastHeader"/>
     <class id="111" name="org.jgroups.protocols.HiTab.HiTabHeader"/>
+    <class id="112" name="org.jgroups.protocols.HiTab.HiTabBundler$HiTabBundlerHeader"/>
+    <class id="113"  name="org.jgroups.tests.perf.MPerfTransSim$MPerfHeader"/>
 
 </magic-number-class-mapping>

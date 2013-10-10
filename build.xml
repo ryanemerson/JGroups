@@ -168,6 +168,53 @@
 
     </target>
 
+    <target name="dist" depends="compile, mPerf">
+        <mkdir dir="jar"/>
+        <jar destfile="jar/jgroups.jar" basedir="classes/">
+            <zipgroupfileset dir="lib" includes="*.jar"/>
+            <fileset dir="conf">
+            </fileset>
+            <manifest>
+                <attribute name="Main-Class" value="org.jgroups.protocols.HiTab.Test"/>
+            </manifest>
+        </jar>
+    </target>
+
+    <target name="scpDeploy" depends="dist">
+        <scp file="jar/jgroups.jar"
+             todir="a7109534@linux.cs.ncl.ac.uk:workspace"
+             keyfile="${user.home}/.ssh/id_rsa"
+             trust="true"/>
+        <scp file="jar/mperf.jar"
+             todir="a7109534@linux.cs.ncl.ac.uk:workspace"
+             keyfile="${user.home}/.ssh/id_rsa"
+             trust="true"/>
+    </target>
+
+    <!--
+    <target name="mPerf" depends="compile">
+        <mkdir dir="jar"/>
+        <jar destfile="jar/mperf.jar" basedir="classes/">
+            <zipgroupfileset dir="lib" includes="*.jar"/>
+            <fileset dir="conf">
+            </fileset>
+            <manifest>
+                <attribute name="Main-Class" value="org.jgroups.tests.perf.MPerf"/>
+            </manifest>
+        </jar>
+    </target> -->
+
+    <target name="mPerf" depends="compile">
+        <mkdir dir="jar"/>
+        <jar destfile="jar/mperf.jar" basedir="classes/">
+            <zipgroupfileset dir="lib" includes="*.jar"/>
+            <fileset dir="conf">
+            </fileset>
+            <manifest>
+                <attribute name="Main-Class" value="org.jgroups.tests.perf.MPerfTransSim"/>
+            </manifest>
+        </jar>
+    </target>
 
     <target name="jgroups.jar"
             description="Creates the jgroups-${version}.jar (includes everything)"
@@ -320,6 +367,9 @@
         <delete dir="${manual.dir}/target"/>
         <delete dir="${tutorial.dir}/target"/>
         <delete dir="${root.dir}/schema" failonerror="false"/>
+
+        <!-- My deletions -->
+        <delete dir="jar" />
     </target>
 
 
