@@ -14,6 +14,7 @@ import org.jgroups.util.Util;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * // TODO: Document this
@@ -22,6 +23,8 @@ import java.util.*;
  * @since 4.0
  */
 public class NMC extends Protocol {
+
+    private AtomicInteger numberOfUdp = new AtomicInteger();
 
     @Property(description="Number of additional ports to be probed for membership. A port_range of 0 does not " +
             "probe additional ports. Example: initial_hosts=A[7800] port_range=0 probes A:7800, port_range=1 probes " +
@@ -50,7 +53,7 @@ public class NMC extends Protocol {
     private int initialProbeFreq = 500;
 
     @Property(name="initial_probe_no", description="The minimum number of probes that must have been received by this node")
-    private int numInitProbes = 10;
+    private int numInitialProbes = 10;
 
     @Property(name="minimum_nodes", description="The minimum number of nodes allowed in a cluster")
     private int minimumNodes = 2;
@@ -84,6 +87,7 @@ public class NMC extends Protocol {
 
     @Override
     public void stop() {
+        System.out.println("NMC := " + numberOfUdp);
     }
 
     @Override
@@ -177,12 +181,10 @@ public class NMC extends Protocol {
         ProbeHeader header = new ProbeHeader(ProbeHeader.PROBE_REQ, data, clusterName);
         Collection<Address> clusterMembers = fetchClusterMembers(clusterName);
 
-        if (clusterMembers == null) {
+        if (clusterMembers == null)
             multicastProbes(data, header);
-        }
-        else {
+        else
             unicastProbes(clusterMembers, data, header);
-        }
     }
 
     public void multicastProbes(ProbeData data, ProbeHeader header) {
@@ -192,7 +194,8 @@ public class NMC extends Protocol {
                 // Create empty payload to ensure the probe is at least as large as the minimum probe size
                 .setBuffer(Arrays.copyOf(new byte[0], probeSize));
 
-        for (Address address : members) {
+        List<Address> destinations = new ArrayList<Address>(members);
+        for (Address address : destinations) {
             if(!localAddress.equals(address))
                 responseTimes.addSentProbe(data);
         }
@@ -298,6 +301,7 @@ public class NMC extends Protocol {
     final class ProbeScheduler implements Runnable, TimeScheduler.Task {
         public void run() {
             sendProbes("");
+            numberOfUdp.incrementAndGet();
             if (!responseTimes.initialProbesReceived) {
                 if (guarantees.receiveInitialProbes()) {
                     System.out.println("INITIAL PROBES RECEIVED!");
@@ -327,7 +331,7 @@ public class NMC extends Protocol {
             Map<Address, Integer> initialProbes = responseTimes.getInitialProbes();
             if (members.size() >= minimumNodes && initialProbes.keySet().size() > 0) {
                 for (Address address : initialProbes.keySet()) {
-                    if (initialProbes.get(address) <= 10) // TODO change 10 to a configurable value
+                    if (initialProbes.get(address) <= numInitialProbes)
                         return false;
                 }
                 responseTimes.initialProbesReceived();
@@ -408,7 +412,6 @@ public class NMC extends Protocol {
                     int dPrime = 0;
                     int temp = 0;
                     boolean dFlag = false;
-                    boolean dPrimeFlag = false;
 
                     CLOOP: for (int ii = 0; ii < keyList.size(); ii++) {
                         int key = keyList.get(ii);
@@ -419,20 +422,21 @@ public class NMC extends Protocol {
                                 break CLOOP;
                             }
                             temp += tempLatencies[yy];
-                            if (temp >= (int) Math.floor(numberOfLatencies / 2) && !dFlag) {
+                            if (temp >= numberOfLatencies * 0.5 && !dFlag) {
                                 d = key + yy;
                                 dFlag = true;
                             }
-                            if (temp >= (int) Math.floor(numberOfLatencies * 0.75) && !dPrimeFlag) {
+                            if (temp >= numberOfLatencies * 0.75) {
                                 dPrime = key + yy;
-                                dPrimeFlag = true;
-                                // break; ??????
+                                break CLOOP;
                             }
+
                         }
                     }
                     double q = calculateQ();
                     int rho = calculateRho(q);
                     int omega = dPrime - d;
+    
                     double eta = Math.ceil(-1 * d * Math.log(1 - 0.99)); // Calculate 1 - e - Np / d = 0.99
                     int capD = (int) Math.ceil(maxLatency + (rho * eta));
                     int capS = (int) Math.ceil(maxLatency + ((rho + 2) * eta) + omega);
