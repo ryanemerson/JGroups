@@ -4,14 +4,14 @@ import org.jgroups.Address;
 import org.jgroups.Event;
 import org.jgroups.Message;
 import org.jgroups.View;
+import org.jgroups.annotations.Property;
 import org.jgroups.conf.ClassConfigurator;
 import org.jgroups.stack.Protocol;
 import org.jgroups.util.TimeScheduler;
 
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -23,10 +23,19 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @since 4.0
  */
 public class RMCast extends Protocol {
+    @Property(name="max_piggybacked_headers", description="The maximum number of RMCastHeaders that can be piggybacked onto a message")
+    private int maxHeaders = 1;
+
+    private AtomicInteger numberOfNormalMsgs = new AtomicInteger();
+    private AtomicInteger numberOfDissMsgs = new AtomicInteger();
+    private AtomicInteger numberOfExplicitCopies = new AtomicInteger();
+
     private final Map<MessageId, MessageRecord> messageRecords = new ConcurrentHashMap<MessageId, MessageRecord>();
     private final Map<MessageId, Message> receivedMessages = new ConcurrentHashMap<MessageId, Message>();
+    private final Map<RMCastHeader, Future> messageCopyTasks = new ConcurrentHashMap<RMCastHeader, Future>();
+    private final Map<RMCastHeader, MessageBroadcaster> messageCopyBroadcaster = new ConcurrentHashMap<RMCastHeader, MessageBroadcaster>();
+    private final Queue<RMCastHeader> messageCopyQueue = new ConcurrentLinkedQueue<RMCastHeader>();
     private final Map<MessageId, Future> responsiveTasks = new ConcurrentHashMap<MessageId, Future>();
-    private final Map<MessageId, Future> disseminatorTasks = new ConcurrentHashMap<MessageId, Future>();
     private Address localAddress = null;
     private TimeScheduler timer;
     private View view;
@@ -44,6 +53,9 @@ public class RMCast extends Protocol {
 
     @Override
     public void stop() {
+        System.out.println("RMCAST Norm := " + numberOfNormalMsgs.intValue());
+        System.out.println("RMCAST Diss := " + numberOfDissMsgs.intValue());
+        System.out.println("RMCAST Explicit Copies := " + numberOfExplicitCopies.intValue());
     }
 
     @Override
@@ -62,8 +74,7 @@ public class RMCast extends Protocol {
                 }
 
                 byte type = ((HiTabHeader) header).getType();
-                if (type == HiTabHeader.BROADCAST || type == HiTabHeader.RETRANSMISSION || type == HiTabHeader.EMPTY_ACK_MESSAGE) {
-                    receivedMessages.put(header.getId(), message); // Store actual message, need for retransmission
+                if (type == HiTabHeader.BROADCAST || type == HiTabHeader.RETRANSMISSION) {
                     handleMessage(event, header);
                     return null;
                 }
@@ -94,7 +105,7 @@ public class RMCast extends Protocol {
                         MessageRecord record = messageRecords.get(id);
                         boolean complete = true;
                         if (record != null)
-                           complete = record.broadcastComplete();
+                           complete = record.isBroadcastComplete();
                         return complete;
                     case HiTabEvent.COLLECT_GARBAGE:
                         collectGarbage((List<MessageId>) e.getArg());
@@ -124,21 +135,32 @@ public class RMCast extends Protocol {
         if (tmp == null) {
             up_prot.up(event); // Deliver to the above layer (Application or HiTab) if this is the first time RMCast has received M
             record = newRecord;
+            receivedMessages.put(header.getId(), (Message) event.getArg()); // Store actual message, need for retransmission
+            handlePiggyBacks(header);
         } else {
             if (((HiTabHeader)header).getType() == HiTabHeader.RETRANSMISSION)
                 up_prot.up(event);
             record = tmp;
         }
+        handleRMCastCopies(header, record);
+    }
 
-        if (!record.ackNotified && header.getCopy() > 0) {
+    private void handleRMCastCopies(RMCastHeader header, MessageRecord record) {
+        if (!record.ackNotified) {
             record.ackNotified = true;
             up_prot.up(new Event(Event.USER_DEFINED, new HiTabEvent(HiTabEvent.ACK_MESSAGE, record.id)));
         }
 
-        if (record.largestCopyReceived == header.getCopyTotal() && record.crashNotified)
+        if (record.largestCopyReceived == header.getCopyTotal() && record.crashNotified) {
+            // Cancel any responsiveness tasks that belong to this message and remove the record
+            Future f = responsiveTasks.get(header.getId());
+            if (f != null)
+                f.cancel(true);
+            receivedMessages.remove(header.getId());
             return;
+        }
 
-        if (header.getDisseminator() == header.getId().getOriginator() && !record.crashNotified) {
+        if (header.getDisseminator().equals(header.getId().getOriginator()) && !record.crashNotified) {
             // TODO SEND NO CRASH NOTIFICATION
             // Effectively cancels the CrashedTimeout as nothing will happen once this is set to true
             record.crashNotified = true;
@@ -163,22 +185,27 @@ public class RMCast extends Protocol {
         final int initialCopy;
         final int totalCopies;
 
+
         short protocolId = ClassConfigurator.getProtocolId(HiTab.class);
         RMCastHeader existingHeader = (RMCastHeader) message.getHeader(protocolId);
         // If HiTab header is present, set the rmsys values in that header
         if (existingHeader != null) {
             headerId = protocolId;
             switch (((HiTabHeader) existingHeader).getType()) {
-                case HiTabHeader.EMPTY_ACK_MESSAGE:
                 case HiTabHeader.BROADCAST:
                     totalCopies = data.getMessageCopies();
                     existingHeader.setCopyTotal(totalCopies);
                     existingHeader.setDisseminator(localAddress);
+                    getHeadersToPiggyback(existingHeader); // Add piggybacked headers
                     initialCopy = 0;
                     break;
                 case HiTabHeader.RETRANSMISSION:
                     existingHeader.setDisseminator(localAddress);
                     initialCopy = totalCopies = existingHeader.getCopyTotal();
+                    break;
+                case HiTabHeader.EMPTY_ACK_MESSAGE:
+                case HiTabHeader.PLACEHOLDER_REQUEST:
+                    initialCopy = totalCopies = 0;
                     break;
                 default:
                     initialCopy = 0;
@@ -191,60 +218,120 @@ public class RMCast extends Protocol {
             totalCopies = data.getMessageCopies();
             final RMCastHeader header = new RMCastHeader(msgId, localAddress,
                     initialCopy, data.getMessageCopies());
+            getHeadersToPiggyback(header); // Add piggybacked headers
             message.putHeader(this.id, header);
         }
         timer.execute(new MessageBroadcaster(message, initialCopy, totalCopies, (int) data.getEta(), headerId));
     }
 
-    private void cancelOldTask(MessageRecord record, Future task, Map<MessageId, Future> map) {
-        Future oldTask = map.put(record.id, task);
-        if (oldTask != null) {
-            oldTask.cancel(false);
+    private void getHeadersToPiggyback(RMCastHeader header) {
+        List<RMCastHeader> headers = new ArrayList<RMCastHeader>();
+        while (headers.size() < maxHeaders) {
+            RMCastHeader h = messageCopyQueue.poll();
+            if (h == null)
+                break;
+
+            if (messageCopyTasks.get(h).cancel(false)) {
+                h.setPiggyBackedHeaders(null);
+                headers.add(h);
+
+                // If more copies of this message need to be sent
+                // Create a new MessageBroadcaster task, schedule it and add its details to the appropriate
+                // Data structures so that it can be piggybacked as well
+                if (h.getCopy() < h.getCopyTotal()) {
+                    MessageBroadcaster newMb = messageCopyBroadcaster.get(h).nextCopy();
+                    Future f = timer.schedule(newMb, newMb.delay, TimeUnit.MILLISECONDS);
+
+                    // Create new ref so that the futures associated with h can be removed after the if statement
+                    // The headers copy number has changed so newHeader is not equal to h
+                    RMCastHeader newHeader = h;
+                    newHeader.setCopy(newMb.currentCopy.intValue());
+                    messageCopyTasks.put(newHeader, f);
+                    messageCopyQueue.add(newHeader);
+                    messageCopyBroadcaster.put(newHeader, newMb);
+                }
+                removeOldHeaderData(h);
+            }
         }
+        header.setPiggyBackedHeaders(headers);
+    }
+
+    private void handlePiggyBacks(RMCastHeader header) {
+        List<RMCastHeader> headers = header.getPiggyBackedHeaders();
+        if (headers != null) {
+            for (RMCastHeader h : headers) {
+                if (!messageRecords.containsKey(h.getId())) {
+                    requestFullMessage(h.getId());
+                } else {
+                    MessageRecord record = messageRecords.get(header.getId());
+                    if (record.largestCopyReceived < h.getCopy())
+                        record.largestCopyReceived = h.getCopy(); // Set the largest copy to == this piggybacks copy
+                    handleRMCastCopies(header, record);
+                }
+            }
+        }
+    }
+
+    private void requestFullMessage(MessageId id) {
+        up_prot.up(new Event(Event.USER_DEFINED, new HiTabEvent(HiTabEvent.MISSING_MESSAGE, id)));
     }
 
     private void responsivenessTimeout(final MessageRecord record, final RMCastHeader header) {
         final NMCData data = getNMCData();
         record.largestCopyReceived = header.getCopy();
         record.broadcastLeader = header.getDisseminator();
-
         // Set Timeout 2 for n + w
         final int timeout = (int) Math.ceil(data.getEta() + data.getOmega());
-        Future task = timer.schedule(new Runnable() {
-            @Override
-            public void run() {
-                if (record.largestCopyReceived < header.getCopyTotal()) {
-                    record.broadcastLeader = null;
-                    Random r = new Random();
-                    int eta = (int) data.getEta();
-                    int ran = r.nextInt(eta < 1 ? eta + 1 : eta);
+        // If there is already a responsiveness timeout in progress (Executing), do nothing
+        // Otherwise cancel the timeout and start a new one
+        Future oldTask = responsiveTasks.get(record.id);
+        if (oldTask == null || oldTask.cancel(false)) {
+            // Final check before creating the task ensuring another thread hasn't completed the broadcast of this message
+            if (record.largestCopyReceived >= header.getCopyTotal())
+                return;
+            Future task = timer.schedule(new Runnable() {
+                @Override
+                public void run() {
+                    if (record.largestCopyReceived < header.getCopyTotal()) {
+                        record.broadcastLeader = null;
+                        Random r = new Random();
+                        int eta = (int) data.getEta();
+                        int ran = r.nextInt(eta < 1 ? eta + 1 : eta);
 
-                    Future nextTask = timer.schedule(new Runnable() {
-                        public void run() {
-                            record.broadcastLeader = localAddress;
-                            Future oldFuture = disseminatorTasks.get(record.id);
-                            if (oldFuture == null) {
-                                Future dissTask = timer.schedule(new MessageDisseminator(record, header, (int) data.getEta()), 0, TimeUnit.MILLISECONDS);
-                                cancelOldTask(record, dissTask, disseminatorTasks);
+                        Future nextTask = timer.schedule(new Runnable() {
+                            public void run() {
+                                // Check to see if we still need to start disseminating
+                                if (record.largestCopyReceived < header.getCopyTotal()) {
+                                    record.broadcastLeader = localAddress;
+                                    timer.execute(new MessageDisseminator(record, header, (int) data.getEta()));
+                                }
                             }
-                        }
-                    }, ran, TimeUnit.MILLISECONDS);
-                    cancelOldTask(record, nextTask, responsiveTasks);
+                        }, ran, TimeUnit.MILLISECONDS);
+                        // Set the responsivenes task to be this newTask.
+                        // Allows this newTask to be cancelled if this method is called by a subsequent message copy
+                        responsiveTasks.put(record.id, nextTask);
+                    }
                 }
-            }
-        }, timeout, TimeUnit.MILLISECONDS);
-        cancelOldTask(record, task, responsiveTasks);
+            }, timeout, TimeUnit.MILLISECONDS);
+            // Store this task so that it can be used by the above if statement when the method is called again
+            responsiveTasks.put(record.id, task);
+        }
     }
 
     private void  collectGarbage(List<MessageId> messages) {
-        synchronized (messageRecords) {
-            for (MessageId message : messages) {
-                messageRecords.remove(message);
-                receivedMessages.remove(message);
-                responsiveTasks.remove(message);
-                disseminatorTasks.remove(message);
-            }
+        for (MessageId id : messages) {
+            messageRecords.remove(id);
+            receivedMessages.remove(id); // Shouldn't be necessary
+            Future f = responsiveTasks.remove(id);
+            if (f != null)
+                f.cancel(true);
         }
+    }
+
+    private void removeOldHeaderData(RMCastHeader header) {
+        messageCopyQueue.remove(header);
+        messageCopyTasks.remove(header);
+        messageCopyBroadcaster.remove(header);
     }
 
     final class MessageBroadcaster implements Runnable {
@@ -253,6 +340,10 @@ public class RMCast extends Protocol {
         private final int delay;
         private final short headerId;
         private final AtomicInteger currentCopy;
+
+        public MessageBroadcaster nextCopy() {
+            return new MessageBroadcaster(message, currentCopy.incrementAndGet(), totalCopies, delay, headerId);
+        }
 
         public MessageBroadcaster(Message message, int currentCopy, int totalCopies, int delay, short headerId) {
             this.message = message;
@@ -264,17 +355,31 @@ public class RMCast extends Protocol {
 
         @Override
         public void run() {
-            ((RMCastHeader) message.getHeader(headerId)).setCopy(currentCopy.getAndIncrement());
+            ((RMCastHeader) message.getHeader(headerId)).setCopy(currentCopy.intValue());
             down_prot.down(new Event(Event.MSG, message));
+
+            numberOfNormalMsgs.incrementAndGet();
+            if (currentCopy.intValue() > 0)
+                numberOfExplicitCopies.incrementAndGet();
+
             executeAgain();
         }
 
         // We use this instead of timer.scheduleWithDynamicInterval because using timer.execute() executes the initial task
         // 6 times faster than using DynamicInterval.  Thus the first message copy is sent down the stack within a sixth
         // of the time it takes with DynamicInterval.
-        public void executeAgain() {
-            if (currentCopy.intValue() <= totalCopies)
-                timer.schedule(new MessageBroadcaster(message, currentCopy.intValue(), totalCopies, delay, headerId), delay, TimeUnit.MILLISECONDS);
+        private void executeAgain() {
+            RMCastHeader header = (RMCastHeader) message.getHeader(headerId);
+            removeOldHeaderData(header);
+            if (header.getCopy() < header.getCopyTotal()) {
+                MessageBroadcaster mb = nextCopy();
+                Future f = timer.schedule(mb, delay, TimeUnit.MILLISECONDS);
+                // Need to add one to the header so that the equals method of the header functions correct
+                header.setCopy(mb.currentCopy.intValue());
+                messageCopyQueue.add(header);
+                messageCopyTasks.put(header, f);
+                messageCopyBroadcaster.put(header, mb);
+            }
         }
     }
 
@@ -293,6 +398,9 @@ public class RMCast extends Protocol {
 
         @Override
         public void run() {
+            if (record.largestCopyReceived >= header.getCopyTotal() || message == null)
+                return;
+
             int messageCopy = Math.max(record.lastBroadcast + 1, record.largestCopyReceived);
             header.setDisseminator(localAddress);
             header.setCopy(messageCopy);
@@ -305,6 +413,7 @@ public class RMCast extends Protocol {
                 message.putHeader(id, header);
 
             down_prot.down(new Event(Event.MSG, message));
+            numberOfDissMsgs.incrementAndGet();
             // Update to show that the largestCopy received == last broadcast i.e we're the disseminator
             record.largestCopyReceived = messageCopy;
             record.lastBroadcast = messageCopy;
@@ -354,12 +463,7 @@ public class RMCast extends Protocol {
             this.ackNotified = ackNotified;
         }
 
-        public boolean broadcastComplete() {
-            if (largestCopyReceived != totalCopies && lastBroadcast != totalCopies) {
-                System.out.println(toString());
-                System.out.println(receivedMessages.containsKey(id));
-                System.out.println(messageRecords.get(id));
-            }
+        public boolean isBroadcastComplete() {
             return largestCopyReceived == totalCopies || lastBroadcast == totalCopies;
         }
 

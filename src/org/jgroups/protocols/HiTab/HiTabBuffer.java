@@ -8,6 +8,7 @@ import org.jgroups.conf.ClassConfigurator;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Condition;
@@ -27,13 +28,11 @@ public class HiTabBuffer {
     final private LinkedList<MessageRecord> buffer; // Stores the message record
     final private Map<Address, AtomicLong> sequenceRecord; // Stores the largest delivered sequence for each known node
     final private List<MessageId> abortList; // Message id's for all messages that have been aborted
-    private volatile MessageRecord lastDeliveredMessage; // The MessageRecord of the last message that was delivered
-    private View view; // The latest view of the cluster
-
     final private Queue<MessageRecord> recordQueue; // Stores message records before they are processed
-    final private AtomicLong sequenceBlock;
-    private volatile boolean isBlocked;
-    private volatile Address originBlock;
+    final private Queue<MessageId> abortedMessages;
+    private volatile MessageRecord lastDeliveredMessage; // The MessageRecord of the last message that was delivered
+
+    private View view; // The latest view of the cluster
 
     public HiTabBuffer(HiTab hitab, int ackWait) {
         this.hitab = hitab;
@@ -42,9 +41,7 @@ public class HiTabBuffer {
         this.lastDeliveredMessage = null;
         this.sequenceRecord = Collections.synchronizedMap(new HashMap<Address, AtomicLong>());
         this.abortList = Collections.synchronizedList(new ArrayList<MessageId>());
-        this.isBlocked = false;
-        this.sequenceBlock = new AtomicLong(-1);
-        this.originBlock = null;
+        this.abortedMessages = new LinkedBlockingQueue<MessageId>();
 
         // Needed to ensure threads are treated fairly, important for ensuring that messages aren't rejected
         // because their handling thread could not aquire the lock.
@@ -227,7 +224,10 @@ public class HiTabBuffer {
 
             MessageRecord record = buffer.getFirst();
             if (record.placeholder) {
-                if(!record.id.getOriginator().equals(hitab.localAddress)) {
+                if (abortList.contains(record.id)) {
+                    buffer.remove(record);
+                    rejectMessage(record, true);
+                } else if(!record.id.getOriginator().equals(hitab.localAddress)) {
                     System.out.println("SEND PLACEHOLDER REQUEST | " + record.id + " | " + System.nanoTime());
                     hitab.sendPlaceholderRequest(record.id, record.ackInformer);
                 }
@@ -269,25 +269,37 @@ public class HiTabBuffer {
     private void queueToBuffer() {
         MessageRecord newRecord;
         while ((newRecord = recordQueue.poll()) != null) {
-            if (newRecord.placeholder)
+            if (newRecord.placeholder) {
                 addPlaceholderToBuffer(newRecord);
-            else {
+            } else {
                 calculateDeliveryTime(newRecord);
-                if (validMsgTime(newRecord)) {
-                    addMessageToBuffer(newRecord);
-                } else {
-                    // Update the expected sequence for this origin to be equal to the rejected message's seq + 1
-                    // Necessary to prevent process() from entering an infinite loop of sendSequenceRequests!
-                    sequenceRecord.get(newRecord.id.getOriginator()).set(newRecord.id.getSequence() + 1);
 
-                    long currentTime = (Long) hitab.down(new Event(Event.USER_DEFINED, new HiTabEvent(HiTabEvent.GET_CLOCK_TIME)));
-                    long timeTaken = currentTime - newRecord.id.getTimestamp();
-                    System.err.println("****    Message REJECTED as it has arrived too late | " + timeTaken + " | " + currentTime);
-                    System.err.println("****    Rejected Message := " + newRecord.id);
-                    System.err.println("****    Last Delivered   := " + lastDeliveredMessage.id);
-                }
+                if (validMsgTime(newRecord))
+                    addMessageToBuffer(newRecord);
+                else
+                    rejectMessage(newRecord, false);
             }
         }
+    }
+
+    private void rejectMessage(MessageRecord record, boolean aborted) {
+        // Update the expected sequence for this origin to be equal to the rejected message's seq + 1
+        // Necessary to prevent process() from entering an infinite loop of sendSequenceRequests!
+        sequenceRecord.get(record.id.getOriginator()).set(record.id.getSequence() + 1);
+        abortedMessages.add(record.id);
+        if (aborted) {
+            System.out.println("Message " + record.id + " removed from the buffer");
+        } else {
+            long currentTime = (Long) hitab.down(new Event(Event.USER_DEFINED, new HiTabEvent(HiTabEvent.GET_CLOCK_TIME)));
+            long timeTaken = currentTime - record.id.getTimestamp();
+            System.err.println("****    Message REJECTED as it has arrived too late | " + timeTaken + " | " + currentTime);
+            System.err.println("****    Rejected Message := " + record.id);
+            System.err.println("****    Last Delivered   := " + lastDeliveredMessage.id);
+        }
+    }
+
+    public Queue<MessageId> getAbortedMessages() {
+        return abortedMessages;
     }
 
     public long getSequence(Address origin) {

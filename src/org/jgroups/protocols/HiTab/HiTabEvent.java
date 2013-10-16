@@ -15,6 +15,7 @@ public class HiTabEvent {
     public static final int BROADCAST_COMPLETE = 6; // arg = MessageId --> Boolean
     public static final int COLLECT_GARBAGE = 7; // arg = List<MessageId>
     public static final int ACK_MESSAGE = 8; // arg = MessageId
+    public static final int MISSING_MESSAGE = 9; // arg = MessageId
 
     private final int type;
     private final Object arg;
@@ -47,6 +48,7 @@ public class HiTabEvent {
             case BROADCAST_COMPLETE:        return "BROADCAST_COMPLETE";
             case COLLECT_GARBAGE:           return "COLLECT_GARBAGE";
             case ACK_MESSAGE:               return "ACK_MESSAGE";
+            case MISSING_MESSAGE:           return "MISSING_MESSAGE";
             default:                        return "UNDEFINED(" + t + ")";
         }
     }
