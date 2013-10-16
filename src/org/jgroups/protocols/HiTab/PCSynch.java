@@ -10,6 +10,7 @@ import org.jgroups.util.Util;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Probabilistic clock synchronisation
@@ -18,6 +19,9 @@ import java.util.concurrent.TimeUnit;
  * @since 4.0
  */
 public class PCSynch extends Protocol {
+
+    private AtomicInteger numberOfUdp = new AtomicInteger();
+    private AtomicInteger numberOfUdp2 = new AtomicInteger();
 
     @Property(name = "synch_frequency", description = "The amount of time between each round of clock synchronisation" +
             "Specificed in minutes")
@@ -71,6 +75,8 @@ public class PCSynch extends Protocol {
 
     @Override
     public void stop() {
+        System.out.println("PCSynch := " + numberOfUdp);
+        System.out.println("PCSynch Response := " + numberOfUdp2);
     }
 
     @Override
@@ -141,6 +147,7 @@ public class PCSynch extends Protocol {
         final PCSynchHeader rspHeader = new PCSynchHeader(PCSynchHeader.SYNCH_RSP, rspData);
         final Message response = new Message(rspData.slave).setFlag(Message.Flag.DONT_BUNDLE).putHeader(id, rspHeader);
         down_prot.down(new Event(Event.MSG, response));
+        numberOfUdp2.incrementAndGet();
     }
 
     private void handleResponse(PCSynchData data) {
@@ -202,6 +209,7 @@ public class PCSynch extends Protocol {
             final PCSynchHeader header = new PCSynchHeader(PCSynchHeader.SYNCH_REQ, data);
             final Message request = new Message(master).setFlag(Message.Flag.DONT_BUNDLE).putHeader(id, header);
             down_prot.down(new Event(Event.MSG, request));
+            numberOfUdp.incrementAndGet();
         }
 
         public void newSynchAttempt() {
