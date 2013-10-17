@@ -231,7 +231,7 @@ public class HiTabBuffer {
                     System.out.println("SEND PLACEHOLDER REQUEST | " + record.id + " | " + System.nanoTime());
                     hitab.sendPlaceholderRequest(record.id, record.ackInformer);
                 }
-                notEmpty.await(hitab.getRequestTimeout(), TimeUnit.MILLISECONDS);
+                notEmpty.await(hitab.getBufferTimeout(), TimeUnit.MILLISECONDS);
                 return deliverable;
             }
 
@@ -240,16 +240,13 @@ public class HiTabBuffer {
                 record = i.next();
                 if (abortList.contains(record.id)) {
                     i.remove();
-                    updateSequence(record);
-                    System.out.println("Message " + record.id + " removed from the buffer");
-                }
-                else if(!record.placeholder && hitab.getCurrentTime() >= record.deliveryTime) {
+                    rejectMessage(record, true);
+                } else if(!record.placeholder && hitab.getCurrentTime() >= record.deliveryTime) {
                     deliverable.add(record.message);
                     i.remove();
                     updateSequence(record);
                     lastDeliveredMessage = record;
                 } else {
-                    notEmpty.await(1, TimeUnit.MILLISECONDS);
                     break;
                 }
             }

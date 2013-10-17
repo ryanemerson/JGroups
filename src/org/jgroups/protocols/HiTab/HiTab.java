@@ -32,8 +32,8 @@ public class HiTab extends Protocol {
     @Property(name = "garbage_collection", description = "How often, in minutes, the system performs garbage collection of old messages")
     private int garbageCollectionRate = 10;
 
-    @Property(name = "request_timeout", description = "The amount of time in milliseconds for the buffer to wait after sending a message request")
-    private int requestTimeout = 5;
+    @Property(name = "buffer_timeout", description = "The amount of time in milliseconds for the buffer to wait after sending a message request")
+    private int bufferTimeout = 5;
 
     private HiTabBuffer buffer;
     public Address localAddress = null; // TODO CHANGE TO PRIVATE
@@ -347,8 +347,8 @@ public class HiTab extends Protocol {
         return ackList;
     }
 
-    public int getRequestTimeout() {
-        return requestTimeout;
+    public int getBufferTimeout() {
+        return bufferTimeout;
     }
 
     private void removeOldMessages(List<MessageId> messages) {
