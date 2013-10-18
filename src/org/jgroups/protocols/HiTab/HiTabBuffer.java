@@ -21,11 +21,10 @@ import java.util.concurrent.locks.ReentrantLock;
  * @since 4.0
  */
 public class HiTabBuffer {
-
     final private ReentrantLock lock;
     final private Condition notEmpty;
     final private HiTab hitab;
-    final private LinkedList<MessageRecord> buffer; // Stores the message record
+    final private List<MessageRecord> buffer; // Stores the message record
     final private Map<Address, AtomicLong> sequenceRecord; // Stores the largest delivered sequence for each known node
     final private List<MessageId> abortList; // Message id's for all messages that have been aborted
     final private Queue<MessageRecord> recordQueue; // Stores message records before they are processed
@@ -36,7 +35,7 @@ public class HiTabBuffer {
 
     public HiTabBuffer(HiTab hitab, int ackWait) {
         this.hitab = hitab;
-        this.buffer = new LinkedList<MessageRecord>();
+        this.buffer = new ArrayList<MessageRecord>(500);
         this.recordQueue = new ConcurrentLinkedQueue<MessageRecord>();
         this.lastDeliveredMessage = null;
         this.sequenceRecord = Collections.synchronizedMap(new HashMap<Address, AtomicLong>());
@@ -97,9 +96,9 @@ public class HiTabBuffer {
             return;
         }
 
-        if (placeholder.id.getTimestamp() < buffer.getFirst().id.getTimestamp()) {
+        if (placeholder.id.getTimestamp() < buffer.get(0).id.getTimestamp()) {
             buffer.add(0, placeholder);
-        } else if (placeholder.id.getTimestamp() > buffer.getLast().id.getTimestamp()) {
+        } else if (placeholder.id.getTimestamp() > buffer.get(buffer.size()-1).id.getTimestamp()) {
             buffer.add(buffer.size(), placeholder);
         } else {
             MessageRecord previous;
@@ -143,7 +142,7 @@ public class HiTabBuffer {
         }
 
         // If message was created before the oldest message in the buffer then add to the start of the buffer
-        if (record.id.getTimestamp() < buffer.getFirst().id.getTimestamp()) {
+        if (record.id.getTimestamp() < buffer.get(0).id.getTimestamp()) {
             for (MessageRecord newerRecord : buffer) {
                 if (!newerRecord.placeholder) {
                     if (record.deliveryTime > newerRecord.deliveryTime) {
@@ -156,7 +155,7 @@ public class HiTabBuffer {
             buffer.add(0, record);
         }
         // If this message was created before all other messages add to the end of the buffer
-        else if (record.id.getTimestamp() > buffer.getLast().id.getTimestamp()) {
+        else if (record.id.getTimestamp() > buffer.get(buffer.size()-1).id.getTimestamp()) {
             // Get the lastMessageDelay in the buffer that is not equal to -1 (placeholder) if no other messages use
             // original deliver delay
             long lastMessageDelay = -1;
@@ -222,7 +221,8 @@ public class HiTabBuffer {
             if (buffer.isEmpty())
                 return deliverable;
 
-            MessageRecord record = buffer.getFirst();
+//            MessageRecord record = buffer.getFirst();
+            MessageRecord record = buffer.get(0);
             if (record.placeholder) {
                 if (abortList.contains(record.id)) {
                     buffer.remove(record);
@@ -270,7 +270,6 @@ public class HiTabBuffer {
                 addPlaceholderToBuffer(newRecord);
             } else {
                 calculateDeliveryTime(newRecord);
-
                 if (validMsgTime(newRecord))
                     addMessageToBuffer(newRecord);
                 else
@@ -317,10 +316,7 @@ public class HiTabBuffer {
     }
 
     private boolean validMsgTime(MessageRecord record) {
-        if (lastDeliveredMessage == null) {
-            return true;
-        }
-        return record.id.getTimestamp() >= lastDeliveredMessage.id.getTimestamp();
+        return lastDeliveredMessage == null || record.id.getTimestamp() >= lastDeliveredMessage.id.getTimestamp();
     }
 
     private boolean oldSequence(MessageId id) {
@@ -396,4 +392,63 @@ public class HiTabBuffer {
                     "} " + super.toString();
         }
     }
+
+
+    /*
+        Alternative QueueToBuffer() method.  Much more concise code, but slightly slower then using the
+        addPlaceholderToBuffer() and addMessageToBuffer() methods
+    */
+//    private void queueToBuffer() {
+//        MessageRecord newRecord;
+//        int bufferSize = buffer.size();
+//        while ((newRecord = recordQueue.poll()) != null) {
+//            if (newRecord.placeholder) {
+//                if (oldSequence(newRecord) || !validMsgTime(newRecord) || buffer.contains(newRecord))
+//                    continue;
+//                buffer.add(newRecord);
+//            } else {
+//                calculateDeliveryTime(newRecord);
+//                if (validMsgTime(newRecord)) {
+//                    buffer.remove(newRecord); // Remove old placeholder
+//                    buffer.add(newRecord);
+//                } else {
+//                    rejectMessage(newRecord, false);
+//                }
+//            }
+//        }
+//        if (buffer.size() > bufferSize) {
+//            Collections.sort(buffer, new MessageRecordComparator());
+//            for (int i = 0; i < buffer.size() - 1; i++) {
+//                MessageRecord record = buffer.get(i);
+//                MessageRecord futureMessage = buffer.get(i+1);
+//                if (record.deliveryTime > futureMessage.deliveryTime) {
+//                    if (!futureMessage.placeholder)
+//                        futureMessage.deliveryTime = record.deliveryTime;
+//                }
+//            }
+//        }
+//    }
+//    /*
+//        Subject to change
+//     */
+//    private boolean compareNodeSeniority(Address a1, Address a2) {
+//        return view.getMembers().indexOf(a1) > view.getMembers().indexOf(a2);
+//    }
+//
+//    class MessageRecordComparator implements Comparator<MessageRecord> {
+//        @Override
+//        public int compare(MessageRecord leftRecord, MessageRecord rightRecord) {
+//            if (leftRecord.id.getTimestamp() == rightRecord.id.getTimestamp()) {
+//                if (compareNodeSeniority(leftRecord.id.getOriginator(), rightRecord.id.getOriginator()))
+//                    return -1;
+//                else
+//                    return 1;
+//            } else {
+//                if (leftRecord.id.getTimestamp() < rightRecord.id.getTimestamp())
+//                    return -1;
+//                else
+//                    return 1;
+//            }
+//        }
+//    }
 }
