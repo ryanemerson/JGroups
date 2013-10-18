@@ -288,9 +288,16 @@ public class HiTabBuffer {
         } else {
             long currentTime = (Long) hitab.down(new Event(Event.USER_DEFINED, new HiTabEvent(HiTabEvent.GET_CLOCK_TIME)));
             long timeTaken = currentTime - record.id.getTimestamp();
-            System.err.println("****    Message REJECTED as it has arrived too late | " + timeTaken + " | " + currentTime);
-            System.err.println("****    Rejected Message := " + record.id);
-            System.err.println("****    Last Delivered   := " + lastDeliveredMessage.id);
+            MessageRejectionHeader rejectHeader;
+            if (aborted)
+                rejectHeader = new MessageRejectionHeader(MessageRejectionHeader.ABORT);
+            else
+                rejectHeader = new MessageRejectionHeader(MessageRejectionHeader.REJECT, timeTaken);
+            Message message = record.message.putHeader(ClassConfigurator.getMagicNumber(MessageRejectionHeader.class), rejectHeader);
+            hitab.up(new Event(Event.MSG, message));
+//            System.err.println("****    Message REJECTED as it has arrived too late | " + timeTaken + " | " + currentTime);
+//            System.err.println("****    Rejected Message := " + record.id);
+//            System.err.println("****    Last Delivered   := " + lastDeliveredMessage.id);
         }
     }
 

@@ -76,5 +76,6 @@
     <class id="111" name="org.jgroups.protocols.HiTab.HiTabHeader"/>
     <class id="112" name="org.jgroups.protocols.HiTab.HiTabBundler$HiTabBundlerHeader"/>
     <class id="113"  name="org.jgroups.tests.perf.MPerfTransSim$MPerfHeader"/>
+    <class id="114" name="org.jgroups.protocols.HiTab.MessageRejectionHeader"/>
 
 </magic-number-class-mapping>
