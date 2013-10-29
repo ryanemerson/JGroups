@@ -55,7 +55,6 @@ public class HiTab extends Protocol {
     final private Set<MessageId> requestsInProgress = Collections.synchronizedSet(new HashSet<MessageId>());
     final private Map<MessageId, Future> requests = new ConcurrentHashMap<MessageId, Future>();
     final private AtomicInteger sequence = new AtomicInteger();
-    final private Map<MessageId, Future> sentMessages = new ConcurrentHashMap<MessageId, Future>();
     final private Map<MessageId, Message> sentMessageStore = new ConcurrentHashMap<MessageId, Message>();
 
     private ExecutorService executor;
@@ -114,12 +113,6 @@ public class HiTab extends Protocol {
                         if (messageStore.containsKey(header.getId()))
                             break;
                     case HiTabHeader.BROADCAST:
-                        if (header.getId().getOriginator().equals(localAddress)) {
-                            Future abortMessage = sentMessages.get(header.getId());
-                            if (abortMessage != null)
-                                abortMessage.cancel(false);
-                            sentMessages.remove(header.getId());
-                        }
                         messageStore.put(header.getId(), message);
                         buffer.addMessage(message, view);
                         break;
@@ -128,11 +121,6 @@ public class HiTab extends Protocol {
                             break;
                         handlePlaceholderRequest(header);
                         break;
-                    case HiTabHeader.ABORT_MESSAGE:
-                        if (message.getSrc().equals(localAddress)) {
-                            sentMessages.remove(header.getId());
-                        }
-                        buffer.removeAbortedMessage(header.getId());
                 }
                 // Return null so that the up event only occurrs if a message has been delivered from the buffer
                 // or its not HiTab message or is OOB
@@ -236,17 +224,6 @@ public class HiTab extends Protocol {
         message.putHeader(this.id, header)
                 .setFlag(Message.Flag.DONT_BUNDLE);
         ackTimeout();
-
-        // If the message is a multicast then initate the abort procedure, otherwise do nothing
-        // The abort sequence is not relevant for multicasts that do not send the message to themselves
-        // as this node will never receive the message so the abort cannot be cancelled.
-        Future f = timer.schedule(new Runnable() {
-            @Override
-            public void run() {
-                sendAbortMessage(id);
-            }
-        }, calculateDeliveryDelay(getNMCData(), header), TimeUnit.MILLISECONDS);
-        sentMessages.put(id, f);
         sentMessageStore.put(id, message);
     }
 
@@ -392,7 +369,6 @@ public class HiTab extends Protocol {
             messageStore.remove(id);
             requestsInProgress.remove(id);
             requests.remove(id);
-            sentMessages.remove(id);
             sentMessageStore.remove(id);
             lastDeleted.put(id.getOriginator(), id);
         }
@@ -420,15 +396,13 @@ public class HiTab extends Protocol {
                         down_prot.down(new Event(Event.USER_DEFINED, new HiTabEvent(HiTabEvent.COLLECT_GARBAGE, oldMessages)));
                     }
 
-                    LinkedBlockingQueue<MessageId> abortedMessages = (LinkedBlockingQueue) buffer.getAbortedMessages();
+                    LinkedBlockingQueue<MessageId> abortedMessages = (LinkedBlockingQueue) buffer.getRejectedMessages();
                     if (abortedMessages.size() > 0) {
                         List<MessageId> abortList = new ArrayList<MessageId>();
                         abortedMessages.drainTo(abortList);
                         removeOldMessages(abortList);
                         down_prot.down(new Event(Event.USER_DEFINED, new HiTabEvent(HiTabEvent.COLLECT_GARBAGE, abortList)));
                     }
-
-
                 } catch (InterruptedException e) {
                     break;
                 }

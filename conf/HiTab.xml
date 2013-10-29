@@ -56,5 +56,5 @@
             number_of_old_messages="50"
             garbage_collection="10"
             buffer_timeout="50" />
-    <!--HiTab.HiTabBundler /-->
+    <HiTab.HiTabBundler />
 </config>
