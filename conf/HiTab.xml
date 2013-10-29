@@ -9,7 +9,7 @@
             ucast_send_buf_size="640K"
             mcast_recv_buf_size="5M"
             mcast_send_buf_size="640K"
-            loopback="false"
+            loopback="true"
             max_bundle_size="64k"
             ip_ttl="${jgroups.udp.ip_ttl:2}"
             enable_diagnostics="false"
@@ -43,17 +43,18 @@
             />
     <RSVP timeout="60000" resend_interval="500" ack_on_delivery="false" throw_exception_on_timeout="true" />
     <HiTab.NMC
-            direct_latency_probability="0.99"
-            reliability_probability="0.99"
-            minimum_probe_frequency="1000"
+            direct_latency_probability="0.9999"
+            reliability_probability="0.9999"
+            minimum_probe_frequency="10000"
             probe_size="60000"
             initial_hosts="csvm0064.ncl.ac.uk[4445], csvm0065.ncl.ac.uk[4445], csvm0066.ncl.ac.uk[4445], csvm0067.ncl.ac.uk[4445], csvm0068.ncl.ac.uk[4445]" />
     <HiTab.PCSynch />
-    <HiTab.RMCast />
+    <HiTab.RMCast
+            ip_multicast="true" />
     <HiTab.HiTab
-            ack_wait="500"
-            number_of_old_messages="100"
+            ack_wait="200"
+            number_of_old_messages="50"
             garbage_collection="10"
-            request_timeout="10" />
-    <HiTab.HiTabBundler />
+            buffer_timeout="50" />
+    <!--HiTab.HiTabBundler /-->
 </config>

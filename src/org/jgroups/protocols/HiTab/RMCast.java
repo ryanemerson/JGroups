@@ -1,9 +1,6 @@
 package org.jgroups.protocols.HiTab;
 
-import org.jgroups.Address;
-import org.jgroups.Event;
-import org.jgroups.Message;
-import org.jgroups.View;
+import org.jgroups.*;
 import org.jgroups.annotations.Property;
 import org.jgroups.conf.ClassConfigurator;
 import org.jgroups.stack.Protocol;
@@ -26,9 +23,13 @@ public class RMCast extends Protocol {
     @Property(name="max_piggybacked_headers", description="The maximum number of RMCastHeaders that can be piggybacked onto a message")
     private int maxHeaders = 1;
 
+    @Property(name="ip_multicast", description="If true broadcasts are ip_multicast, otherwise they are sent as unicasts")
+    private boolean multicast = true;
+
     private AtomicInteger numberOfNormalMsgs = new AtomicInteger();
     private AtomicInteger numberOfDissMsgs = new AtomicInteger();
     private AtomicInteger numberOfExplicitCopies = new AtomicInteger();
+    private AtomicInteger numberOfMessageRequests = new AtomicInteger();
 
     private final Map<MessageId, MessageRecord> messageRecords = new ConcurrentHashMap<MessageId, MessageRecord>();
     private final Map<MessageId, Message> receivedMessages = new ConcurrentHashMap<MessageId, Message>();
@@ -53,9 +54,10 @@ public class RMCast extends Protocol {
 
     @Override
     public void stop() {
-        System.out.println("RMCAST Norm := " + numberOfNormalMsgs.intValue());
-        System.out.println("RMCAST Diss := " + numberOfDissMsgs.intValue());
-        System.out.println("RMCAST Explicit Copies := " + numberOfExplicitCopies.intValue());
+        System.out.println("#RMCAST Norm := " + numberOfNormalMsgs.intValue());
+        System.out.println("#RMCAST Diss := " + numberOfDissMsgs.intValue());
+        System.out.println("#RMCAST Explicit Copies := " + numberOfExplicitCopies.intValue());
+        System.out.println("#RMCAST Copy requests := " + numberOfMessageRequests.intValue());
     }
 
     @Override
@@ -105,7 +107,7 @@ public class RMCast extends Protocol {
                         MessageRecord record = messageRecords.get(id);
                         boolean complete = true;
                         if (record != null)
-                           complete = record.isBroadcastComplete();
+                            complete = record.isBroadcastComplete();
                         return complete;
                     case HiTabEvent.COLLECT_GARBAGE:
                         collectGarbage((List<MessageId>) e.getArg());
@@ -129,6 +131,9 @@ public class RMCast extends Protocol {
     }
 
     private void handleMessage(Event event, RMCastHeader header) {
+//        System.out.println("--------------------------------------------------------------");
+//        System.out.println("Received := " + header);
+
         final MessageRecord record;
         MessageRecord newRecord = new MessageRecord(header);
         MessageRecord tmp = (MessageRecord) ((ConcurrentHashMap)messageRecords).putIfAbsent(header.getId(), newRecord);
@@ -146,7 +151,7 @@ public class RMCast extends Protocol {
     }
 
     private void handleRMCastCopies(RMCastHeader header, MessageRecord record) {
-        if (!record.ackNotified) {
+        if (!record.ackNotified && header.getCopy() > 0) {
             record.ackNotified = true;
             up_prot.up(new Event(Event.USER_DEFINED, new HiTabEvent(HiTabEvent.ACK_MESSAGE, record.id)));
         }
@@ -216,8 +221,8 @@ public class RMCast extends Protocol {
             MessageId msgId = new MessageId(System.currentTimeMillis(), localAddress);
             initialCopy = 0;
             totalCopies = data.getMessageCopies();
-            final RMCastHeader header = new RMCastHeader(msgId, localAddress,
-                    initialCopy, data.getMessageCopies());
+
+            final RMCastHeader header = new RMCastHeader(msgId, localAddress, initialCopy, data.getMessageCopies());
             getHeadersToPiggyback(header); // Add piggybacked headers
             message.putHeader(this.id, header);
         }
@@ -273,6 +278,7 @@ public class RMCast extends Protocol {
     }
 
     private void requestFullMessage(MessageId id) {
+        numberOfMessageRequests.incrementAndGet();
         up_prot.up(new Event(Event.USER_DEFINED, new HiTabEvent(HiTabEvent.MISSING_MESSAGE, id)));
     }
 
@@ -356,7 +362,8 @@ public class RMCast extends Protocol {
         @Override
         public void run() {
             ((RMCastHeader) message.getHeader(headerId)).setCopy(currentCopy.intValue());
-            down_prot.down(new Event(Event.MSG, message));
+//            down_prot.down(new Event(Event.MSG, message));
+            broadcastMessage(message);
 
             numberOfNormalMsgs.incrementAndGet();
             if (currentCopy.intValue() > 0)
@@ -371,7 +378,7 @@ public class RMCast extends Protocol {
         private void executeAgain() {
             RMCastHeader header = (RMCastHeader) message.getHeader(headerId);
             removeOldHeaderData(header);
-            if (header.getCopy() < header.getCopyTotal()) {
+            if (header.getCopy() < header.getCopyTotal() && canBePiggyBacked(header)) {
                 MessageBroadcaster mb = nextCopy();
                 Future f = timer.schedule(mb, delay, TimeUnit.MILLISECONDS);
                 // Need to add one to the header so that the equals method of the header functions correct
@@ -381,6 +388,30 @@ public class RMCast extends Protocol {
                 messageCopyBroadcaster.put(header, mb);
             }
         }
+    }
+
+    private void broadcastMessage(Message message) {
+        if (message.getDest() == null && !multicast) {
+            for (Address address : view.getMembers()) {
+                if (!address.equals(localAddress)) {
+                    message.setDest(address);
+                    down_prot.down(new Event(Event.MSG, message));
+                }
+            }
+            message.setDest(localAddress);
+            down_prot.down(new Event(Event.MSG, message)); // Send to self
+        } else {
+            down_prot.down(new Event(Event.MSG, message));
+        }
+    }
+
+    private boolean canBePiggyBacked(RMCastHeader header) {
+        return (isHiTabHeader(header) && ((HiTabHeader) header).getType() == HiTabHeader.BROADCAST);
+    }
+
+    private boolean isHiTabHeader(RMCastHeader header) {
+
+        return header == null || header instanceof HiTabHeader;
     }
 
     final class MessageDisseminator implements Runnable {
@@ -412,7 +443,8 @@ public class RMCast extends Protocol {
             else
                 message.putHeader(id, header);
 
-            down_prot.down(new Event(Event.MSG, message));
+//            down_prot.down(new Event(Event.MSG, message));
+            broadcastMessage(message);
             numberOfDissMsgs.incrementAndGet();
             // Update to show that the largestCopy received == last broadcast i.e we're the disseminator
             record.largestCopyReceived = messageCopy;

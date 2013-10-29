@@ -21,6 +21,7 @@ import java.net.NetworkInterface;
 import java.text.NumberFormat;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 
 
@@ -51,6 +52,8 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 @MBean(description="Transport protocol")
 public abstract class TP extends Protocol {
+
+    private AtomicInteger numberOfUdp = new AtomicInteger();
 
     protected static final byte LIST=1; // we have a list of messages rather than a single message when set
     protected static final byte MULTICAST=2; // message is a multicast (versus a unicast) message when set
@@ -1211,6 +1214,8 @@ public abstract class TP extends Protocol {
 
 
     public void stop() {
+        System.out.println("Number of UDP := " + numberOfUdp);
+        System.out.println("Stats #Messages := " + num_msgs_sent);
         if(diag_handler != null) {
             diag_handler.stop();
             diag_handler=null;
@@ -1596,7 +1601,6 @@ public abstract class TP extends Protocol {
         writeMessage(msg, dos, multicast);
         Buffer buf=new Buffer(out_stream.getRawBuffer(), 0, out_stream.size());
         doSend(buf, dest, multicast);
-        // we don't need to close() or flush() any of the 2 streams above, as these ops are no-ops
     }
 
 
@@ -1607,6 +1611,8 @@ public abstract class TP extends Protocol {
         }
         if(multicast) {
             sendMulticast(buf.getBuf(), buf.getOffset(), buf.getLength());
+                numberOfUdp.incrementAndGet();
+
         }
         else {
             sendToSingleMember(dest, buf.getBuf(), buf.getOffset(), buf.getLength());

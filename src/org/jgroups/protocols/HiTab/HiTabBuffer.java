@@ -221,15 +221,15 @@ public class HiTabBuffer {
             if (buffer.isEmpty())
                 return deliverable;
 
-//            MessageRecord record = buffer.getFirst();
             MessageRecord record = buffer.get(0);
             if (record.placeholder) {
                 if (abortList.contains(record.id)) {
                     buffer.remove(record);
                     rejectMessage(record, true);
                 } else if(!record.id.getOriginator().equals(hitab.localAddress)) {
-                    System.out.println("SEND PLACEHOLDER REQUEST | " + record.id + " | " + System.nanoTime());
+//                    System.out.println("SEND PLACEHOLDER REQUEST | " + record.id + " | " + System.nanoTime());
                     hitab.sendPlaceholderRequest(record.id, record.ackInformer);
+                    hitab.placeholderRequests.incrementAndGet();
                 }
                 notEmpty.await(hitab.getBufferTimeout(), TimeUnit.MILLISECONDS);
                 return deliverable;
@@ -259,7 +259,7 @@ public class HiTabBuffer {
     public void removeAbortedMessage(MessageId id) {
         if (!oldSequence(id)) {
             abortList.add(id);
-            System.out.println("ID added to the abort list | " + id);
+//            System.out.println("ID added to the abort list | " + id);
         }
     }
 
@@ -282,23 +282,28 @@ public class HiTabBuffer {
         // Update the expected sequence for this origin to be equal to the rejected message's seq + 1
         // Necessary to prevent process() from entering an infinite loop of sendSequenceRequests!
         sequenceRecord.get(record.id.getOriginator()).set(record.id.getSequence() + 1);
-        abortedMessages.add(record.id);
+        long currentTime = (Long) hitab.down(new Event(Event.USER_DEFINED, new HiTabEvent(HiTabEvent.GET_CLOCK_TIME)));
+        long timeTaken = currentTime - record.id.getTimestamp();
+        MessageRejectionHeader rejectHeader;
         if (aborted) {
-            System.out.println("Message " + record.id + " removed from the buffer");
+            rejectHeader = new MessageRejectionHeader(MessageRejectionHeader.ABORT);
+            hitab.abortedMessages.incrementAndGet();
         } else {
-            long currentTime = (Long) hitab.down(new Event(Event.USER_DEFINED, new HiTabEvent(HiTabEvent.GET_CLOCK_TIME)));
-            long timeTaken = currentTime - record.id.getTimestamp();
-            MessageRejectionHeader rejectHeader;
-            if (aborted)
-                rejectHeader = new MessageRejectionHeader(MessageRejectionHeader.ABORT);
-            else
-                rejectHeader = new MessageRejectionHeader(MessageRejectionHeader.REJECT, timeTaken);
-            Message message = record.message.putHeader(ClassConfigurator.getMagicNumber(MessageRejectionHeader.class), rejectHeader);
-            hitab.up(new Event(Event.MSG, message));
-//            System.err.println("****    Message REJECTED as it has arrived too late | " + timeTaken + " | " + currentTime);
-//            System.err.println("****    Rejected Message := " + record.id);
-//            System.err.println("****    Last Delivered   := " + lastDeliveredMessage.id);
+            rejectHeader = new MessageRejectionHeader(MessageRejectionHeader.REJECT, timeTaken);
+            hitab.rejectedMessages.incrementAndGet();
         }
+
+        Message message;
+        if (!record.placeholder) {
+            message = record.message;
+        } else {
+            message = new Message(null);
+            message.putHeader(hitab.getId(), HiTabHeader.createAbortMessage(record.id));
+        }
+
+        message.putHeader(ClassConfigurator.getMagicNumber(MessageRejectionHeader.class), rejectHeader);
+        hitab.sendMessageUp(new Event(Event.MSG, message));
+        abortedMessages.add(record.id);
     }
 
     public Queue<MessageId> getAbortedMessages() {

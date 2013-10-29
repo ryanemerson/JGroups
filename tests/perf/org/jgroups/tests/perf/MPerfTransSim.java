@@ -5,6 +5,8 @@ import org.jgroups.conf.ClassConfigurator;
 import org.jgroups.jmx.JmxConfigurator;
 import org.jgroups.logging.Log;
 import org.jgroups.logging.LogFactory;
+import org.jgroups.protocols.HiTab.HiTabHeader;
+import org.jgroups.protocols.HiTab.MessageRejectionHeader;
 import org.jgroups.stack.ProtocolStack;
 import org.jgroups.util.AckCollector;
 import org.jgroups.util.ResponseCollector;
@@ -46,11 +48,14 @@ public class MPerfTransSim extends ReceiverAdapter {
     protected int                   num_threads=1;
     protected int                   log_interval; // log every 10%
     protected int                   receive_log_interval;
-    protected int                   num_senders=-1; // <= 0: all
+    protected int                   num_senders=0; // <= 0: all
     protected boolean               oob=false;
 
     protected boolean cancelled=false;
 
+    // My Entries
+    private int abortedMessages = 0;
+    private int rejectedMessages = 0;
 
     /** Maintains stats per sender, will be sent to perf originator when all messages have been received */
     protected final ConcurrentMap<Address,Stats>  received_msgs=Util.createConcurrentMap();
@@ -191,6 +196,7 @@ public class MPerfTransSim extends ReceiverAdapter {
         }
         if(num > 0) {
             System.out.println("\n===============================================================================");
+            System.out.println("\n #Aborted Messages := " + abortedMessages + " | #Rejected Messages := " + rejectedMessages);
             System.out.println("\033[1m Average/node:    " + computeStats(total_time / num, total_msgs / num, msg_size));
             System.out.println("\033[0m Average/cluster: " + computeStats(total_time/num, total_msgs, msg_size));
             System.out.println("================================================================================\n\n");
@@ -272,131 +278,153 @@ public class MPerfTransSim extends ReceiverAdapter {
 
     public void receive(Message msg) {
         MPerfHeader hdr=(MPerfHeader)msg.getHeader(ID);
-        switch(hdr.type) {
-            case MPerfHeader.DATA:
-                // we're checking the *application's* seqno, and multiple sender threads
-                // can screw this up, that's why we check for correct order only when we
-                // only have 1 sender thread
-                // This is *different* from NAKACK{2} order, which is correct
-                handleData(msg.getSrc(),msg.getLength(),hdr.seqno, num_threads == 1 && !oob);
-                break;
-
-            case MPerfHeader.START_SENDING:
-                if(num_senders > 0) {
-                    int my_rank=Util.getRank(members, local_addr);
-                    if(my_rank >= 0 && my_rank > num_senders)
-                        break;
-                }
-
-                result_collector=msg.getSrc();
-                sendMessages();
-                break;
-
-            case MPerfHeader.SENDING_DONE:
-                Address sender=msg.getSrc();
-                Stats tmp=received_msgs.get(sender);
-                if(tmp != null)
-                    tmp.stop();
-
-                boolean all_done=true;
-                List<Address> senders=getSenders();
-                for(Map.Entry<Address,Stats> entry: received_msgs.entrySet()) {
-                    Address mbr=entry.getKey();
-                    Stats result=entry.getValue();
-                    if(!senders.contains(mbr))
-                        continue;
-                    if(!result.isDone()) {
-                        all_done=false;
-                        break;
+        if (hdr == null) {
+            MessageRejectionHeader mrh = (MessageRejectionHeader) msg.getHeader(ClassConfigurator.getMagicNumber(MessageRejectionHeader.class));
+            if (mrh != null) {
+                HiTabHeader header = (HiTabHeader)msg.getHeader((short)1004);
+                System.err.println("****    Rejected Message := " + header.getId());
+                if (mrh.getType() == MessageRejectionHeader.ABORT)
+                    abortedMessages++;
+                else
+                    rejectedMessages++;
+                handleData(header.getId().getOriginator(),Math.max(msg.getLength(), 1), -1, false);
+            }
+        } else {
+            switch(hdr.type) {
+                case MPerfHeader.DATA:
+                    // we're checking the *application's* seqno, and multiple sender threads
+                    // can screw this up, that's why we check for correct order only when we
+                    // only have 1 sender thread
+                    // This is *different* from NAKACK{2} order, which is correct
+    //                handleData(msg.getSrc(),msg.getLength(),hdr.seqno, num_threads == 1 && !oob);
+                    MessageRejectionHeader mrh = (MessageRejectionHeader) msg.getHeader(ClassConfigurator.getMagicNumber(MessageRejectionHeader.class));
+                    if (mrh != null) {
+                        System.err.println("****    Rejected Message := " + ((HiTabHeader)msg.getHeader((short)1004)).getId());
+                        if (mrh.getType() == MessageRejectionHeader.ABORT)
+                            abortedMessages++;
+                        else
+                            rejectedMessages++;
                     }
-                }
+                    handleData(msg.getSrc(),msg.getLength(),hdr.seqno, false);
+                    break;
 
-                // Compute the number messages plus time it took to receive them, for *all* members. The time is computed
-                // as the time the first message was received and the time the last message was received
-                if(all_done && result_collector != null) {
-                    long start=0, stop=0, msgs=0;
-                    for(Stats result: received_msgs.values()) {
-                        if(result.start > 0)
-                            start=start == 0? result.start : Math.min(start, result.start);
-                        if(result.stop > 0)
-                            stop=stop == 0? result.stop : Math.max(stop, result.stop);
-                        msgs+=result.num_msgs_received;
+                case MPerfHeader.START_SENDING:
+                    if(num_senders > 0) {
+                        int my_rank=Util.getRank(members, local_addr);
+                        if(my_rank >= 0 && my_rank > num_senders)
+                            break;
                     }
-                    Result result=new Result(stop-start, msgs);
+
+                    result_collector=msg.getSrc();
+                    sendMessages();
+                    break;
+
+                case MPerfHeader.SENDING_DONE:
+                    Address sender=msg.getSrc();
+                    Stats tmp=received_msgs.get(sender);
+                    if(tmp != null)
+                        tmp.stop();
+
+                    boolean all_done=true;
+                    List<Address> senders=getSenders();
+                    for(Map.Entry<Address,Stats> entry: received_msgs.entrySet()) {
+                        Address mbr=entry.getKey();
+                        Stats result=entry.getValue();
+                        if(!senders.contains(mbr))
+                            continue;
+                        if(!result.isDone()) {
+                            all_done=false;
+                            break;
+                        }
+                    }
+
+                    // Compute the number messages plus time it took to receive them, for *all* members. The time is computed
+                    // as the time the first message was received and the time the last message was received
+                    if(all_done && result_collector != null) {
+                        long start=0, stop=0, msgs=0;
+                        for(Stats result: received_msgs.values()) {
+                            if(result.start > 0)
+                                start=start == 0? result.start : Math.min(start, result.start);
+                            if(result.stop > 0)
+                                stop=stop == 0? result.stop : Math.max(stop, result.stop);
+                            msgs+=result.num_msgs_received;
+                        }
+                        Result result=new Result(stop-start, msgs);
+                        try {
+                            if(result_collector != null)
+                                send(result_collector, result, MPerfHeader.RESULT, Message.Flag.RSVP);
+                        }
+                        catch(Exception e) {
+                            System.err.println("failed sending results to " + result_collector + ": " +e);
+                        }
+                    }
+                    break;
+
+                case MPerfHeader.RESULT:
+                    Result res=(Result)msg.getObject();
+                    results.add(msg.getSrc(), res);
+                    if(initiator && results.hasAllResponses()) {
+                        initiator=false;
+                        displayResults();
+                    }
+                    break;
+
+                case MPerfHeader.CLEAR_RESULTS:
+                    for(Stats result: received_msgs.values())
+                        result.reset();
+                    total_received_msgs.set(0);
+                    last_interval=0;
+
+                    // requires an ACK to the sender
                     try {
-                        if(result_collector != null)
-                            send(result_collector, result, MPerfHeader.RESULT, Message.Flag.RSVP);
+                        send(msg.getSrc(), null, MPerfHeader.ACK, Message.Flag.OOB);
                     }
                     catch(Exception e) {
-                        System.err.println("failed sending results to " + result_collector + ": " +e);
+                        e.printStackTrace();
                     }
-                }
-                break;
+                    break;
 
-            case MPerfHeader.RESULT:
-                Result res=(Result)msg.getObject();
-                results.add(msg.getSrc(), res);
-                if(initiator && results.hasAllResponses()) {
-                    initiator=false;
-                    displayResults();
-                }
-                break;
+                case MPerfHeader.CONFIG_CHANGE:
+                    ConfigChange config_change=(ConfigChange)msg.getObject();
+                    handleConfigChange(config_change);
+                    break;
 
-            case MPerfHeader.CLEAR_RESULTS:
-                for(Stats result: received_msgs.values())
-                    result.reset();
-                total_received_msgs.set(0);
-                last_interval=0;
+                case MPerfHeader.CONFIG_REQ:
+                    try {
+                        handleConfigRequest(msg.getSrc());
+                    }
+                    catch(Exception e) {
+                        e.printStackTrace();
+                    }
+                    break;
 
-                // requires an ACK to the sender
-                try {
-                    send(msg.getSrc(), null, MPerfHeader.ACK, Message.Flag.OOB);
-                }
-                catch(Exception e) {
-                    e.printStackTrace();
-                }
-                break;
+                case MPerfHeader.CONFIG_RSP:
+                    handleConfigResponse((Configuration)msg.getObject());
+                    break;
 
-            case MPerfHeader.CONFIG_CHANGE:
-                ConfigChange config_change=(ConfigChange)msg.getObject();
-                handleConfigChange(config_change);
-                break;
+                case MPerfHeader.EXIT:
+                    ProtocolStack stack=channel.getProtocolStack();
+                    String cluster_name=channel.getClusterName();
+                    try {
+                        JmxConfigurator.unregisterChannel(channel, Util.getMBeanServer(), "jgroups", "mperf");
+                    }
+                    catch(Exception e) {
+                    }
+                    stack.stopStack(cluster_name);
+                    stack.destroy();
+                    break;
 
-            case MPerfHeader.CONFIG_REQ:
-                try {
-                    handleConfigRequest(msg.getSrc());
-                }
-                catch(Exception e) {
-                    e.printStackTrace();
-                }
-                break;
+                case MPerfHeader.NEW_CONFIG:
+                    applyNewConfig(msg.getBuffer());
+                    break;
 
-            case MPerfHeader.CONFIG_RSP:
-                handleConfigResponse((Configuration)msg.getObject());
-                break;
+                case MPerfHeader.ACK:
+                    ack_collector.ack(msg.getSrc());
+                    break;
 
-            case MPerfHeader.EXIT:
-                ProtocolStack stack=channel.getProtocolStack();
-                String cluster_name=channel.getClusterName();
-                try {
-                    JmxConfigurator.unregisterChannel(channel, Util.getMBeanServer(), "jgroups", "mperf");
-                }
-                catch(Exception e) {
-                }
-                stack.stopStack(cluster_name);
-                stack.destroy();
-                break;
-
-            case MPerfHeader.NEW_CONFIG:
-                applyNewConfig(msg.getBuffer());
-                break;
-
-            case MPerfHeader.ACK:
-                ack_collector.ack(msg.getSrc());
-                break;
-
-            default:
-                System.err.println("Header type " + hdr.type + " not recognized");
+                default:
+                    System.err.println("Header type " + hdr.type + " not recognized");
+            }
         }
     }
 
@@ -575,12 +603,20 @@ public class MPerfTransSim extends ReceiverAdapter {
             }
             long average = 0;
             long startTime = System.nanoTime();
+//            List<Address> destinations = new ArrayList<Address>(members);
+            Random r = new Random();
+            System.out.println("Size := " + members.get(0).size());
+//            destinations.remove(0);
+//            System.out.println("SEND TO := " + destinations);
             for(;;) {
                 try {
                     int tmp=num_msgs_sent.incrementAndGet();
                     if(tmp > num_msgs || cancelled)
                         break;
                     long new_seqno=seqno.getAndIncrement();
+//                    List<Address> destinations = new ArrayList<Address>(members);
+//                    destinations.remove(r.nextInt(destinations.size() - 1));
+//                    Message msg=new Message(new AnycastAddress(destinations), payload).putHeader(ID, new MPerfHeader(MPerfHeader.DATA, new_seqno));
                     Message msg=new Message(null, payload).putHeader(ID, new MPerfHeader(MPerfHeader.DATA, new_seqno));
                     if(oob)
                         msg.setFlag(Message.Flag.OOB);
@@ -591,7 +627,7 @@ public class MPerfTransSim extends ReceiverAdapter {
                     long nanoCalc = (long) Math.ceil(calc * 1000000);
                     int milli = (int) Math.floor(calc);
                     int nano = (int) nanoCalc - (milli * 1000000);
-//                    System.out.println("rate := " + rate + " | calc := " + calc + " | nanoCalc := " + nanoCalc + " | milli := " + milli + " | nano := " + nano);
+
                     Util.sleep(milli, nano);
                     average += nanoCalc;
 

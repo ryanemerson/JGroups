@@ -1,12 +1,10 @@
 package org.jgroups.protocols.HiTab;
 
-import org.jgroups.Address;
-import org.jgroups.Event;
-import org.jgroups.Message;
-import org.jgroups.View;
+import org.jgroups.*;
 import org.jgroups.annotations.Property;
 import org.jgroups.stack.Protocol;
 import org.jgroups.util.TimeScheduler;
+import org.jgroups.util.Util;
 
 import java.util.*;
 import java.util.concurrent.*;
@@ -20,14 +18,23 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public class HiTab extends Protocol {
 
+    private volatile Map<Address, MessageId> lastDelivered = new HashMap<Address, MessageId>();
+    private volatile Map<Address, MessageId> lastDeleted = new HashMap<Address, MessageId>();
+    private final AtomicInteger retransmissions = new AtomicInteger();
+    public final AtomicInteger placeholderRequests = new AtomicInteger();
+    public final AtomicInteger abortedMessages = new AtomicInteger();
+    public final AtomicInteger rejectedMessages = new AtomicInteger();
+    private final AtomicInteger missingMessageRequest = new AtomicInteger();
+    private final AtomicInteger abortRequest = new AtomicInteger();
+
     @Property(name = "ack_wait", description = "How long, in milliseconds, the system waits to receive an acknowlegment "
-              + "before delivering a message.  This value is equal to the minimum broadcast rate allowed by the system")
+            + "before delivering a message.  This value is equal to the minimum broadcast rate allowed by the system")
     private int ackWait = 2000;
 
     @Property(name = "number_of_old_messages", description = "The minimum number of old messages that should be stored by " +
-             "HiTab.  A large value increases the chance that a lost message will be recoverable.  A smaller value " +
-             "reduces the protocols memory consumption.")
-    private int numberOfOldMessages = 100;
+            "HiTab.  A large value increases the chance that a lost message will be recoverable.  A smaller value " +
+            "reduces the protocols memory consumption.")
+    private int numberOfOldMessages = 200;
 
     @Property(name = "garbage_collection", description = "How often, in minutes, the system performs garbage collection of old messages")
     private int garbageCollectionRate = 10;
@@ -49,6 +56,8 @@ public class HiTab extends Protocol {
     final private Map<MessageId, Future> requests = new ConcurrentHashMap<MessageId, Future>();
     final private AtomicInteger sequence = new AtomicInteger();
     final private Map<MessageId, Future> sentMessages = new ConcurrentHashMap<MessageId, Future>();
+    final private Map<MessageId, Message> sentMessageStore = new ConcurrentHashMap<MessageId, Message>();
+
     private ExecutorService executor;
 
     public HiTab() {
@@ -72,6 +81,12 @@ public class HiTab extends Protocol {
 
     @Override
     public void stop() {
+        System.out.println("#Retransmissions Sent := " + retransmissions.intValue());
+        System.out.println("#PlaceholderRequests Sent := " + placeholderRequests.intValue());
+        System.out.println("#MissingMessageRequests Sent := " + missingMessageRequest.intValue());
+        System.out.println("#AbortRequests Sent := " + abortRequest.intValue());
+        System.out.println("#Aborted Messages := " + abortedMessages.intValue());
+        System.out.println("#Rejected Messages := " + rejectedMessages.intValue());
         executor.shutdownNow();
     }
 
@@ -132,7 +147,9 @@ public class HiTab extends Protocol {
                         MessageId id = (MessageId) e.getArg();
                         // Add placeholder so that the buffer blocks until rho == 0 arrives
                         buffer.addPlaceholder(id.getOriginator(), id);
+//                        System.out.println("SEND MISSING MESSAGE REQUEST | " + id);
                         sendPlaceholderRequest(id, id.getOriginator());
+                        missingMessageRequest.incrementAndGet();
                         break;
                     case HiTabEvent.ACK_MESSAGE:
                         ackMessage((MessageId) e.getArg());
@@ -173,6 +190,10 @@ public class HiTab extends Protocol {
         return (NMCData) down_prot.down(new Event(Event.USER_DEFINED, new HiTabEvent(HiTabEvent.GET_NMC_TIMES)));
     }
 
+    public void sendMessageUp(Event event) {
+        up_prot.up(event);
+    }
+
     public long calculateDeliveryDelay(NMCData data, HiTabHeader header) {
         // Return in milliseconds
         return TimeUnit.MILLISECONDS.convert(calculateDeliveryTime(data, header) - getCurrentTime(), TimeUnit.NANOSECONDS);
@@ -196,8 +217,8 @@ public class HiTab extends Protocol {
     private void sendRequest(HiTabHeader header) {
         Message message = new Message();
         message.putHeader(this.id, header)
-               .setFlag(Message.Flag.DONT_BUNDLE)
-               .setFlag(Message.Flag.OOB);
+                .setFlag(Message.Flag.DONT_BUNDLE)
+                .setFlag(Message.Flag.OOB);
         down_prot.down(new Event(Event.MSG, message));
     }
 
@@ -209,23 +230,24 @@ public class HiTab extends Protocol {
         synchronized (sequence) {
             id = new MessageId(getCurrentTime(), localAddress, sequence.getAndIncrement());
         }
-        HiTabHeader header = new HiTabHeader(id, HiTabHeader.BROADCAST, data.getCapD(), data.getCapS(), data.getXMax(), localAddress, getMessageAcks());
+
+        HiTabHeader header = new HiTabHeader(id, HiTabHeader.BROADCAST, data.getCapD(),
+                data.getCapS(), data.getXMax(), localAddress, getMessageAcks());
         message.putHeader(this.id, header)
-               .setFlag(Message.Flag.DONT_BUNDLE);
+                .setFlag(Message.Flag.DONT_BUNDLE);
         ackTimeout();
 
         // If the message is a multicast then initate the abort procedure, otherwise do nothing
-        // The abort sequence is not relevant for non multicasts as this node will never receive the message so the abort
-        // cannot be cancelled.
-        if (message.dest() == null) {
-            Future f = timer.schedule(new Runnable() {
-                @Override
-                public void run() {
-                    sendAbortMessage(id);
-                }
-            }, calculateDeliveryDelay(getNMCData(), header), TimeUnit.MILLISECONDS);
-            sentMessages.put(id, f);
-        }
+        // The abort sequence is not relevant for multicasts that do not send the message to themselves
+        // as this node will never receive the message so the abort cannot be cancelled.
+        Future f = timer.schedule(new Runnable() {
+            @Override
+            public void run() {
+                sendAbortMessage(id);
+            }
+        }, calculateDeliveryDelay(getNMCData(), header), TimeUnit.MILLISECONDS);
+        sentMessages.put(id, f);
+        sentMessageStore.put(id, message);
     }
 
     private void sendBlankMessage() {
@@ -243,9 +265,10 @@ public class HiTab extends Protocol {
     public void sendAbortMessage(MessageId id) {
         if (messageStore.containsKey(id))
             return;
-        System.out.println("Send Abort Message | " + id);
+//        System.out.println("Send Abort Message | " + id);
         HiTabHeader header = HiTabHeader.createAbortMessage(id);
         sendRequest(header);
+        abortRequest.incrementAndGet();
         // TODO throw exception so that the application knows the message has failed
     }
 
@@ -271,25 +294,38 @@ public class HiTab extends Protocol {
     // No need to reset flags as they should still be in place from the original broadcast
     private void resendMessage(Message message) {
         HiTabHeader header = (HiTabHeader) message.getHeader(this.id);
+//        System.out.println("Resend Message | " + header.getId());
         header.setType(HiTabHeader.RETRANSMISSION);
         down_prot.down(new Event(Event.MSG, message));
+        retransmissions.incrementAndGet();
     }
 
     private void handlePlaceholderRequest(HiTabHeader header) {
         MessageId id = header.getId();
-        Message requestedMessage = messageStore.get(id);
+        Message requestedMessage;
+        if (id.getOriginator().equals(localAddress))
+            requestedMessage = sentMessageStore.get(id);
+        else
+            requestedMessage = messageStore.get(id);
+
         if (requestedMessage == null) {
+//            System.out.println("Requested Message not found | " + id);
+//            System.out.println("Last Delivered := " + lastDelivered + " | Last Deleted := " + lastDeleted);
             buffer.addPlaceholder(header.getAckInformer(), id);
             return;
         }
 
         if (validRequest(id)) {
+//            System.out.println("Valid request | " + id);
             requestsInProgress.add(id);
             if (header.getAckInformer().equals(localAddress))
                 resendMessage(id);
             else
                 requestTimeout(id, requestedMessage);
         }
+//        else {
+//            System.out.println("Not a valid request | " + header);
+//        }
     }
 
     private boolean validRequest(MessageId id) {
@@ -357,6 +393,8 @@ public class HiTab extends Protocol {
             requestsInProgress.remove(id);
             requests.remove(id);
             sentMessages.remove(id);
+            sentMessageStore.remove(id);
+            lastDeleted.put(id.getOriginator(), id);
         }
     }
 
@@ -369,6 +407,8 @@ public class HiTab extends Protocol {
                     List<Message> messages = buffer.process();
                     for (Message message : messages) {
                         deliverMessage(message);
+                        HiTabHeader h = (HiTabHeader) message.getHeader(id);
+                        lastDelivered.put(h.getId().getOriginator(), h.getId());
                         deliveredMessages.add(((HiTabHeader) message.getHeader(id)).getId());
                     }
 
@@ -379,9 +419,20 @@ public class HiTab extends Protocol {
                         removeOldMessages(oldMessages);
                         down_prot.down(new Event(Event.USER_DEFINED, new HiTabEvent(HiTabEvent.COLLECT_GARBAGE, oldMessages)));
                     }
+
+                    LinkedBlockingQueue<MessageId> abortedMessages = (LinkedBlockingQueue) buffer.getAbortedMessages();
+                    if (abortedMessages.size() > 0) {
+                        List<MessageId> abortList = new ArrayList<MessageId>();
+                        abortedMessages.drainTo(abortList);
+                        removeOldMessages(abortList);
+                        down_prot.down(new Event(Event.USER_DEFINED, new HiTabEvent(HiTabEvent.COLLECT_GARBAGE, abortList)));
+                    }
+
+
                 } catch (InterruptedException e) {
                     break;
                 }
+                Util.sleep(1);
             }
         }
     }
@@ -396,11 +447,11 @@ public class HiTab extends Protocol {
                 boolean broadcastComplete = (Boolean) down_prot.down(new Event(Event.USER_DEFINED,
                         new HiTabEvent(HiTabEvent.BROADCAST_COMPLETE, id)));
                 if (seqDifference > numberOfOldMessages && broadcastComplete) {
-                    i.remove();
                     garbage.add(id);
                 }
             }
         }
+        removeOldMessages(garbage);
         if (garbage.size() > 0)
             down_prot.down(new Event(Event.USER_DEFINED, new HiTabEvent(HiTabEvent.COLLECT_GARBAGE, garbage)));
     }
