@@ -175,7 +175,7 @@
             <fileset dir="conf">
             </fileset>
             <manifest>
-                <attribute name="Main-Class" value="org.jgroups.protocols.HiTab.Test"/>
+                <attribute name="Main-Class" value="org.jgroups.tests.McastSenderTest"/>
             </manifest>
         </jar>
     </target>
@@ -215,6 +215,18 @@
             </manifest>
         </jar>
     </target>
+
+    <!--target name="mPerf" depends="compile">
+        <mkdir dir="jar"/>
+        <jar destfile="jar/mperf.jar" basedir="classes/">
+            <zipgroupfileset dir="lib" includes="*.jar"/>
+            <fileset dir="conf">
+            </fileset>
+            <manifest>
+                <attribute name="Main-Class" value="org.jgroups.tests.McastReceiverTest"/>
+            </manifest>
+        </jar>
+    </target-->
 
     <target name="jgroups.jar"
             description="Creates the jgroups-${version}.jar (includes everything)"
