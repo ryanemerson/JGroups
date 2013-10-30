@@ -71,5 +71,6 @@
     <class id="1003" name="org.jgroups.protocols.HiTab.RMCast"/>
     <class id="1004" name="org.jgroups.protocols.HiTab.HiTab"/>
     <class id="1005" name="org.jgroups.protocols.HiTab.HiTabBundler"/>
+    <class id="1006" name="org.jgroups.protocols.DecoupledBroadcast.Decoupled"/>
 
 </protocol-ids>
