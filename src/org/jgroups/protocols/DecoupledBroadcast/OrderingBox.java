@@ -6,10 +6,7 @@ import org.jgroups.Event;
 import org.jgroups.Message;
 import org.jgroups.stack.Protocol;
 
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -76,12 +73,30 @@ public class OrderingBox {
     private void sendOrderingResponse(MessageInfo messageInfo) {
         System.out.println("Send ordering response | " + messageInfo);
         // Send the latest version of the order list to the src of the orderRequest
-        List<MessageInfo> orderList = new ArrayList<MessageInfo>(orderQueue);
+        List<MessageInfo> orderList = getRelevantMessages(messageInfo.getDestinations());
         DecoupledHeader header = DecoupledHeader.createBoxResponse(messageInfo, orderList);
         Message message = new Message(messageInfo.getId().getOriginator());
         message.putHeader(id, header);
         downProtocol.down(new Event(Event.MSG, message));
         requestCache.remove(messageInfo.getId()); // Remove old id
+    }
+
+    private List<MessageInfo> getRelevantMessages(Collection<Address> destinations) {
+        List<MessageInfo> orderList = new ArrayList<MessageInfo>(orderQueue);
+        Iterator<MessageInfo> i = orderList.iterator();
+        while(i.hasNext()) {
+            boolean required = false;
+            MessageInfo info = i.next();
+            for(Address a : info.getDestinations()) {
+                if (destinations.contains(a)) {
+                    required = true;
+                    break;
+                }
+            }
+            if (!required)
+                i.remove();
+        }
+        return orderList;
     }
 
     private void addOrderingToQueue(MessageInfo message) {
