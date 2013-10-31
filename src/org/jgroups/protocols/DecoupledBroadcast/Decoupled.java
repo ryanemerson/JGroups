@@ -40,8 +40,9 @@ public class Decoupled extends Protocol {
 
     @Override
     public void init() throws Exception {
+       setLevel("info");
         if (boxMember)
-            box = new OrderingBox(id, down_prot, boxMembers);
+            box = new OrderingBox(id, log, down_prot, boxMembers);
     }
 
     @Override
@@ -70,7 +71,8 @@ public class Decoupled extends Protocol {
                 switch (header.getType()) {
                     case DecoupledHeader.BOX_MEMBER:
                         boxMembers.add(message.getSrc());
-                        System.out.println("Box Member discovered | " + message.getSrc());
+                        if (log.isInfoEnabled())
+                            log.info("Box Member discovered | " + message.getSrc());
                         break;
                     case DecoupledHeader.BOX_REQUEST:
                         box.handleOrderingRequest(header.getMessageInfo());
@@ -117,13 +119,15 @@ public class Decoupled extends Protocol {
     }
 
     private void handleMessageRequest(Event event) {
-        System.out.println("Handle Message Request");
+        if (log.isDebugEnabled())
+          log.debug("Handle Message Request");
+
         Message message = (Message) event.getArg();
         Address destination = message.getDest();
 
         if (destination != null && destination instanceof AnycastAddress && !message.isFlagSet(Message.Flag.NO_TOTAL_ORDER)) {
             if (checkIfDestinationIsBox((AnycastAddress) destination))
-                System.out.println("Can't send message, the box is a destination!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+                throw new IllegalArgumentException("Can't send message to box member!");
             else
                 sendOrderingRequest(((AnycastAddress) destination).getAddresses(), message);
         } else {
@@ -132,7 +136,6 @@ public class Decoupled extends Protocol {
     }
 
     public void sendOrderingRequest(Collection<Address> destinations, Message message) {
-        System.out.println("Send Ordering Request");
         if (destinations.isEmpty())
             destinations.addAll(view.getMembers());
 
@@ -147,11 +150,13 @@ public class Decoupled extends Protocol {
         requestMessage.putHeader(id, header);
         down_prot.down(new Event(Event.MSG, requestMessage));
 
-        System.out.println("Ordering Request Sent to " + destination + " | " + header);
+        if (log.isDebugEnabled())
+            log.debug("Ordering Request Sent to " + destination + " | " + header);
     }
 
     private void handleOrderingResponse(DecoupledHeader responseHeader) {
-        System.out.println("Ordering response received | " + responseHeader);
+        if (log.isDebugEnabled())
+            log.debug("Ordering response received | " + responseHeader);
         // Receive the ordering list and send this message to all nodes in the destination set
         // broadcastMessage();
 
@@ -164,7 +169,9 @@ public class Decoupled extends Protocol {
     }
 
     private void broadcastMessage(Collection<Address> destinations, Message message) {
-        System.out.println("Broadcast Message to | " + destinations);
+        if (log.isDebugEnabled())
+            log.debug("Broadcast Message to | " + destinations);
+
         boolean deliverToSelf = destinations.contains(localAddress);
         // Send the message to all destinations
         for (Address destination : destinations) {
@@ -181,7 +188,8 @@ public class Decoupled extends Protocol {
     }
 
     private void handleBroadcast(DecoupledHeader header, Message message) {
-        System.out.println("Broadcast received | " + header);
+        if (log.isDebugEnabled())
+            log.debug("Broadcast received | " + header);
         deliveryManager.addMessageToDeliver(header, message);
     }
 
@@ -190,7 +198,9 @@ public class Decoupled extends Protocol {
     }
 
     private void deliverMessage(Message message) {
-        System.out.println("Deliver Message | " + message);
+        if (log.isDebugEnabled())
+            log.debug("Deliver Message | " + message);
+
         up_prot.up(new Event(Event.MSG, message));
     }
 
@@ -217,7 +227,9 @@ public class Decoupled extends Protocol {
             message.putHeader(id, DecoupledHeader.createBoxMember());
             Event event = new Event(Event.MSG, message);
             down_prot.down(event);
-            System.out.println("I am Box Message Sent");
+
+            if (log.isInfoEnabled())
+                log.info("I am Box Message Sent");
         }
     }
 }

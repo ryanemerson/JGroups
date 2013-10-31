@@ -4,6 +4,7 @@ import org.jgroups.Address;
 import org.jgroups.AnycastAddress;
 import org.jgroups.Event;
 import org.jgroups.Message;
+import org.jgroups.logging.Log;
 import org.jgroups.stack.Protocol;
 
 import java.util.*;
@@ -20,15 +21,17 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class OrderingBox {
     private int orderListSize = 50;
 
-    private short id;
-    private Protocol downProtocol;
-    private List<Address> boxMembers;
-    private BlockingQueue<MessageInfo> orderQueue;
-    private AtomicInteger globalSequence;
-    private Set<MessageId> requestCache;
+    private final short id;
+    private final Log log;
+    private final Protocol downProtocol;
+    private final List<Address> boxMembers;
+    private final BlockingQueue<MessageInfo> orderQueue;
+    private final AtomicInteger globalSequence;
+    private final Set<MessageId> requestCache;
 
-    public OrderingBox(short id, Protocol downProtocol, List<Address> boxMembers) {
+    public OrderingBox(short id, Log log, Protocol downProtocol, List<Address> boxMembers) {
         this.id = id;
+        this.log = log;
         this.downProtocol = downProtocol;
         this.boxMembers = boxMembers;
         orderQueue = new ArrayBlockingQueue<MessageInfo>(orderListSize);
@@ -37,14 +40,15 @@ public class OrderingBox {
     }
 
     public void handleOrderingRequest(MessageInfo messageInfo) {
-        System.out.println("Ordering request received | " + messageInfo);
+        if (log.isDebugEnabled())
+            System.out.println("Ordering request received | " + messageInfo);
         requestCache.add(messageInfo.getId());
         // Send TOA message to all boxMembers
         sendToAllBoxMembers(messageInfo);
     }
 
     private void sendToAllBoxMembers(MessageInfo messageInfo) {
-        System.out.println("Send request to all box members | " + messageInfo);
+//        System.out.println("Send request to all box members | " + messageInfo);
         // Forward request to all box members
         DecoupledHeader header = DecoupledHeader.createBoxOrdering(messageInfo);
 
@@ -56,14 +60,14 @@ public class OrderingBox {
     }
 
     public void receiveOrdering(MessageInfo messageInfo) {
-        System.out.println("Receive Ordering message | " + messageInfo);
+//        System.out.println("Receive Ordering message | " + messageInfo);
         // Once a message has been received at this layer, it will have been received at others (at least in the same order)
         // Increment sequence, retrive ordering request, place into ordered list
         // If you are the source of the message: update ordering request and return to the originator
         messageInfo.setOrdering(globalSequence.incrementAndGet());
         addOrderingToQueue(messageInfo);
 
-        System.out.println("Global Sequence := " + globalSequence.intValue());
+//        System.out.println("Global Sequence := " + globalSequence.intValue());
 
         // If the messageId is in the requestCache then this node handled the original request, send a response
         if (requestCache.contains(messageInfo.getId()))
@@ -71,7 +75,7 @@ public class OrderingBox {
     }
 
     private void sendOrderingResponse(MessageInfo messageInfo) {
-        System.out.println("Send ordering response | " + messageInfo);
+//        System.out.println("Send ordering response | " + messageInfo);
         // Send the latest version of the order list to the src of the orderRequest
         List<MessageInfo> orderList = getRelevantMessages(messageInfo.getDestinations());
         DecoupledHeader header = DecoupledHeader.createBoxResponse(messageInfo, orderList);
