@@ -227,7 +227,11 @@ public class Decoupled extends Protocol {
                 try {
                     List<Message> messages = deliveryManager.getNextMessagesToDeliver();
                     for(Message message : messages) {
-                        deliverMessage(message);
+                        try {
+                            deliverMessage(message);
+                        } catch(Throwable t) {
+                            log.warn("Exception caught while delivering message " + message + ":" + t.getMessage());
+                        }
                     }
                 } catch (InterruptedException e) {
                     break;
