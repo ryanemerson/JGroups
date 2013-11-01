@@ -43,6 +43,7 @@ public class DeliveryManager {
     }
 
     public void addMessageToStore(MessageId id, Message message) {
+        message.setSrc(id.getOriginator());
         messageStore.put(id, message);
     }
 
@@ -113,6 +114,7 @@ public class DeliveryManager {
             this.header = header;
             this.message = message;
             this.isDeliverable = false;
+            this.message.setSrc(header.getMessageInfo().getId().getOriginator());
         }
 
         @Override

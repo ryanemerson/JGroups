@@ -3,7 +3,6 @@ package org.jgroups.protocols.DecoupledBroadcast;
 import org.jgroups.*;
 import org.jgroups.annotations.Property;
 import org.jgroups.stack.Protocol;
-import org.jgroups.util.TimeScheduler;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -33,14 +32,13 @@ public class Decoupled extends Protocol {
     private AtomicInteger localSequence = new AtomicInteger(); // This nodes sequence number
     private Random random = new Random(); // Random object for selecting which box member to use
     private ExecutorService executor;
-    private TimeScheduler timer;
 
     public Decoupled() {
     }
 
     @Override
     public void init() throws Exception {
-       setLevel("info");
+        setLevel("info");
         if (boxMember)
             box = new OrderingBox(id, log, down_prot, boxMembers);
     }
@@ -49,9 +47,9 @@ public class Decoupled extends Protocol {
     public void start() throws Exception {
         executor = Executors.newSingleThreadExecutor();
         executor.execute(new DeliverMessages());
-        timer = getTransport().getTimer();
+
         if (boxMember)
-            timer.schedule(new BoxMemberAnnouncement(), 5, TimeUnit.SECONDS);
+            getTransport().getTimer().schedule(new BoxMemberAnnouncement(), 10, TimeUnit.SECONDS);
     }
 
     @Override
@@ -105,6 +103,8 @@ public class Decoupled extends Protocol {
                 return null;
             case Event.SET_LOCAL_ADDRESS:
                 localAddress = (Address) event.getArg();
+                if (boxMember)
+                    box.setLocalAddress(localAddress);
                 break;
         }
         return down_prot.down(event);
@@ -120,22 +120,38 @@ public class Decoupled extends Protocol {
 
     private void handleMessageRequest(Event event) {
         if (log.isDebugEnabled())
-          log.debug("Handle Message Request");
+            log.debug("Handle Message Request");
 
         Message message = (Message) event.getArg();
         Address destination = message.getDest();
 
         if (destination != null && destination instanceof AnycastAddress && !message.isFlagSet(Message.Flag.NO_TOTAL_ORDER)) {
-            if (checkIfDestinationIsBox((AnycastAddress) destination))
+            if (checkIfDestinationIsBox((AnycastAddress) destination)) {
                 throw new IllegalArgumentException("Can't send message to box member!");
-            else
+            } else {
                 sendOrderingRequest(((AnycastAddress) destination).getAddresses(), message);
+            }
+        } else if (destination != null && destination instanceof AnycastAddress) {
+            sendNoTotalOrderAnycast(((AnycastAddress)destination).getAddresses(),message);
         } else {
             down_prot.down(event);
         }
     }
 
-    public void sendOrderingRequest(Collection<Address> destinations, Message message) {
+    private void sendNoTotalOrderAnycast(Collection<Address> destinations, Message message) {
+        if (destinations == null) {
+            down_prot.down(new Event(Event.MSG, message));
+        } else {
+            message.src(localAddress);
+            for (Address destination : destinations) {
+                Message messageCopy = message.copy();
+                messageCopy.setDest(destination);
+                down_prot.down(new Event(Event.MSG, messageCopy));
+            }
+        }
+    }
+
+    private void sendOrderingRequest(Collection<Address> destinations, Message message) {
         if (destinations.isEmpty())
             destinations.addAll(view.getMembers());
 
@@ -146,8 +162,7 @@ public class Decoupled extends Protocol {
         MessageInfo messageInfo = new MessageInfo(messageId, destinations);
         DecoupledHeader header = DecoupledHeader.createBoxRequest(messageInfo);
         Address destination = boxMembers.get(random.nextInt(boxMembers.size())); // Select box at random
-        Message requestMessage = new Message(destination);
-        requestMessage.putHeader(id, header);
+        Message requestMessage = new Message(destination).src(localAddress).putHeader(id, header);
         down_prot.down(new Event(Event.MSG, requestMessage));
 
         if (log.isDebugEnabled())
@@ -158,7 +173,6 @@ public class Decoupled extends Protocol {
         if (log.isDebugEnabled())
             log.debug("Ordering response received | " + responseHeader);
         // Receive the ordering list and send this message to all nodes in the destination set
-        // broadcastMessage();
 
         MessageInfo messageInfo = responseHeader.getMessageInfo();
         DecoupledHeader header = DecoupledHeader.createBroadcast(messageInfo, responseHeader.getOrderList());
@@ -198,6 +212,8 @@ public class Decoupled extends Protocol {
     }
 
     private void deliverMessage(Message message) {
+        message.setDest(localAddress);
+
         if (log.isDebugEnabled())
             log.debug("Deliver Message | " + message);
 
@@ -223,13 +239,12 @@ public class Decoupled extends Protocol {
     final class BoxMemberAnnouncement implements Runnable {
         @Override
         public void run() {
-            final Message message = new Message(null, localAddress, new byte[0]);
-            message.putHeader(id, DecoupledHeader.createBoxMember());
+            final Message message = new Message(null, localAddress, new byte[0]).putHeader(id, DecoupledHeader.createBoxMember());
             Event event = new Event(Event.MSG, message);
             down_prot.down(event);
 
             if (log.isInfoEnabled())
-                log.info("I am Box Message Sent");
+                log.info("I am Box Message Sent | " + message);
         }
     }
 }

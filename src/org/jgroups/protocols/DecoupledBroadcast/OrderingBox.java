@@ -28,6 +28,7 @@ public class OrderingBox {
     private final BlockingQueue<MessageInfo> orderQueue;
     private final AtomicInteger globalSequence;
     private final Set<MessageId> requestCache;
+    private Address localAddress;
 
     public OrderingBox(short id, Log log, Protocol downProtocol, List<Address> boxMembers) {
         this.id = id;
@@ -39,35 +40,41 @@ public class OrderingBox {
         requestCache = new HashSet<MessageId>();
     }
 
+    public void setLocalAddress(Address localAddress) {
+        this.localAddress = localAddress;
+    }
+
     public void handleOrderingRequest(MessageInfo messageInfo) {
         if (log.isDebugEnabled())
-            System.out.println("Ordering request received | " + messageInfo);
+            log.debug("Ordering request received | " + messageInfo);
         requestCache.add(messageInfo.getId());
         // Send TOA message to all boxMembers
         sendToAllBoxMembers(messageInfo);
     }
 
     private void sendToAllBoxMembers(MessageInfo messageInfo) {
-//        System.out.println("Send request to all box members | " + messageInfo);
+        if (log.isDebugEnabled())
+            log.debug("Send request to all box members | " + messageInfo);
         // Forward request to all box members
         DecoupledHeader header = DecoupledHeader.createBoxOrdering(messageInfo);
 
         // AnycastAddress is ok because TOA is the protocol below, when we are box member
         // If TOA is not used, a requirement of the protocol below is that it accepts Anycast Addresses
-        Message message = new Message(new AnycastAddress(boxMembers));
-        message.putHeader(id, header);
+        Message message = new Message(new AnycastAddress(boxMembers)).src(localAddress).putHeader(id, header);
         downProtocol.down(new Event(Event.MSG, message));
     }
 
     public void receiveOrdering(MessageInfo messageInfo) {
-//        System.out.println("Receive Ordering message | " + messageInfo);
+        if (log.isDebugEnabled())
+            log.debug("Receive Ordering message | " + messageInfo);
         // Once a message has been received at this layer, it will have been received at others (at least in the same order)
         // Increment sequence, retrive ordering request, place into ordered list
         // If you are the source of the message: update ordering request and return to the originator
         messageInfo.setOrdering(globalSequence.incrementAndGet());
         addOrderingToQueue(messageInfo);
 
-//        System.out.println("Global Sequence := " + globalSequence.intValue());
+        if (log.isDebugEnabled())
+            log.debug("Global Sequence := " + globalSequence.intValue());
 
         // If the messageId is in the requestCache then this node handled the original request, send a response
         if (requestCache.contains(messageInfo.getId()))
@@ -75,12 +82,12 @@ public class OrderingBox {
     }
 
     private void sendOrderingResponse(MessageInfo messageInfo) {
-//        System.out.println("Send ordering response | " + messageInfo);
+        if (log.isDebugEnabled())
+            log.debug("Send ordering response | " + messageInfo);
         // Send the latest version of the order list to the src of the orderRequest
         List<MessageInfo> orderList = getRelevantMessages(messageInfo.getDestinations());
         DecoupledHeader header = DecoupledHeader.createBoxResponse(messageInfo, orderList);
-        Message message = new Message(messageInfo.getId().getOriginator());
-        message.putHeader(id, header);
+        Message message = new Message(messageInfo.getId().getOriginator()).src(localAddress).putHeader(id, header);
         downProtocol.down(new Event(Event.MSG, message));
         requestCache.remove(messageInfo.getId()); // Remove old id
     }
