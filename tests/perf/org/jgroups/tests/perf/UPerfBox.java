@@ -36,10 +36,10 @@ public class UPerfBox extends ReceiverAdapter {
 
 
     // ============ configurable properties ==================
-    private boolean sync=true, oob=true;
+    private boolean sync=true, oob=true, anycastRequests=false;
     private int num_threads=25;
     private int num_msgs=20000, msg_size=1000;
-    private int anycast_count=2;
+    private int anycast_count=3;
     private boolean use_anycast_addrs = true;
     private double read_percentage=0.8; // 80% reads, 20% writes
     private List<String> boxMembers  = new ArrayList<String>();
@@ -93,7 +93,7 @@ public class UPerfBox extends ReceiverAdapter {
     }
 
 
-    public void init(String props, String name, boolean xsite, List<String> boxMembers) throws Throwable {
+    public void init(String props, String name, boolean xsite, List<String> boxMembers, boolean anycastRequests) throws Throwable {
         channel=new JChannel(props);
         if(name != null)
             channel.setName(name);
@@ -108,6 +108,7 @@ public class UPerfBox extends ReceiverAdapter {
         local_addr=channel.getAddress();
 
         this.boxMembers = boxMembers;
+        this.anycastRequests = anycastRequests;
 
         if(xsite) {
             List<String> site_names=getSites(channel);
@@ -133,6 +134,7 @@ public class UPerfBox extends ReceiverAdapter {
         if(members.size() < 2)
             return;
         Address coord=members.get(0);
+        System.out.println("Coordinator := " + coord);
         ConfigOptions config=(ConfigOptions)disp.callRemoteMethod(coord, new MethodCall(GET_CONFIG), new RequestOptions(ResponseMode.GET_ALL, 5000));
         if(config != null) {
             this.oob=config.oob;
@@ -156,9 +158,13 @@ public class UPerfBox extends ReceiverAdapter {
     }
 
     public void viewAccepted(View new_view) {
-        System.out.println("** view: " + new_view);
-        members.clear();
-        members.addAll(new_view.getMembers());
+        List<Address> addresses = new ArrayList<Address>(new_view.getMembers());
+        synchronized (members) {
+            members.clear();
+            members.addAll(addresses);
+            removeBoxMembers(members);
+        }
+        System.out.println("** Members: " + members);
         addSiteMastersToMembers();
     }
 
@@ -173,6 +179,9 @@ public class UPerfBox extends ReceiverAdapter {
     // =================================== callbacks ======================================
 
     private void removeBoxMembers(Collection<Address> addresses) {
+        if (boxMembers == null)
+            return;
+
         Iterator<Address> i = addresses.iterator();
         while (i.hasNext()) {
             Address address = i.next();
@@ -181,7 +190,6 @@ public class UPerfBox extends ReceiverAdapter {
                     i.remove();
             }
         }
-        System.out.println("Remove Addresses | " + addresses);
     }
 
     public Results startTest() throws Throwable {
@@ -189,7 +197,7 @@ public class UPerfBox extends ReceiverAdapter {
         addSiteMastersToMembers();
 
         System.out.println("invoking " + num_msgs + " RPCs of " + Util.printBytes(msg_size) +
-                             ", sync=" + sync + ", oob=" + oob + ", use_anycast_addrs=" + use_anycast_addrs);
+                ", sync=" + sync + ", oob=" + oob + ", use_anycast_addrs=" + use_anycast_addrs);
         int total_gets=0, total_puts=0;
         final AtomicInteger num_msgs_sent=new AtomicInteger(0);
 
@@ -262,7 +270,7 @@ public class UPerfBox extends ReceiverAdapter {
 
 
     public void put(long key, byte[] val) {
-        
+
     }
 
     public ConfigOptions getConfig() {
@@ -277,16 +285,22 @@ public class UPerfBox extends ReceiverAdapter {
 
         addSiteMastersToMembers();
 
+        Collection<Address> dest;
+        if (anycastRequests)
+            dest = members;
+        else
+            dest = null;
+
         while(true) {
             c=Util.keyPress("[1] Send msgs [2] Print view [3] Print conns " +
-                              "[4] Trash conn [5] Trash all conns" +
-                              "\n[6] Set sender threads (" + num_threads + ") [7] Set num msgs (" + num_msgs + ") " +
-                              "[8] Set msg size (" + Util.printBytes(msg_size) + ")" +
-                              " [9] Set anycast count (" + anycast_count + ")" +
-                              "\n[o] Toggle OOB (" + oob + ") [s] Toggle sync (" + sync +
-                              ") [r] Set read percentage (" + f.format(read_percentage) + ") " +
-                              "[a] Toggle use_anycast_addrs (" + use_anycast_addrs + ")" +
-                              "\n[q] Quit\n");
+                    "[4] Trash conn [5] Trash all conns" +
+                    "\n[6] Set sender threads (" + num_threads + ") [7] Set num msgs (" + num_msgs + ") " +
+                    "[8] Set msg size (" + Util.printBytes(msg_size) + ")" +
+                    " [9] Set anycast count (" + anycast_count + ")" +
+                    "\n[o] Toggle OOB (" + oob + ") [s] Toggle sync (" + sync +
+                    ") [r] Set read percentage (" + f.format(read_percentage) + ") " +
+                    "[a] Toggle use_anycast_addrs (" + use_anycast_addrs + ")" +
+                    "\n[q] Quit\n");
             switch(c) {
                 case -1:
                     break;
@@ -311,31 +325,31 @@ public class UPerfBox extends ReceiverAdapter {
                     removeAllConnections();
                     break;
                 case '6':
-                    setSenderThreads();
+                    setSenderThreads(dest);
                     break;
                 case '7':
-                    setNumMessages();
+                    setNumMessages(dest);
                     break;
                 case '8':
-                    setMessageSize();
+                    setMessageSize(dest);
                     break;
                 case '9':
-                    setAnycastCount();
+                    setAnycastCount(dest);
                     break;
                 case 'a':
                     boolean new_value=!use_anycast_addrs;
-                    disp.callRemoteMethods(null, new MethodCall(SET_USE_ANYCAST_ADDRS, new_value), RequestOptions.SYNC());
+                    disp.callRemoteMethods(dest, new MethodCall(SET_USE_ANYCAST_ADDRS, new_value), RequestOptions.SYNC().setAnycasting(anycastRequests));
                     break;
                 case 'o':
                     new_value=!oob;
-                    disp.callRemoteMethods(null, new MethodCall(SET_OOB, new_value), RequestOptions.SYNC());
+                    disp.callRemoteMethods(dest, new MethodCall(SET_OOB, new_value), RequestOptions.SYNC().setAnycasting(anycastRequests));
                     break;
                 case 's':
                     boolean new_val=!sync;
-                    disp.callRemoteMethods(null, new MethodCall(SET_SYNC, new_val), RequestOptions.SYNC());
+                    disp.callRemoteMethods(dest, new MethodCall(SET_SYNC, new_val), RequestOptions.SYNC().setAnycasting(anycastRequests));
                     break;
                 case 'r':
-                    setReadPercentage();
+                    setReadPercentage(dest);
                     break;
                 case 'q':
                     channel.close();
@@ -349,7 +363,7 @@ public class UPerfBox extends ReceiverAdapter {
         }
     }
 
-   private void printConnections() {
+    private void printConnections() {
         Protocol prot=channel.getProtocolStack().findProtocol(Util.getUnicastProtocols());
         if(prot instanceof UNICAST)
             System.out.println("connections:\n" + ((UNICAST)prot).printConnections());
@@ -379,9 +393,17 @@ public class UPerfBox extends ReceiverAdapter {
 
     /** Kicks off the benchmark on all cluster nodes */
     void startBenchmark() throws Throwable {
-        RequestOptions options=new RequestOptions(ResponseMode.GET_ALL, 0);
+        System.out.println("Members at start | " + members);
+
+        Collection<Address> dest;
+        if (anycastRequests)
+            dest = members;
+        else
+            dest = null;
+
+        RequestOptions options=new RequestOptions(ResponseMode.GET_ALL, 0, anycastRequests);
         options.setFlags(Message.Flag.OOB, Message.Flag.DONT_BUNDLE, Message.NO_FC);
-        RspList<Object> responses=disp.callRemoteMethods(null, new MethodCall(START), options);
+        RspList<Object> responses=disp.callRemoteMethods(dest, new MethodCall(START), options);
 
         long total_reqs=0;
         long total_time=0;
@@ -401,44 +423,44 @@ public class UPerfBox extends ReceiverAdapter {
         Protocol prot=channel.getProtocolStack().findProtocol(Util.getUnicastProtocols());
         System.out.println("\n");
         System.out.println(Util.bold("Average of " + f.format(total_reqs_sec) + " requests / sec (" +
-                                       Util.printBytes(throughput) + " / sec), " +
-                                       f.format(ms_per_req) + " ms /request (prot=" + prot.getName() + ")"));
+                Util.printBytes(throughput) + " / sec), " +
+                f.format(ms_per_req) + " ms /request (prot=" + prot.getName() + ")"));
         System.out.println("\n\n");
     }
-    
 
-    void setSenderThreads() throws Exception {
+
+    void setSenderThreads(Collection<Address> dest) throws Exception {
         int threads=Util.readIntFromStdin("Number of sender threads: ");
-        disp.callRemoteMethods(null, new MethodCall(SET_NUM_THREADS, threads), RequestOptions.SYNC());
+        disp.callRemoteMethods(dest, new MethodCall(SET_NUM_THREADS, threads), RequestOptions.SYNC().setAnycasting(anycastRequests));
     }
 
-    void setNumMessages() throws Exception {
+    void setNumMessages(Collection<Address> dest) throws Exception {
         int tmp=Util.readIntFromStdin("Number of RPCs: ");
-        disp.callRemoteMethods(null, new MethodCall(SET_NUM_MSGS, tmp), RequestOptions.SYNC());
+        disp.callRemoteMethods(dest, new MethodCall(SET_NUM_MSGS, tmp), RequestOptions.SYNC().setAnycasting(anycastRequests));
     }
 
-    void setMessageSize() throws Exception {
+    void setMessageSize(Collection<Address> dest) throws Exception {
         int tmp=Util.readIntFromStdin("Message size: ");
-        disp.callRemoteMethods(null, new MethodCall(SET_MSG_SIZE, tmp), RequestOptions.SYNC());
+        disp.callRemoteMethods(dest, new MethodCall(SET_MSG_SIZE, tmp), RequestOptions.SYNC().setAnycasting(anycastRequests));
     }
 
-    void setReadPercentage() throws Exception {
+    void setReadPercentage(Collection<Address> dest) throws Exception {
         double tmp=Util.readDoubleFromStdin("Read percentage: ");
         if(tmp < 0 || tmp > 1.0) {
             System.err.println("read percentage must be >= 0 or <= 1.0");
             return;
         }
-        disp.callRemoteMethods(null, new MethodCall(SET_READ_PERCENTAGE, tmp), RequestOptions.SYNC());
+        disp.callRemoteMethods(dest, new MethodCall(SET_READ_PERCENTAGE, tmp), RequestOptions.SYNC().setAnycasting(anycastRequests));
     }
 
-    void setAnycastCount() throws Exception {
+    void setAnycastCount(Collection<Address> dest) throws Exception {
         int tmp=Util.readIntFromStdin("Anycast count: ");
-        View view=channel.getView();
-        if(tmp > view.size()) {
-            System.err.println("anycast count must be smaller or equal to the view size (" + view + ")\n");
+
+        if(tmp > members.size()) {
+            System.err.println("anycast count must be smaller or equal to the number of client nodes (" + members.size() + ")\n");
             return;
         }
-        disp.callRemoteMethods(null, new MethodCall(SET_ANYCAST_COUNT, tmp), RequestOptions.SYNC());
+        disp.callRemoteMethods(dest, new MethodCall(SET_ANYCAST_COUNT, tmp), RequestOptions.SYNC().setAnycasting(anycastRequests));
     }
 
 
@@ -460,7 +482,7 @@ public class UPerfBox extends ReceiverAdapter {
     /** Picks the next member in the view */
     private Address getReceiver() {
         try {
-            List<Address> mbrs=channel.getView().getMembers();
+            List<Address> mbrs = members;
             int index=mbrs.indexOf(local_addr);
             int new_index=index + 1 % mbrs.size();
             return mbrs.get(new_index);
@@ -519,7 +541,7 @@ public class UPerfBox extends ReceiverAdapter {
                 long i=num_msgs_sent.getAndIncrement();
                 if(i >= num_msgs_to_send)
                     break;
-                
+
                 boolean get=Util.tossWeightedCoin(read_percentage);
 
                 try {
@@ -568,7 +590,7 @@ public class UPerfBox extends ReceiverAdapter {
         long time=0;
 
         public Results() {
-            
+
         }
 
         public Results(int num_gets, int num_puts, long time) {
@@ -650,9 +672,9 @@ public class UPerfBox extends ReceiverAdapter {
 
         public String toString() {
             return "oob=" + oob + ", sync=" + sync + ", anycast_count=" + anycast_count +
-              ", use_anycast_addrs=" + use_anycast_addrs +
-              ", num_threads=" + num_threads + ", num_msgs=" + num_msgs + ", msg_size=" + msg_size +
-              ", read percentage=" + read_percentage;
+                    ", use_anycast_addrs=" + use_anycast_addrs +
+                    ", num_threads=" + num_threads + ", num_msgs=" + num_msgs + ", msg_size=" + msg_size +
+                    ", read percentage=" + read_percentage;
         }
     }
 
@@ -753,8 +775,8 @@ public class UPerfBox extends ReceiverAdapter {
         System.out.println(Arrays.toString(args));
         String  props=null;
         String  name=null;
-        boolean xsite=true;
-        List<String> boxMembers=null;
+        boolean xsite=true, anycastRequests = true, controlNode = false;
+        List<String> boxMembers = null;
 
         for(int i=0; i < args.length; i++) {
             if("-props".equals(args[i])) {
@@ -769,14 +791,22 @@ public class UPerfBox extends ReceiverAdapter {
                 xsite=Boolean.valueOf(args[++i]);
                 continue;
             }
+            if("-anycastRequests".equals(args[i])) {
+                anycastRequests=Boolean.valueOf(args[++i]);
+                continue;
+            }
+            if("-control".equals(args[i])) {
+                controlNode=Boolean.valueOf(args[++i]);
+                continue;
+            }
             if("-boxes".equals(args[i])) {
-                int count = i+1;
+                int count = i + 1;
                 boxMembers = new ArrayList<String>();
+                System.out.println("Count :=" + count);
                 while(count < args.length && args[count] != null && !args[count].contains("-")) {
-                    boxMembers.add(args[count]);
-                    count++;
+                    boxMembers.add(args[count++]);
                 }
-                i = count;
+                i = count - 1;
                 continue;
             }
             help();
@@ -786,8 +816,9 @@ public class UPerfBox extends ReceiverAdapter {
         UPerfBox test=null;
         try {
             test=new UPerfBox();
-            test.init(props, name, xsite, boxMembers);
-            test.eventLoop();
+            test.init(props, name, xsite, boxMembers, anycastRequests);
+            if (controlNode)
+                test.eventLoop();
         }
         catch(Throwable ex) {
             ex.printStackTrace();
