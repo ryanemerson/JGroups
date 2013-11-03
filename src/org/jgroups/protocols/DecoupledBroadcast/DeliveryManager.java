@@ -15,6 +15,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public class DeliveryManager {
     private final SortedSet<MessageRecord> deliverySet;
+    private final Set<Message> singleDestinationSet;
     private final Map<MessageId, Message> messageStore;
     private final ViewManager viewManager;
     private final AtomicInteger lastDelivered;
@@ -25,6 +26,7 @@ public class DeliveryManager {
         this.localAddress = localAddress;
 
         deliverySet = new TreeSet<MessageRecord>();
+        singleDestinationSet = new HashSet<Message>();
         messageStore = new ConcurrentHashMap<MessageId, Message>();
         lastDelivered = new AtomicInteger();
     }
@@ -44,6 +46,13 @@ public class DeliveryManager {
         }
     }
 
+    public void addSingleDestinationMessage(Message msg) {
+        synchronized (deliverySet) {
+            singleDestinationSet.add(msg);
+            deliverySet.notify();
+        }
+    }
+
     public void addMessageToStore(MessageId id, Message message) {
         message.setSrc(id.getOriginator());
         messageStore.put(id, message);
@@ -60,8 +69,19 @@ public class DeliveryManager {
                 deliverySet.wait();
             }
 
+            if (!singleDestinationSet.isEmpty()) {
+                msgsToDeliver.addAll(singleDestinationSet);
+                singleDestinationSet.clear();
+                return msgsToDeliver;
+            }
+
             if (!deliverySet.first().isDeliverable) {
                 deliverySet.wait();
+            }
+
+            if (!singleDestinationSet.isEmpty()) {
+                msgsToDeliver.addAll(singleDestinationSet);
+                singleDestinationSet.clear();
             }
 
             Iterator<MessageRecord> iterator = deliverySet.iterator();

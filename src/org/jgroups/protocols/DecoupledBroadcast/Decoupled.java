@@ -85,7 +85,8 @@ public class Decoupled extends Protocol {
                     case DecoupledHeader.BROADCAST:
                         handleBroadcast(header, message);
                         break;
-                    case DecoupledHeader.MESSAGE_REQUEST:
+                    case DecoupledHeader.SINGLE_DESTINATION:
+                        handleSingleDestination(message);
                         break;
                 }
                 return null;
@@ -131,7 +132,7 @@ public class Decoupled extends Protocol {
             if (checkIfDestinationIsBox((AnycastAddress) destination)) {
                 throw new IllegalArgumentException("Can't send message to box member!");
             } else {
-                sendOrderingRequest(((AnycastAddress) destination).getAddresses(), message);
+                sendTotalOrderAnycast(((AnycastAddress) destination).getAddresses(), message);
             }
         } else if (destination != null && destination instanceof AnycastAddress) {
             sendNoTotalOrderAnycast(((AnycastAddress)destination).getAddresses(),message);
@@ -150,6 +151,21 @@ public class Decoupled extends Protocol {
                 messageCopy.setDest(destination);
                 down_prot.down(new Event(Event.MSG, messageCopy));
             }
+        }
+    }
+
+    private void sendTotalOrderAnycast(Collection<Address> destinations, Message message) {
+        if (destinations.isEmpty())
+            destinations.addAll(view.getMembers());
+
+        if (destinations.size() == 1) {
+            MessageId messageId = new MessageId(localAddress, localSequence.getAndIncrement()); // Increment localSequence
+            MessageInfo messageInfo = new MessageInfo(messageId, view.getViewId(), viewManager.getDestinationsAsByteArray(destinations));
+            message.putHeader(id, DecoupledHeader.createSingleDestination(messageInfo));
+            message.setDest(destinations.iterator().next());
+            down_prot.down(new Event(Event.MSG, message));
+        } else {
+            sendOrderingRequest(destinations, message);
         }
     }
 
@@ -209,8 +225,10 @@ public class Decoupled extends Protocol {
         deliveryManager.addMessageToDeliver(header, message);
     }
 
-    private void sendMessageRequest() {
-        // If this message has not received a prior message and it is blocking message delivery, send a message request
+    private void handleSingleDestination(Message message) {
+        if (log.isDebugEnabled())
+            log.debug("Single Destination Message received | " + message.getHeader(id));
+        deliveryManager.addSingleDestinationMessage(message);
     }
 
     private void deliverMessage(Message message) {

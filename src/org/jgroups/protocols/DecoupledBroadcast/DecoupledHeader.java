@@ -22,7 +22,7 @@ final public class DecoupledHeader extends Header {
     public static final byte BOX_RESPONSE = 3; // A response from the box
     public static final byte BOX_ORDERING = 4; // Ordering a boxRequest
     public static final byte BROADCAST = 5; // Actual broadcsat of a message to anycast destinations
-    public static final byte MESSAGE_REQUEST = 6; // Request for a missing message (shouldn't be necessary)
+    public static final byte SINGLE_DESTINATION = 6; // Request for a missing message (shouldn't be necessary)
 
     private byte type = 0;
     private MessageInfo messageInfo = null;
@@ -51,8 +51,8 @@ final public class DecoupledHeader extends Header {
         return new DecoupledHeader(BROADCAST, info, orderList);
     }
 
-    public static DecoupledHeader createMessageRequest(MessageInfo info) {
-        return new DecoupledHeader(MESSAGE_REQUEST, info, null);
+    public static DecoupledHeader createSingleDestination(MessageInfo info) {
+        return new DecoupledHeader(SINGLE_DESTINATION, info, null);
     }
 
     public DecoupledHeader(byte type, MessageInfo messageInfo, List<MessageInfo> orderList) {
@@ -120,7 +120,7 @@ final public class DecoupledHeader extends Header {
             case BOX_RESPONSE:          return "BOX_RESPONSE";
             case BOX_ORDERING:          return "BOX_ORDERING";
             case BROADCAST:	            return "BROADCAST";
-            case MESSAGE_REQUEST:       return "MESSAGE_REQUEST";
+            case SINGLE_DESTINATION:       return "SINGLE_DESTINATION";
             default:                        return "UNDEFINED(" + t + ")";
         }
     }
