@@ -19,7 +19,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @since 4.0
  */
 public class OrderingBox {
-    private int orderListSize = 50;
+    private int numberOfOldMessagesQueued = 50;
+    private int numberOfMessagesToSend = 5;
 
     private final short id;
     private final Log log;
@@ -37,7 +38,7 @@ public class OrderingBox {
         this.downProtocol = downProtocol;
         this.viewManager = viewManager;
         this.boxMembers = boxMembers;
-        orderQueue = new ArrayBlockingQueue<MessageInfo>(orderListSize);
+        orderQueue = new ArrayBlockingQueue<MessageInfo>(numberOfOldMessagesQueued);
         globalSequence = new AtomicInteger();
         requestCache = new HashSet<MessageId>();
     }
@@ -96,18 +97,15 @@ public class OrderingBox {
 
     private List<MessageInfo> getRelevantMessages(Collection<Address> destinations) {
         List<MessageInfo> orderList = new ArrayList<MessageInfo>(orderQueue);
-        Iterator<MessageInfo> i = orderList.iterator();
-        while(i.hasNext()) {
-            boolean required = false;
-            MessageInfo info = i.next();
+        List<MessageInfo> relevantMsgs = new ArrayList<MessageInfo>();
+        for (MessageInfo info : orderList) {
             for(Address a : viewManager.getDestinations(info)) {
                 if (destinations.contains(a)) {
-                    required = true;
-                    break;
+                    relevantMsgs.add(info);
+                    if (relevantMsgs.size() == numberOfMessagesToSend)
+                        return relevantMsgs;
                 }
             }
-            if (!required)
-                i.remove();
         }
         return orderList;
     }
