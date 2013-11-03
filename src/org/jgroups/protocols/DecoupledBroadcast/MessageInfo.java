@@ -1,14 +1,13 @@
 package org.jgroups.protocols.DecoupledBroadcast;
 
-import org.jgroups.Address;
 import org.jgroups.Global;
+import org.jgroups.ViewId;
 import org.jgroups.util.SizeStreamable;
 import org.jgroups.util.Util;
 
 import java.io.DataInput;
 import java.io.DataOutput;
-import java.util.ArrayList;
-import java.util.Collection;
+import java.util.Arrays;
 
 /**
  * // TODO: Document this
@@ -19,18 +18,20 @@ import java.util.Collection;
 public class MessageInfo implements Comparable<MessageInfo>, SizeStreamable {
     private MessageId id = null;
     private long ordering = -1; // Sequence provided by the BOX, value created after TOA and before placed in the queue
-    private Collection<Address> destinations = null; // Addresses of the nodes that the message is intended for
+    private ViewId viewId = null;
+    private byte[] destinations = new byte[0];
 
     public MessageInfo() {
     }
 
-    public MessageInfo(MessageId id, Collection<Address> destinations) {
-        this (id, -1, destinations);
+    public MessageInfo(MessageId id, ViewId viewId, byte[] destinations) {
+        this(id, -1, viewId, destinations);
     }
 
-    public MessageInfo(MessageId id, long ordering, Collection<Address> destinations) {
+    public MessageInfo(MessageId id, long ordering, ViewId viewId, byte[] destinations) {
         this.id = id;
         this.ordering = ordering;
+        this.viewId = viewId;
         this.destinations = destinations;
     }
 
@@ -50,31 +51,41 @@ public class MessageInfo implements Comparable<MessageInfo>, SizeStreamable {
         this.ordering = ordering;
     }
 
-    public Collection<Address> getDestinations() {
+    public ViewId getViewId() {
+        return viewId;
+    }
+
+    public void setViewId(ViewId viewId) {
+        this.viewId = viewId;
+    }
+
+    public byte[] getDestinations() {
         return destinations;
     }
 
-    public void setDestinations(Collection<Address> destinations) {
+    public void setDestinations(byte[] destinations) {
         this.destinations = destinations;
     }
 
     @Override
     public int size() {
-        return id.size() + Global.INT_SIZE + (int) Util.size(destinations);
+        return id.size() + Global.INT_SIZE + viewId.serializedSize() + Util.size(destinations);
     }
 
     @Override
     public void writeTo(DataOutput out) throws Exception {
         writeMessageId(id, out);
         Util.writeLong(ordering, out);
-        Util.writeAddresses(destinations, out);
+        Util.writeViewId(viewId, out);
+        Util.writeByteBuffer(destinations, out);
     }
 
     @Override
     public void readFrom(DataInput in) throws Exception {
         id = readMessageId(in);
         ordering = Util.readLong(in);
-        destinations = (Collection<Address>) Util.readAddresses(in, ArrayList.class);
+        viewId = Util.readViewId(in);
+        destinations = Util.readByteBuffer(in);
     }
 
     @Override
@@ -84,9 +95,9 @@ public class MessageInfo implements Comparable<MessageInfo>, SizeStreamable {
 
         MessageInfo that = (MessageInfo) o;
 
-        if (ordering != that.ordering) return false;
-        if (destinations != null ? !destinations.equals(that.destinations) : that.destinations != null) return false;
+        if (!Arrays.equals(destinations, that.destinations)) return false;
         if (id != null ? !id.equals(that.id) : that.id != null) return false;
+        if (viewId != null ? !viewId.equals(that.viewId) : that.viewId != null) return false;
 
         return true;
     }
@@ -94,8 +105,8 @@ public class MessageInfo implements Comparable<MessageInfo>, SizeStreamable {
     @Override
     public int hashCode() {
         int result = id != null ? id.hashCode() : 0;
-        result = 31 * result + (int) (ordering ^ (ordering >>> 32));
-        result = 31 * result + (destinations != null ? destinations.hashCode() : 0);
+        result = 31 * result + (viewId != null ? viewId.hashCode() : 0);
+        result = 31 * result + (destinations != null ? Arrays.hashCode(destinations) : 0);
         return result;
     }
 
@@ -114,7 +125,8 @@ public class MessageInfo implements Comparable<MessageInfo>, SizeStreamable {
         return "MessageInfo{" +
                 "id=" + id +
                 ", ordering=" + ordering +
-                ", destinations=" + destinations +
+                ", viewId=" + viewId +
+                ", destinations=" + Arrays.toString(destinations) +
                 '}';
     }
 

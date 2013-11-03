@@ -25,7 +25,8 @@ public class Decoupled extends Protocol {
     private boolean boxMember = false;
 
     private Address localAddress = null;
-    private final DeliveryManager deliveryManager = new DeliveryManager(localAddress);
+    private final ViewManager viewManager = new ViewManager();
+    private final DeliveryManager deliveryManager = new DeliveryManager(viewManager, localAddress);
     private View view = null;
     private List<Address> boxMembers = new ArrayList<Address>();
     private OrderingBox box;
@@ -40,7 +41,7 @@ public class Decoupled extends Protocol {
     public void init() throws Exception {
         setLevel("info");
         if (boxMember)
-            box = new OrderingBox(id, log, down_prot, boxMembers);
+            box = new OrderingBox(id, log, down_prot, viewManager, boxMembers);
     }
 
     @Override
@@ -49,7 +50,7 @@ public class Decoupled extends Protocol {
         executor.execute(new DeliverMessages());
 
         if (boxMember)
-            getTransport().getTimer().schedule(new BoxMemberAnnouncement(), 10, TimeUnit.SECONDS);
+            getTransport().getTimer().schedule(new BoxMemberAnnouncement(), 20, TimeUnit.SECONDS);
     }
 
     @Override
@@ -90,6 +91,7 @@ public class Decoupled extends Protocol {
                 return null;
             case Event.VIEW_CHANGE:
                 view = (View) event.getArg();
+                viewManager.setCurrentView(view);
                 break;
         }
         return up_prot.up(event);
@@ -159,7 +161,7 @@ public class Decoupled extends Protocol {
         MessageId messageId = new MessageId(localAddress, localSequence.getAndIncrement()); // Increment localSequence
         deliveryManager.addMessageToStore(messageId, message);
 
-        MessageInfo messageInfo = new MessageInfo(messageId, destinations);
+        MessageInfo messageInfo = new MessageInfo(messageId, view.getViewId(), viewManager.getDestinationsAsByteArray(destinations));
         DecoupledHeader header = DecoupledHeader.createBoxRequest(messageInfo);
         Address destination = boxMembers.get(random.nextInt(boxMembers.size())); // Select box at random
         Message requestMessage = new Message(destination).src(localAddress).putHeader(id, header);
@@ -179,7 +181,7 @@ public class Decoupled extends Protocol {
         Message message = deliveryManager.getMessageFromStore(messageInfo.getId());
         message.putHeader(id, header);
 
-        broadcastMessage(messageInfo.getDestinations(), message);
+        broadcastMessage(viewManager.getDestinations(messageInfo), message);
     }
 
     private void broadcastMessage(Collection<Address> destinations, Message message) {

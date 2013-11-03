@@ -16,10 +16,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class DeliveryManager {
     private final SortedSet<MessageRecord> deliverySet;
     private final Map<MessageId, Message> messageStore;
+    private final ViewManager viewManager;
     private final AtomicInteger lastDelivered;
     private Address localAddress;
 
-    public DeliveryManager(Address localAddress) {
+    public DeliveryManager(ViewManager viewManager, Address localAddress) {
+        this.viewManager = viewManager;
         this.localAddress = localAddress;
 
         deliverySet = new TreeSet<MessageRecord>();
@@ -67,6 +69,7 @@ public class DeliveryManager {
                 MessageRecord record = iterator.next();
                 if (record.isDeliverable) {
                     msgsToDeliver.add(record.message);
+                    viewManager.removeOldViews(record.header.getMessageInfo());
                     iterator.remove();
                 } else {
                     break;
@@ -94,7 +97,7 @@ public class DeliveryManager {
 
         long thisMessagesOrder = messageInfo.getOrdering();
         for (MessageInfo info : header.getOrderList()) {
-            if (info.getDestinations().contains(localAddress)) {
+            if (viewManager.containsAddress(info, localAddress)) {
                 long olderMessageOrdering = info.getOrdering();
                 if (olderMessageOrdering > lastDelivered.intValue() && olderMessageOrdering < thisMessagesOrder) {
                     record.isDeliverable = false;

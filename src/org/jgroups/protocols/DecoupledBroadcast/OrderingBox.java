@@ -24,16 +24,18 @@ public class OrderingBox {
     private final short id;
     private final Log log;
     private final Protocol downProtocol;
+    private final ViewManager viewManager;
     private final List<Address> boxMembers;
     private final BlockingQueue<MessageInfo> orderQueue;
     private final AtomicInteger globalSequence;
     private final Set<MessageId> requestCache;
     private Address localAddress;
 
-    public OrderingBox(short id, Log log, Protocol downProtocol, List<Address> boxMembers) {
+    public OrderingBox(short id, Log log, Protocol downProtocol, ViewManager viewManager, List<Address> boxMembers) {
         this.id = id;
         this.log = log;
         this.downProtocol = downProtocol;
+        this.viewManager = viewManager;
         this.boxMembers = boxMembers;
         orderQueue = new ArrayBlockingQueue<MessageInfo>(orderListSize);
         globalSequence = new AtomicInteger();
@@ -85,7 +87,7 @@ public class OrderingBox {
         if (log.isDebugEnabled())
             log.debug("Send ordering response | " + messageInfo);
         // Send the latest version of the order list to the src of the orderRequest
-        List<MessageInfo> orderList = getRelevantMessages(messageInfo.getDestinations());
+        List<MessageInfo> orderList = getRelevantMessages(viewManager.getDestinations(messageInfo));
         DecoupledHeader header = DecoupledHeader.createBoxResponse(messageInfo, orderList);
         Message message = new Message(messageInfo.getId().getOriginator()).src(localAddress).putHeader(id, header);
         downProtocol.down(new Event(Event.MSG, message));
@@ -98,7 +100,7 @@ public class OrderingBox {
         while(i.hasNext()) {
             boolean required = false;
             MessageInfo info = i.next();
-            for(Address a : info.getDestinations()) {
+            for(Address a : viewManager.getDestinations(info)) {
                 if (destinations.contains(a)) {
                     required = true;
                     break;
