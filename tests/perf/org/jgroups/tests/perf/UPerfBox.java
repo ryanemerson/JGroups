@@ -133,7 +133,7 @@ public class UPerfBox extends ReceiverAdapter {
 
         if(members.size() < 2)
             return;
-        Address coord=members.get(0);
+        Address coord = pickCoordinator();
         System.out.println("Coordinator := " + coord);
         ConfigOptions config=(ConfigOptions)disp.callRemoteMethod(coord, new MethodCall(GET_CONFIG), new RequestOptions(ResponseMode.GET_ALL, 5000));
         if(config != null) {
@@ -155,6 +155,17 @@ public class UPerfBox extends ReceiverAdapter {
         if(disp != null)
             disp.stop();
         Util.close(channel);
+    }
+
+    private Address pickCoordinator() {
+        if (boxMembers == null)
+            return members.get(0);
+        for (Address address : members) {
+            for (String boxName : boxMembers)
+                if (!address.toString().contains(boxName))
+                    return address;
+        }
+        return null;
     }
 
     public void viewAccepted(View new_view) {
@@ -186,8 +197,10 @@ public class UPerfBox extends ReceiverAdapter {
         while (i.hasNext()) {
             Address address = i.next();
             for (String boxName : boxMembers) {
-                if (address.toString().contains(boxName))
+                if (address.toString().contains(boxName)) {
+                    System.out.println("Remove | " + address);
                     i.remove();
+                }
             }
         }
     }
@@ -393,6 +406,9 @@ public class UPerfBox extends ReceiverAdapter {
 
     /** Kicks off the benchmark on all cluster nodes */
     void startBenchmark() throws Throwable {
+        synchronized (members) {
+            removeBoxMembers(members);
+        }
         System.out.println("Members at start | " + members);
 
         Collection<Address> dest;
