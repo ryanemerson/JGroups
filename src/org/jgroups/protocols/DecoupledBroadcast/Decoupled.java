@@ -33,6 +33,8 @@ public class Decoupled extends Protocol {
     private AtomicInteger localSequence = new AtomicInteger(); // This nodes sequence number
     private Random random = new Random(); // Random object for selecting which box member to use
     private ExecutorService executor;
+    // If true then ordering requests will only be sent to one box member, otherwise all box members are used
+    private final boolean singleOrderPoint = true;
 
     public Decoupled() {
     }
@@ -193,7 +195,8 @@ public class Decoupled extends Protocol {
 
         MessageInfo messageInfo = new MessageInfo(messageId, view.getViewId(), dest);
         DecoupledHeader header = DecoupledHeader.createBoxRequest(messageInfo);
-        Address destination = boxMembers.get(random.nextInt(boxMembers.size())); // Select box at random
+
+        Address destination = singleOrderPoint ? boxMembers.get(0) : boxMembers.get(random.nextInt(boxMembers.size())); // Select box at random;
         Message requestMessage = new Message(destination).src(localAddress).putHeader(id, header);
         down_prot.down(new Event(Event.MSG, requestMessage));
 
