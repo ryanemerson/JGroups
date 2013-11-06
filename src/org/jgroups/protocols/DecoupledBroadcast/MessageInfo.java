@@ -1,6 +1,5 @@
 package org.jgroups.protocols.DecoupledBroadcast;
 
-import org.jgroups.Global;
 import org.jgroups.ViewId;
 import org.jgroups.util.SizeStreamable;
 import org.jgroups.util.Util;
@@ -18,6 +17,7 @@ import java.util.Arrays;
 public class MessageInfo implements Comparable<MessageInfo>, SizeStreamable {
     private MessageId id = null;
     private long ordering = -1; // Sequence provided by the BOX, value created after TOA and before placed in the queue
+    private long[] lastOrderSequence = new long[0];
     private ViewId viewId = null;
     private byte[] destinations = new byte[0];
 
@@ -51,6 +51,14 @@ public class MessageInfo implements Comparable<MessageInfo>, SizeStreamable {
         this.ordering = ordering;
     }
 
+    public long[] getLastOrderSequence() {
+        return lastOrderSequence;
+    }
+
+    public void setLastOrderSequence(long[] lastOrderSequence) {
+        this.lastOrderSequence = lastOrderSequence;
+    }
+
     public ViewId getViewId() {
         return viewId;
     }
@@ -69,13 +77,14 @@ public class MessageInfo implements Comparable<MessageInfo>, SizeStreamable {
 
     @Override
     public int size() {
-        return id.size() + Global.INT_SIZE + viewId.serializedSize() + Util.size(destinations);
+        return id.size() + Util.size(ordering) + longArraySize(lastOrderSequence) + viewId.serializedSize() + Util.size(destinations);
     }
 
     @Override
     public void writeTo(DataOutput out) throws Exception {
         writeMessageId(id, out);
         Util.writeLong(ordering, out);
+        writeLongArray(lastOrderSequence, out);
         Util.writeViewId(viewId, out);
         Util.writeByteBuffer(destinations, out);
     }
@@ -84,6 +93,7 @@ public class MessageInfo implements Comparable<MessageInfo>, SizeStreamable {
     public void readFrom(DataInput in) throws Exception {
         id = readMessageId(in);
         ordering = Util.readLong(in);
+        lastOrderSequence = readLongArray(in);
         viewId = Util.readViewId(in);
         destinations = Util.readByteBuffer(in);
     }
@@ -95,8 +105,10 @@ public class MessageInfo implements Comparable<MessageInfo>, SizeStreamable {
 
         MessageInfo that = (MessageInfo) o;
 
+        if (ordering != that.ordering) return false;
         if (!Arrays.equals(destinations, that.destinations)) return false;
         if (id != null ? !id.equals(that.id) : that.id != null) return false;
+        if (!Arrays.equals(lastOrderSequence, that.lastOrderSequence)) return false;
         if (viewId != null ? !viewId.equals(that.viewId) : that.viewId != null) return false;
 
         return true;
@@ -105,6 +117,8 @@ public class MessageInfo implements Comparable<MessageInfo>, SizeStreamable {
     @Override
     public int hashCode() {
         int result = id != null ? id.hashCode() : 0;
+        result = 31 * result + (int) (ordering ^ (ordering >>> 32));
+        result = 31 * result + (lastOrderSequence != null ? Arrays.hashCode(lastOrderSequence) : 0);
         result = 31 * result + (viewId != null ? viewId.hashCode() : 0);
         result = 31 * result + (destinations != null ? Arrays.hashCode(destinations) : 0);
         return result;
@@ -125,6 +139,7 @@ public class MessageInfo implements Comparable<MessageInfo>, SizeStreamable {
         return "MessageInfo{" +
                 "id=" + id +
                 ", ordering=" + ordering +
+                ", lastOrderSequence=" + Arrays.toString(lastOrderSequence) +
                 ", viewId=" + viewId +
                 ", destinations=" + Arrays.toString(destinations) +
                 '}';
@@ -147,6 +162,38 @@ public class MessageInfo implements Comparable<MessageInfo>, SizeStreamable {
             MessageId id = new MessageId();
             id.readFrom(in);
             return id;
+        }
+    }
+
+    private int longArraySize(long[] array) {
+        int total = 0;
+        for (long l : array) {
+            total += Util.size(l);
+        }
+        return total;
+    }
+
+    private void writeLongArray(long[] array, DataOutput out) throws Exception {
+        if(array != null) {
+            out.writeShort(array.length);
+            for (long l : array) {
+                Util.writeLong(l, out);
+            }
+        } else {
+            out.writeShort(-1);
+        }
+    }
+
+    private long[] readLongArray(DataInput in) throws Exception {
+        short length = in.readShort();
+        if (length < 0) {
+            return null;
+        } else {
+            long[] array = new long[length];
+            for (int i = 0; i < length; i++) {
+                array[i] = Util.readLong(in);
+            }
+            return array;
         }
     }
 }

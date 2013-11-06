@@ -8,8 +8,6 @@ import org.jgroups.logging.Log;
 import org.jgroups.stack.Protocol;
 
 import java.util.*;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -19,15 +17,12 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @since 4.0
  */
 public class OrderingBox {
-    private int numberOfOldMessagesQueued = 50;
-    private int numberOfMessagesToSend = 5;
-
     private final short id;
     private final Log log;
     private final Protocol downProtocol;
     private final ViewManager viewManager;
     private final List<Address> boxMembers;
-    private final BlockingQueue<MessageInfo> orderQueue;
+    private final Map<Address, Long> orderStore;
     private final AtomicInteger globalSequence;
     private final Set<MessageId> requestCache;
     private Address localAddress;
@@ -38,9 +33,9 @@ public class OrderingBox {
         this.downProtocol = downProtocol;
         this.viewManager = viewManager;
         this.boxMembers = boxMembers;
-        orderQueue = new ArrayBlockingQueue<MessageInfo>(numberOfOldMessagesQueued);
+        orderStore = Collections.synchronizedMap(new HashMap<Address, Long>());
         globalSequence = new AtomicInteger();
-        requestCache = new HashSet<MessageId>();
+        requestCache = Collections.synchronizedSet(new HashSet<MessageId>());
     }
 
     public void setLocalAddress(Address localAddress) {
@@ -48,72 +43,78 @@ public class OrderingBox {
     }
 
     public void handleOrderingRequest(MessageInfo messageInfo) {
-        if (log.isDebugEnabled())
-            log.debug("Ordering request received | " + messageInfo);
+        if (log.isTraceEnabled())
+            log.trace("Ordering request received | " + messageInfo);
         requestCache.add(messageInfo.getId());
+        log.debug("Cache contains " + messageInfo.getId() + " := " + requestCache.contains(messageInfo.getId()));
+        log.debug("Received ordering request | " + messageInfo.getOrdering() + " | " + messageInfo.getId());
         // Send TOA message to all boxMembers
         sendToAllBoxMembers(messageInfo);
     }
 
     private void sendToAllBoxMembers(MessageInfo messageInfo) {
-        if (log.isDebugEnabled())
-            log.debug("Send request to all box members | " + messageInfo);
+        if (log.isTraceEnabled())
+            log.trace("Send request to all box members | " + messageInfo);
         // Forward request to all box members
         DecoupledHeader header = DecoupledHeader.createBoxOrdering(messageInfo);
 
         // AnycastAddress is ok because TOA is the protocol below, when we are box member
         // If TOA is not used, a requirement of the protocol below is that it accepts Anycast Addresses
-        Message message = new Message(new AnycastAddress(boxMembers)).src(localAddress).putHeader(id, header);
+//        Message message = new Message(new AnycastAddress(boxMembers)).src(localAddress).putHeader(id, header);
+        AnycastAddress anycastAddress = new AnycastAddress(boxMembers);
+        log.debug("Send ordering to := " + anycastAddress);
+        Message message = new Message(anycastAddress).putHeader(id, header);
         downProtocol.down(new Event(Event.MSG, message));
     }
 
-    public void receiveOrdering(MessageInfo messageInfo) {
-        if (log.isDebugEnabled())
-            log.debug("Receive Ordering message | " + messageInfo);
+    public void receiveOrdering(MessageInfo messageInfo, Message message) {
+        if (log.isTraceEnabled())
+            log.trace("Receive Ordering message | " + messageInfo);
+
         // Once a message has been received at this layer, it will have been received at others (at least in the same order)
         // Increment sequence, retrive ordering request, place into ordered list
         // If you are the source of the message: update ordering request and return to the originator
         messageInfo.setOrdering(globalSequence.incrementAndGet());
-        addOrderingToQueue(messageInfo);
 
-        if (log.isDebugEnabled())
-            log.debug("Global Sequence := " + globalSequence.intValue());
+        log.debug(messageInfo.getId() + " | ordering := " + messageInfo.getOrdering());
+        // Prepare header lastOrderSequence and save messageOrdering
+        setLastOrderSequences(messageInfo);
+
+        if (log.isTraceEnabled())
+            log.trace("Global Sequence := " + globalSequence.intValue());
 
         // If the messageId is in the requestCache then this node handled the original request, send a response
         if (requestCache.contains(messageInfo.getId()))
             sendOrderingResponse(messageInfo);
+        else
+            log.debug("Don't respond request did not originate here | " + messageInfo.getOrdering() + " | " + messageInfo.getId());
     }
 
     private void sendOrderingResponse(MessageInfo messageInfo) {
-        if (log.isDebugEnabled())
-            log.debug("Send ordering response | " + messageInfo);
+        if (log.isTraceEnabled())
+            log.trace("Send ordering response | " + messageInfo);
+
+        log.debug("Send ordering response | " + messageInfo.getOrdering() + " | " + messageInfo.getId());
+
         // Send the latest version of the order list to the src of the orderRequest
-        List<MessageInfo> orderList = getRelevantMessages(viewManager.getDestinations(messageInfo));
-        DecoupledHeader header = DecoupledHeader.createBoxResponse(messageInfo, orderList);
+        DecoupledHeader header = DecoupledHeader.createBoxResponse(messageInfo);
         Message message = new Message(messageInfo.getId().getOriginator()).src(localAddress).putHeader(id, header);
         downProtocol.down(new Event(Event.MSG, message));
         requestCache.remove(messageInfo.getId()); // Remove old id
     }
 
-    private List<MessageInfo> getRelevantMessages(Collection<Address> destinations) {
-        List<MessageInfo> orderList = new ArrayList<MessageInfo>(orderQueue);
-        List<MessageInfo> relevantMsgs = new ArrayList<MessageInfo>();
-        for (MessageInfo info : orderList) {
-            for(Address a : viewManager.getDestinations(info)) {
-                if (destinations.contains(a)) {
-                    relevantMsgs.add(info);
-                    if (relevantMsgs.size() == numberOfMessagesToSend)
-                        return relevantMsgs;
-                }
+    private void setLastOrderSequences(MessageInfo messageInfo) {
+        long[] lastOrderSequences = new long[messageInfo.getDestinations().length];
+        List<Address> destinations = viewManager.getDestinations(messageInfo);
+        for (int i = 0; i < destinations.size(); i++) {
+            Address destination = destinations.get(i);
+            if (!orderStore.containsKey(destination)) {
+                lastOrderSequences[i] = -1;
+                orderStore.put(destinations.get(i), messageInfo.getOrdering());
+            } else {
+                lastOrderSequences[i] = orderStore.put(destination, messageInfo.getOrdering());
             }
         }
-        return orderList;
-    }
-
-    private void addOrderingToQueue(MessageInfo message) {
-        if (orderQueue.remainingCapacity() == 0)
-            orderQueue.poll();
-
-        orderQueue.add(message);
+        messageInfo.setLastOrderSequence(lastOrderSequences);
     }
 }

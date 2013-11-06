@@ -2,10 +2,10 @@ package org.jgroups.protocols.DecoupledBroadcast;
 
 import org.jgroups.Address;
 import org.jgroups.Message;
+import org.jgroups.logging.Log;
 
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * // TODO: Document this
@@ -16,34 +16,22 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class DeliveryManager {
     private final SortedSet<MessageRecord> deliverySet;
     private final Set<Message> singleDestinationSet;
-    private final Map<MessageId, Message> messageStore;
     private final ViewManager viewManager;
-    private final AtomicInteger lastDelivered;
+    private final AtomicLong lastDelivered;
+    private final Log log;
     private Address localAddress;
 
-    public DeliveryManager(ViewManager viewManager, Address localAddress) {
+    public DeliveryManager(Log log, ViewManager viewManager) {
+        this.log = log;
         this.viewManager = viewManager;
-        this.localAddress = localAddress;
 
-        deliverySet = new TreeSet<MessageRecord>();
+        deliverySet = Collections.synchronizedSortedSet(new TreeSet<MessageRecord>());
         singleDestinationSet = new HashSet<Message>();
-        messageStore = new ConcurrentHashMap<MessageId, Message>();
-        lastDelivered = new AtomicInteger();
+        lastDelivered = new AtomicLong();
     }
 
-    public void addMessageToDeliver(DecoupledHeader header, Message message) {
-        MessageRecord record = new MessageRecord(header, message);
-        readyToDeliver(record);
-        synchronized (deliverySet) {
-            deliverySet.add(record);
-
-            if (deliverySet.first().isDeliverable) {
-                if (deliverySet.size() != 1) {
-                    recheckRecords();
-                }
-                deliverySet.notify();
-            }
-        }
+    public void setLocalAddress(Address localAddress) {
+        this.localAddress = localAddress;
     }
 
     public void addSingleDestinationMessage(Message msg) {
@@ -53,19 +41,10 @@ public class DeliveryManager {
         }
     }
 
-    public void addMessageToStore(MessageId id, Message message) {
-        message.setSrc(id.getOriginator());
-        messageStore.put(id, message);
-    }
-
-    public Message getMessageFromStore(MessageId id) {
-        return messageStore.get(id);
-    }
-
     public List<Message> getNextMessagesToDeliver() throws InterruptedException {
         LinkedList<Message> msgsToDeliver = new LinkedList<Message>();
         synchronized (deliverySet) {
-            while (deliverySet.isEmpty()) {
+            while (deliverySet.isEmpty() && singleDestinationSet.isEmpty()) {
                 deliverySet.wait();
             }
 
@@ -99,39 +78,57 @@ public class DeliveryManager {
         return msgsToDeliver;
     }
 
-    private void recheckRecords() {
-        for (MessageRecord record: deliverySet) {
-            readyToDeliver(record);
-        }
-    }
-
-    private void readyToDeliver(MessageRecord record) {
-        DecoupledHeader header = record.header;
-        MessageInfo messageInfo = header.getMessageInfo();
-        // The ordering sequence of the last delivered message.  If a message is received that is +1 to this, we can deliver immediately
-        // otherwise we need to check the ordering list
-        if (messageInfo.getOrdering() == lastDelivered.intValue() + 1) {
-            record.isDeliverable = true;
+    public void addMessageToDeliver(DecoupledHeader header, Message message) {
+        if (header.getMessageInfo().getOrdering() <= lastDelivered.longValue()) {
+            log.debug("Message already received or Missed! | " + header.getMessageInfo().getOrdering());
             return;
         }
-
-        long thisMessagesOrder = messageInfo.getOrdering();
-        for (MessageInfo info : header.getOrderList()) {
-            if (viewManager.containsAddress(info, localAddress)) {
-                long olderMessageOrdering = info.getOrdering();
-                if (olderMessageOrdering > lastDelivered.intValue() && olderMessageOrdering < thisMessagesOrder) {
-                    record.isDeliverable = false;
-                    return;
-                }
+        log.debug("Add message to deliver | " + header.getMessageInfo() + " | lastDelivered := " + lastDelivered.longValue());
+        MessageRecord record = new MessageRecord(header, message);
+        synchronized (deliverySet) {
+            readyToDeliver(record);
+            deliverySet.add(record);
+            MessageRecord firstRecord = deliverySet.first();
+            if (firstRecord.isDeliverable) {
+                recheckRecords(firstRecord);
+                deliverySet.notify();
             }
         }
-        record.isDeliverable = true;
     }
 
-    private class MessageRecord implements Comparable<MessageRecord> {
-        private DecoupledHeader header;
-        private Message message;
-        private boolean isDeliverable;
+    private boolean readyToDeliver(MessageRecord record) {
+        DecoupledHeader header = record.header;
+        MessageInfo messageInfo = header.getMessageInfo();
+        long thisMessagesOrder = messageInfo.getOrdering();
+        long lastDelivery = lastDelivered.longValue();
+
+        long lastOrdering = viewManager.getLastOrdering(messageInfo, localAddress);
+        if (lastOrdering < 0 || (lastOrdering > 0 && lastOrdering <= lastDelivery)) {
+            // lastOrder has already been delivered, so this message is deliverable
+            record.isDeliverable = true;
+            lastDelivered.set(thisMessagesOrder);
+            log.debug("readyToDeliver 2 := " + messageInfo.getOrdering());
+            log.debug("LastDelivered == " + lastDelivered.longValue() + " | | " + thisMessagesOrder);
+            return true;
+        }
+        log.debug("Previous message not received | " + thisMessagesOrder + " | require " + lastOrdering);
+        return false;
+    }
+
+    private void recheckRecords(MessageRecord record) {
+        Set<MessageRecord> followers = deliverySet.tailSet(record);
+        for (MessageRecord r : followers) {
+            if (r.equals(record))
+                continue;
+            if (!readyToDeliver(r))
+                return;
+        }
+    }
+
+    class MessageRecord implements Comparable<MessageRecord> {
+        final private DecoupledHeader header;
+        final private Message message;
+        private volatile boolean isDeliverable;
 
         private MessageRecord(DecoupledHeader header, Message message) {
             this.header = header;
@@ -168,6 +165,14 @@ public class DeliveryManager {
                 return 1;
             else
                 return -1;
+        }
+
+        @Override
+        public String toString() {
+            return "MessageRecord{" +
+                    "header=" + header +
+                    ", isDeliverable=" + isDeliverable +
+                    '}';
         }
     }
 }

@@ -8,7 +8,7 @@ import java.util.*;
 
 public class ViewManager {
     private final Map<ViewId, View> viewStore;
-    private View currentView;
+    private volatile View currentView;
 
     public ViewManager() {
         this.viewStore = new HashMap<ViewId, View>();
@@ -45,9 +45,9 @@ public class ViewManager {
 
     public List<Address> getDestinations(MessageInfo messageInfo) {
         ViewId id = messageInfo.getViewId();
-        if (currentView.getViewId().equals(id))
+        if (currentView.getViewId().equals(id)) {
             return getAddresses(currentView, messageInfo.getDestinations());
-        else {
+        } else {
             View oldView = viewStore.get(messageInfo.getViewId());
             return getAddresses(oldView, messageInfo.getDestinations());
         }
@@ -62,6 +62,15 @@ public class ViewManager {
         for (Address address : addresses)
             destinations[index++] = (byte) currentView.getMembers().indexOf(address);
         return destinations;
+    }
+
+    public long getLastOrdering(MessageInfo messageInfo, Address address) {
+        List<Address> destinations = getDestinations(messageInfo);
+        int addressIndex = destinations.indexOf(address);
+        if (addressIndex >= 0)
+            return messageInfo.getLastOrderSequence()[addressIndex];
+        else
+            return -1;
     }
 
     private List<Address> getAddresses(View view, byte[] indexes) {

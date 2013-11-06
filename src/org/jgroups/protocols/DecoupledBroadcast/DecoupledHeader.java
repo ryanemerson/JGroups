@@ -5,9 +5,6 @@ import org.jgroups.Header;
 
 import java.io.DataInput;
 import java.io.DataOutput;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
 
 /**
  * // TODO: Document this
@@ -26,39 +23,37 @@ final public class DecoupledHeader extends Header {
 
     private byte type = 0;
     private MessageInfo messageInfo = null;
-    private List<MessageInfo> orderList = null;
 
     public DecoupledHeader() {
     }
 
     public static DecoupledHeader createBoxMember() {
-        return new DecoupledHeader(BOX_MEMBER, null, null);
+        return new DecoupledHeader(BOX_MEMBER, null);
     }
 
     public static DecoupledHeader createBoxRequest(MessageInfo info) {
-        return new DecoupledHeader(BOX_REQUEST, info, null);
+        return new DecoupledHeader(BOX_REQUEST, info);
     }
 
-    public static DecoupledHeader createBoxResponse(MessageInfo info, List<MessageInfo> orderList) {
-        return new DecoupledHeader(BOX_RESPONSE, info, orderList);
+    public static DecoupledHeader createBoxResponse(MessageInfo info) {
+        return new DecoupledHeader(BOX_RESPONSE, info);
     }
 
     public static DecoupledHeader createBoxOrdering(MessageInfo info) {
-        return new DecoupledHeader(BOX_ORDERING, info, null);
+        return new DecoupledHeader(BOX_ORDERING, info);
     }
 
-    public static DecoupledHeader createBroadcast(MessageInfo info, List<MessageInfo> orderList) {
-        return new DecoupledHeader(BROADCAST, info, orderList);
+    public static DecoupledHeader createBroadcast(MessageInfo info) {
+        return new DecoupledHeader(BROADCAST, info);
     }
 
     public static DecoupledHeader createSingleDestination(MessageInfo info) {
-        return new DecoupledHeader(SINGLE_DESTINATION, info, null);
+        return new DecoupledHeader(SINGLE_DESTINATION, info);
     }
 
-    public DecoupledHeader(byte type, MessageInfo messageInfo, List<MessageInfo> orderList) {
+    public DecoupledHeader(byte type, MessageInfo messageInfo) {
         this.type = type;
         this.messageInfo = messageInfo;
-        this.orderList = orderList;
     }
 
     public byte getType() {
@@ -77,31 +72,21 @@ final public class DecoupledHeader extends Header {
         this.messageInfo = messageInfo;
     }
 
-    public List<MessageInfo> getOrderList() {
-        return orderList;
-    }
-
-    public void setOrderList(List<MessageInfo> orderList) {
-        this.orderList = orderList;
-    }
-
     @Override
     public int size() {
-        return Global.BYTE_SIZE + (messageInfo != null ? messageInfo.size() : 0) + orderListSize(orderList);
+        return Global.BYTE_SIZE + (messageInfo != null ? messageInfo.size() : 0);
     }
 
     @Override
     public void writeTo(DataOutput out) throws Exception {
         out.writeByte(type);
         writeMessageInfo(messageInfo, out);
-        writeOrderList(orderList, out);
     }
 
     @Override
     public void readFrom(DataInput in) throws Exception {
         type = in.readByte();
         messageInfo = readMessageInfo(in);
-        orderList = readOrderList(in);
     }
 
     @Override
@@ -109,7 +94,6 @@ final public class DecoupledHeader extends Header {
         return "DecoupledHeader{" +
                 "type=" + type2String(type) +
                 ", messageInfo=" + messageInfo +
-                ", orderList=" + orderList +
                 '}';
     }
 
@@ -134,7 +118,6 @@ final public class DecoupledHeader extends Header {
 
         if (type != that.type) return false;
         if (messageInfo != null ? !messageInfo.equals(that.messageInfo) : that.messageInfo != null) return false;
-        if (orderList != null ? !orderList.equals(that.orderList) : that.orderList != null) return false;
 
         return true;
     }
@@ -143,7 +126,6 @@ final public class DecoupledHeader extends Header {
     public int hashCode() {
         int result = (int) type;
         result = 31 * result + (messageInfo != null ? messageInfo.hashCode() : 0);
-        result = 31 * result + (orderList != null ? orderList.hashCode() : 0);
         return result;
     }
 
@@ -165,40 +147,5 @@ final public class DecoupledHeader extends Header {
             info.readFrom(in);
             return info;
         }
-    }
-
-    private int orderListSize(Collection<MessageInfo> orderList) {
-        int size = 0;
-        if(orderList != null && !orderList.isEmpty()) {
-            for(MessageInfo info : orderList) {
-                size += info.size();
-            }
-        }
-        return size;
-    }
-
-    private void writeOrderList(List<MessageInfo> orderList, DataOutput out) throws Exception {
-        if(orderList == null) {
-            out.writeShort(-1);
-            return;
-        }
-        out.writeShort(orderList.size());
-        for(MessageInfo info : orderList) {
-            info.writeTo(out);
-        }
-    }
-
-    private List<MessageInfo> readOrderList(DataInput in) throws Exception {
-        short length = in.readShort();
-        if (length < 0) return null;
-
-        List<MessageInfo> orderList = new ArrayList<MessageInfo>();
-        MessageInfo info;
-        for (int i = 0; i < length; i++) {
-            info = new MessageInfo();
-            info.readFrom(in);
-            orderList.add(info);
-        }
-        return orderList;
     }
 }
