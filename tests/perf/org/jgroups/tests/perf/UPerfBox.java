@@ -36,10 +36,10 @@ public class UPerfBox extends ReceiverAdapter {
 
 
     // ============ configurable properties ==================
-    private boolean sync=true, oob=true, anycastRequests=false;
+    private boolean sync=true, oob=false, anycastRequests=false;
     private int num_threads=25;
     private int num_msgs=20000, msg_size=1000;
-    private int anycast_count=3;
+    private int anycast_count=2;
     private boolean use_anycast_addrs = true;
     private double read_percentage=0.8; // 80% reads, 20% writes
     private List<String> boxMembers  = new ArrayList<String>();
@@ -351,15 +351,15 @@ public class UPerfBox extends ReceiverAdapter {
                     break;
                 case 'a':
                     boolean new_value=!use_anycast_addrs;
-                    disp.callRemoteMethods(dest, new MethodCall(SET_USE_ANYCAST_ADDRS, new_value), RequestOptions.SYNC().setAnycasting(anycastRequests));
+                    disp.callRemoteMethods(dest, new MethodCall(SET_USE_ANYCAST_ADDRS, new_value), RequestOptions.SYNC());
                     break;
                 case 'o':
                     new_value=!oob;
-                    disp.callRemoteMethods(dest, new MethodCall(SET_OOB, new_value), RequestOptions.SYNC().setAnycasting(anycastRequests));
+                    disp.callRemoteMethods(dest, new MethodCall(SET_OOB, new_value), RequestOptions.SYNC());
                     break;
                 case 's':
                     boolean new_val=!sync;
-                    disp.callRemoteMethods(dest, new MethodCall(SET_SYNC, new_val), RequestOptions.SYNC().setAnycasting(anycastRequests));
+                    disp.callRemoteMethods(dest, new MethodCall(SET_SYNC, new_val), RequestOptions.SYNC());
                     break;
                 case 'r':
                     setReadPercentage(dest);
@@ -447,17 +447,17 @@ public class UPerfBox extends ReceiverAdapter {
 
     void setSenderThreads(Collection<Address> dest) throws Exception {
         int threads=Util.readIntFromStdin("Number of sender threads: ");
-        disp.callRemoteMethods(dest, new MethodCall(SET_NUM_THREADS, threads), RequestOptions.SYNC().setAnycasting(anycastRequests));
+        disp.callRemoteMethods(dest, new MethodCall(SET_NUM_THREADS, threads), RequestOptions.SYNC());
     }
 
     void setNumMessages(Collection<Address> dest) throws Exception {
         int tmp=Util.readIntFromStdin("Number of RPCs: ");
-        disp.callRemoteMethods(dest, new MethodCall(SET_NUM_MSGS, tmp), RequestOptions.SYNC().setAnycasting(anycastRequests));
+        disp.callRemoteMethods(dest, new MethodCall(SET_NUM_MSGS, tmp), RequestOptions.SYNC());
     }
 
     void setMessageSize(Collection<Address> dest) throws Exception {
         int tmp=Util.readIntFromStdin("Message size: ");
-        disp.callRemoteMethods(dest, new MethodCall(SET_MSG_SIZE, tmp), RequestOptions.SYNC().setAnycasting(anycastRequests));
+        disp.callRemoteMethods(dest, new MethodCall(SET_MSG_SIZE, tmp), RequestOptions.SYNC());
     }
 
     void setReadPercentage(Collection<Address> dest) throws Exception {
@@ -466,7 +466,7 @@ public class UPerfBox extends ReceiverAdapter {
             System.err.println("read percentage must be >= 0 or <= 1.0");
             return;
         }
-        disp.callRemoteMethods(dest, new MethodCall(SET_READ_PERCENTAGE, tmp), RequestOptions.SYNC().setAnycasting(anycastRequests));
+        disp.callRemoteMethods(dest, new MethodCall(SET_READ_PERCENTAGE, tmp), RequestOptions.SYNC());
     }
 
     void setAnycastCount(Collection<Address> dest) throws Exception {
@@ -476,7 +476,7 @@ public class UPerfBox extends ReceiverAdapter {
             System.err.println("anycast count must be smaller or equal to the number of client nodes (" + members.size() + ")\n");
             return;
         }
-        disp.callRemoteMethods(dest, new MethodCall(SET_ANYCAST_COUNT, tmp), RequestOptions.SYNC().setAnycasting(anycastRequests));
+        disp.callRemoteMethods(dest, new MethodCall(SET_ANYCAST_COUNT, tmp), RequestOptions.SYNC());
     }
 
 
@@ -570,7 +570,14 @@ public class UPerfBox extends ReceiverAdapter {
                     else {    // sync or async (based on value of 'sync') PUT
                         Collection<Address> targets=pickAnycastTargets();
                         put_args[0]=i;
-                        disp.callRemoteMethods(targets, put_call, put_options);
+                        RspList rsp = disp.callRemoteMethods(targets, put_call, put_options);
+                        if (!rsp.get(targets.iterator().next()).wasReceived()) {
+                            System.out.println("ResponseList := " + rsp);
+                            System.out.println("Missing put := " + i);
+                            System.out.println("----------------------------------------------------");
+                        }
+                        if (rsp.getSuspectedMembers().size() > 0)
+                            System.out.println(rsp);
                         num_puts++;
                     }
                 }
@@ -818,7 +825,6 @@ public class UPerfBox extends ReceiverAdapter {
             if("-boxes".equals(args[i])) {
                 int count = i + 1;
                 boxMembers = new ArrayList<String>();
-                System.out.println("Count :=" + count);
                 while(count < args.length && args[count] != null && !args[count].contains("-")) {
                     boxMembers.add(args[count++]);
                 }
