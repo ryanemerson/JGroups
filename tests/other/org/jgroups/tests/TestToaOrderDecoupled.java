@@ -11,7 +11,7 @@ import java.util.*;
 
 /**
  * Runs the Total Order Anycast protocol and saves the messages delivered
- *
+ * 
  * Note: this is used for debugging
  * Note2: this needs to be clean :)
  *
@@ -19,8 +19,8 @@ import java.util.*;
  * @since 3.1
  */
 public class TestToaOrderDecoupled {
-    private static final String PROPS = "decoupled_TOA.xml";
-    private static final String CLUSTER = "uperfBox";
+    private static final String PROPS = "decoupled_TOA_Box_TCP.xml";
+    private static final String CLUSTER = "test-toa-cluster";
     private static final String OUTPUT_FILE_SUFFIX = "-messages.txt";
     private static final String JMX_DOMAIN = "org.jgroups";
 
@@ -29,7 +29,6 @@ public class TestToaOrderDecoupled {
     private int numberOfNodes;
     private int numberOfMessages;
     private final List<Address> members = new LinkedList<Address>();
-    private List<String> boxMembers = new LinkedList<String>();
 
     private long start;
     private long stop;
@@ -80,8 +79,7 @@ public class TestToaOrderDecoupled {
         TestToaOrderDecoupled test = new TestToaOrderDecoupled(
                 argumentsParser.getNumberOfNodes(),
                 argumentsParser.getNumberOfMessages(),
-                argumentsParser.getConfig(),
-                argumentsParser.getBoxMembers());
+                argumentsParser.getConfig());
 
         try {
             test.startTest();
@@ -109,12 +107,11 @@ public class TestToaOrderDecoupled {
     // ====================== arguments parser ======================
 
     private static class ArgumentsParser {
-        private static final int NR_NODES = 3;
+        private static final int NR_NODES = 2;
         private static final int NR_MESSAGES = 1000;
 
         private String[] args;
 
-        private List<String> boxMembers = null;
         private int numberOfNodes = -1;
         private int numberOfMessages = -1;
         private boolean help = false;
@@ -149,13 +146,6 @@ public class TestToaOrderDecoupled {
                         }
                     } else if ("-config".equals(args[i])) {
                         config = args[++i];
-                    } else if("-boxes".equals(args[i])) {
-                        int count = i + 1;
-                        boxMembers = new ArrayList<String>();
-                        while(count < args.length && args[count] != null && !args[count].contains("-")) {
-                            boxMembers.add(args[count++]);
-                        }
-                        i = count - 1;
                     } else {
                         System.err.println("Unknown argument: " +args[i]);
                         helpAndExit();
@@ -200,10 +190,6 @@ public class TestToaOrderDecoupled {
         public String getConfig() {
             return config;
         }
-
-        public List<String> getBoxMembers() {
-            return boxMembers;
-        }
     }
 
     // ====================== receiver ======================
@@ -241,7 +227,6 @@ public class TestToaOrderDecoupled {
                     }
                     receivedBytes += (dataMessage.data.getBytes().length + 1);
                     receivedMsgs++;
-                    System.out.println("Msg := " + receivedMsgs + " | Src := " + msg.getSrc());
                     stop = System.nanoTime();
                     break;
                 default:
@@ -254,9 +239,7 @@ public class TestToaOrderDecoupled {
             System.out.println("New View: " + view);
             super.viewAccepted(view);
             synchronized (this) {
-                List<Address> clientMembers = new ArrayList<Address>(view.getMembers());
-                testGroupMulticastOrder.removeBoxMembers(clientMembers);
-                members = clientMembers.size();
+                members = view.getMembers().size();
                 this.notify();
             }
         }
@@ -284,7 +267,7 @@ public class TestToaOrderDecoupled {
         }
 
         public List<String> getMessageList() {
-            return messageList;
+            return new ArrayList<String>(messageList);
         }
 
         public void printReceiverInfo() {
@@ -416,11 +399,10 @@ public class TestToaOrderDecoupled {
 
     // ====================== other methods ======================
 
-    public TestToaOrderDecoupled(int numberOfNodes, int numberOfMessages, String config, List<String> boxMembers) {
+    public TestToaOrderDecoupled(int numberOfNodes, int numberOfMessages, String config) {
         this.numberOfNodes = numberOfNodes;
         this.numberOfMessages = numberOfMessages;
         this.config = config;
-        this.boxMembers.addAll(boxMembers);
     }
 
     private void createJChannel() throws Exception {
@@ -434,38 +416,19 @@ public class TestToaOrderDecoupled {
         receiver.waitUntilClusterIsFormed();
         Util.registerChannel(jChannel, JMX_DOMAIN);
 
-        List<Address> addresses = jChannel.getView().getMembers();
-        members.addAll(addresses);
-    }
-
-    private void removeBoxMembers(Collection<Address> members) {
-        removeBoxMembers(members, boxMembers);
-    }
-
-    private static void removeBoxMembers(Collection<Address> addresses, Collection<String> boxMembers) {
-        if (boxMembers == null)
-            return;
-
-        Iterator<Address> i = addresses.iterator();
-        while (i.hasNext()) {
-            Address address = i.next();
-            for (String boxName : boxMembers) {
-                if (address.toString().contains(boxName)) {
-                    System.out.println("Remove | " + address);
-                    i.remove();
-                }
-            }
-        }
+        members.addAll(jChannel.getView().getMembers());
     }
 
     private AnycastAddress getDestinations(List<Address> members) {
         int rand = members.indexOf(jChannel.getAddress());
 
-        AnycastAddress address = new AnycastAddress();
+//        AnycastAddress address = new AnycastAddress();
+//
+//        address.add(members.get(rand++ % members.size()),
+//                    members.get(rand++ % members.size()),
+//                    members.get(rand % members.size()));
 
-        address.add(members.get(rand++ % members.size()),
-                members.get(rand++ % members.size()),
-                members.get(rand % members.size()));
+        AnycastAddress address = new AnycastAddress(members);
 
         return address;
     }
@@ -474,10 +437,8 @@ public class TestToaOrderDecoupled {
         System.out.println("Start sending messages...");
 
         String address = jChannel.getAddressAsString();
-        List<Address> mbrs = members;
-        removeBoxMembers(mbrs, boxMembers);
+        List<Address> mbrs = jChannel.getView().getMembers();
         start = System.nanoTime();
-        System.out.println("Sending to := " + mbrs);
         for (int i = 0; i < numberOfMessages; ++i) {
             AnycastAddress dst = getDestinations(mbrs);
             Message message = new Message();
@@ -547,10 +508,8 @@ public class TestToaOrderDecoupled {
     }
 
     public void startTest() throws Exception {
-        createJChannel();
-        Util.sleep(1000 * 25); // This value needs to be at least as large as the boxMember discovery timeout
         System.out.println("Start testing...");
-
+        createJChannel();
         sendMessages();
         awaitUntilAllMessagesAreReceived();
 
