@@ -80,7 +80,8 @@ public class Decoupled extends Protocol {
                         break;
                     case DecoupledHeader.BOX_ORDERING:
                         ToaHeader h = (ToaHeader) message.getHeader((short) 58);
-                        log.debug("TOA Header In SWITCH := " + h.getSequencerNumber() + " | ID := " + h.getMessageID());
+                        if (log.isTraceEnabled())
+                            log.debug("TOA Header In SWITCH := " + h.getSequencerNumber() + " | ID := " + h.getMessageID());
                         box.receiveOrdering(header.getMessageInfo(), message);
                         break;
                     case DecoupledHeader.BOX_RESPONSE:
@@ -97,7 +98,8 @@ public class Decoupled extends Protocol {
             case Event.VIEW_CHANGE:
                 view = (View) event.getArg();
                 viewManager.setCurrentView(view);
-                log.debug("New View := " + view);
+                if (log.isTraceEnabled())
+                    log.trace("New View := " + view);
                 break;
         }
         return up_prot.up(event);
@@ -186,11 +188,11 @@ public class Decoupled extends Protocol {
 
         // Create messageId for this message and store it for later
         MessageId messageId = new MessageId(localAddress, localSequence.getAndIncrement()); // Increment localSequence
-//        deliveryManager.addMessageToStore(messageId, message);
         messageStore.put(messageId, message);
 
         byte[] dest = viewManager.getDestinationsAsByteArray(destinations);
-//        log.debug("Send ordering request | " + messageId + " | dest " + destinations + " | view " + view + " | byte[]" + Arrays.toString(dest));
+        if (log.isTraceEnabled())
+            log.trace("Send ordering request | " + messageId + " | dest " + destinations + " | view " + view + " | byte[]" + Arrays.toString(dest));
 
 
         MessageInfo messageInfo = new MessageInfo(messageId, view.getViewId(), dest);
@@ -209,8 +211,10 @@ public class Decoupled extends Protocol {
             log.trace("Ordering response received | " + responseHeader);
         // Receive the ordering list and send this message to all nodes in the destination set
 
-//        log.debug("Ordering Response received | " + responseHeader.getMessageInfo().getOrdering());
-//        log.debug("Ordering received| " + responseHeader.getMessageInfo().getId() + " | dest " + Arrays.toString(responseHeader.getMessageInfo().getDestinations()) +  " | " + viewManager.getDestinations(responseHeader.getMessageInfo()));
+        if (log.isTraceEnabled()) {
+            log.trace("Ordering Response received | " + responseHeader.getMessageInfo().getOrdering());
+            log.trace("Ordering received| " + responseHeader.getMessageInfo().getId() + " | dest " + Arrays.toString(responseHeader.getMessageInfo().getDestinations()) +  " | " + viewManager.getDestinations(responseHeader.getMessageInfo()));
+        }
 
         MessageInfo messageInfo = responseHeader.getMessageInfo();
         DecoupledHeader header = DecoupledHeader.createBroadcast(messageInfo);
@@ -226,8 +230,10 @@ public class Decoupled extends Protocol {
 
         boolean deliverToSelf = destinations.contains(localAddress);
         // Send the message to all destinations
-//        log.debug("Broadcast Message " + ((DecoupledHeader)message.getHeader(id)).getMessageInfo().getOrdering() +
-//                " to | " + destinations + " | deliverToSelf " + deliverToSelf);
+        if (log.isTraceEnabled())
+            log.trace("Broadcast Message " + ((DecoupledHeader)message.getHeader(id)).getMessageInfo().getOrdering() +
+                    " to | " + destinations + " | deliverToSelf " + deliverToSelf);
+
         for (Address destination : destinations) {
             if (destination.equals(localAddress))
                 continue;
@@ -235,7 +241,8 @@ public class Decoupled extends Protocol {
             Message messageCopy = message.copy();
             messageCopy.setDest(destination);
             down_prot.down(new Event(Event.MSG, messageCopy));
-//            log.debug("Broadcast Sent := " + ((DecoupledHeader)message.getHeader(id)).getMessageInfo().getOrdering() + " | To := " + destination);
+            if (log.isTraceEnabled())
+                log.trace("Broadcast Sent := " + ((DecoupledHeader)message.getHeader(id)).getMessageInfo().getOrdering() + " | To := " + destination);
         }
 
         DecoupledHeader header = (DecoupledHeader)message.getHeader(id);
@@ -249,8 +256,7 @@ public class Decoupled extends Protocol {
 
     private void handleBroadcast(DecoupledHeader header, Message message) {
         if (log.isTraceEnabled())
-            log.trace("Broadcast received | " + header);
-//        log.debug("Broadcast received | " + header.getMessageInfo().getOrdering());
+            log.debug("Broadcast received | " + header.getMessageInfo().getOrdering());
         deliveryManager.addMessageToDeliver(header, message);
     }
 
@@ -266,10 +272,8 @@ public class Decoupled extends Protocol {
         message.setDest(localAddress);
 
         if (log.isTraceEnabled())
-            log.trace("Deliver Message | " + message);
+            log.trace("Deliver Message | " + (DecoupledHeader)message.getHeader(this.id));
 
-//        DecoupledHeader header = (DecoupledHeader)message.getHeader(id);
-//        log.debug("*****Deliver Message | " + viewManager.getDestinations(header.getMessageInfo()) + " : " + header.getMessageInfo().getOrdering());
         up_prot.up(new Event(Event.MSG, message));
     }
 

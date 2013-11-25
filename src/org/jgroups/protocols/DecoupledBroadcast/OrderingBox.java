@@ -5,6 +5,7 @@ import org.jgroups.AnycastAddress;
 import org.jgroups.Event;
 import org.jgroups.Message;
 import org.jgroups.logging.Log;
+import org.jgroups.protocols.tom.ToaHeader;
 import org.jgroups.stack.Protocol;
 
 import java.util.*;
@@ -44,10 +45,9 @@ public class OrderingBox {
 
     public void handleOrderingRequest(MessageInfo messageInfo) {
         if (log.isTraceEnabled())
-            log.trace("Ordering request received | " + messageInfo);
+            log.trace("Received ordering request | " + messageInfo.getOrdering() + " | " + messageInfo.getId());
+
         requestCache.add(messageInfo.getId());
-        log.debug("Cache contains " + messageInfo.getId() + " := " + requestCache.contains(messageInfo.getId()));
-        log.debug("Received ordering request | " + messageInfo.getOrdering() + " | " + messageInfo.getId());
         // Send TOA message to all boxMembers
         sendToAllBoxMembers(messageInfo);
     }
@@ -60,23 +60,28 @@ public class OrderingBox {
 
         // AnycastAddress is ok because TOA is the protocol below, when we are box member
         // If TOA is not used, a requirement of the protocol below is that it accepts Anycast Addresses
-//        Message message = new Message(new AnycastAddress(boxMembers)).src(localAddress).putHeader(id, header);
         AnycastAddress anycastAddress = new AnycastAddress(boxMembers);
-        log.debug("Send ordering to := " + anycastAddress);
         Message message = new Message(anycastAddress).putHeader(id, header);
+        if (log.isTraceEnabled())
+            log.trace("Send ordering to := " + anycastAddress);
         downProtocol.down(new Event(Event.MSG, message));
     }
 
     public void receiveOrdering(MessageInfo messageInfo, Message message) {
-        if (log.isTraceEnabled())
+        if (log.isTraceEnabled()) {
+            ToaHeader h = (ToaHeader) message.getHeader((short) 58);
             log.trace("Receive Ordering message | " + messageInfo);
+            log.trace("TOA Header In Method := " + h.getSequencerNumber() + " | ID := " + h.getMessageID());
+        }
 
         // Once a message has been received at this layer, it will have been received at others (at least in the same order)
         // Increment sequence, retrive ordering request, place into ordered list
         // If you are the source of the message: update ordering request and return to the originator
         messageInfo.setOrdering(globalSequence.incrementAndGet());
 
-        log.debug(messageInfo.getId() + " | ordering := " + messageInfo.getOrdering());
+        if (log.isDebugEnabled())
+            log.debug(messageInfo.getId() + " | ordering := " + messageInfo.getOrdering());
+
         // Prepare header lastOrderSequence and save messageOrdering
         setLastOrderSequences(messageInfo);
 
@@ -86,15 +91,13 @@ public class OrderingBox {
         // If the messageId is in the requestCache then this node handled the original request, send a response
         if (requestCache.contains(messageInfo.getId()))
             sendOrderingResponse(messageInfo);
-        else
-            log.debug("Don't respond request did not originate here | " + messageInfo.getOrdering() + " | " + messageInfo.getId());
+        else if (log.isTraceEnabled())
+            log.trace("Don't respond request did not originate here | " + messageInfo.getOrdering() + " | " + messageInfo.getId());
     }
 
     private void sendOrderingResponse(MessageInfo messageInfo) {
         if (log.isTraceEnabled())
             log.trace("Send ordering response | " + messageInfo);
-
-        log.debug("Send ordering response | " + messageInfo.getOrdering() + " | " + messageInfo.getId());
 
         // Send the latest version of the order list to the src of the orderRequest
         DecoupledHeader header = DecoupledHeader.createBoxResponse(messageInfo);

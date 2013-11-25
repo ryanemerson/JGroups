@@ -80,10 +80,14 @@ public class DeliveryManager {
 
     public void addMessageToDeliver(DecoupledHeader header, Message message) {
         if (header.getMessageInfo().getOrdering() <= lastDelivered.longValue()) {
-            log.debug("Message already received or Missed! | " + header.getMessageInfo().getOrdering());
+            if (log.isDebugEnabled())
+                log.debug("Message already received or Missed! | " + header.getMessageInfo().getOrdering());
             return;
         }
-        log.debug("Add message to deliver | " + header.getMessageInfo() + " | lastDelivered := " + lastDelivered.longValue());
+
+        if (log.isTraceEnabled())
+            log.trace("Add message to deliver | " + header.getMessageInfo() + " | lastDelivered := " + lastDelivered.longValue());
+
         MessageRecord record = new MessageRecord(header, message);
         synchronized (deliverySet) {
             readyToDeliver(record);
@@ -107,11 +111,15 @@ public class DeliveryManager {
             // lastOrder has already been delivered, so this message is deliverable
             record.isDeliverable = true;
             lastDelivered.set(thisMessagesOrder);
-            log.debug("readyToDeliver 2 := " + messageInfo.getOrdering());
-            log.debug("LastDelivered == " + lastDelivered.longValue() + " | | " + thisMessagesOrder);
+
+            if (log.isTraceEnabled()) {
+                log.trace("readyToDeliver := " + messageInfo.getOrdering());
+                log.trace("LastDelivered == " + lastDelivered.longValue() + " | | " + thisMessagesOrder);
+            }
             return true;
         }
-        log.debug("Previous message not received | " + thisMessagesOrder + " | require " + lastOrdering);
+        if (log.isTraceEnabled())
+            log.trace("Previous message not received | " + thisMessagesOrder + " | require " + lastOrdering);
         return false;
     }
 
