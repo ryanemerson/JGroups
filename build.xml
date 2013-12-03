@@ -175,7 +175,7 @@
             <fileset dir="conf">
             </fileset>
             <manifest>
-                <attribute name="Main-Class" value="org.jgroups.tests.McastSenderTest"/>
+                <attribute name="Main-Class" value="org.jgroups.protocols.DecoupledBroadcast.TOATest"/>
             </manifest>
         </jar>
     </target>
@@ -191,7 +191,6 @@
              trust="true"/>
     </target>
 
-    <!--
     <target name="mPerf" depends="compile">
         <mkdir dir="jar"/>
         <jar destfile="jar/mperf.jar" basedir="classes/">
@@ -199,34 +198,12 @@
             <fileset dir="conf">
             </fileset>
             <manifest>
-                <attribute name="Main-Class" value="org.jgroups.tests.perf.MPerf"/>
-            </manifest>
-        </jar>
-    </target> -->
-
-    <target name="mPerf" depends="compile">
-        <mkdir dir="jar"/>
-        <jar destfile="jar/mperf.jar" basedir="classes/">
-            <zipgroupfileset dir="lib" includes="*.jar"/>
-            <fileset dir="conf">
-            </fileset>
-            <manifest>
-                <attribute name="Main-Class" value="org.jgroups.tests.perf.MPerfTransSim"/>
+                <attribute name="Main-Class" value="org.jgroups.tests.perf.UPerfBox"/>
+                <!-- attribute name="Main-Class" value="org.jgroups.tests.TestToaOrderDecoupled"/-->
+                <!-- attribute name="Main-Class" value="org.jgroups.tests.TestToaOrderDecoupled"/-->
             </manifest>
         </jar>
     </target>
-
-    <!--target name="mPerf" depends="compile">
-        <mkdir dir="jar"/>
-        <jar destfile="jar/mperf.jar" basedir="classes/">
-            <zipgroupfileset dir="lib" includes="*.jar"/>
-            <fileset dir="conf">
-            </fileset>
-            <manifest>
-                <attribute name="Main-Class" value="org.jgroups.tests.McastReceiverTest"/>
-            </manifest>
-        </jar>
-    </target-->
 
     <target name="jgroups.jar"
             description="Creates the jgroups-${version}.jar (includes everything)"
