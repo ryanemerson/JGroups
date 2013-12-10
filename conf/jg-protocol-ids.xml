@@ -66,11 +66,18 @@
     <class id="203" name="org.jgroups.tests.perf.MPerfTransSim"/>
 
     <!-- User-defined protocols should use IDs >= 1000 -->
+    <!-- HiTab -->
     <class id="1001" name="org.jgroups.protocols.HiTab.NMC"/>
     <class id="1002" name="org.jgroups.protocols.HiTab.PCSynch"/>
     <class id="1003" name="org.jgroups.protocols.HiTab.RMCast"/>
     <class id="1004" name="org.jgroups.protocols.HiTab.HiTab"/>
     <class id="1005" name="org.jgroups.protocols.HiTab.HiTabBundler"/>
+
+    <!-- DECOUPLED BROADCAST -->
     <class id="1006" name="org.jgroups.protocols.DecoupledBroadcast.Decoupled"/>
+
+    <!-- RMSysIntegratedProbing -->
+    <class id="1007" name="org.jgroups.protocols.RMSysIntegratedNMC.PCSynch"/>
+    <class id="1008" name="org.jgroups.protocols.RMSysIntegratedNMC.RMSys"/>
 
 </protocol-ids>

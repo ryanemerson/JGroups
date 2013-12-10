@@ -70,6 +70,7 @@
 
 
     <!-- MY MAGIC NUMBERS -->
+    <!-- HiTab -->
     <class id="108" name="org.jgroups.protocols.HiTab.NMC$ProbeHeader"/>
     <class id="109" name="org.jgroups.protocols.HiTab.PCSynch$PCSynchHeader"/>
     <class id="110" name="org.jgroups.protocols.HiTab.RMCastHeader"/>
@@ -77,6 +78,11 @@
     <class id="112" name="org.jgroups.protocols.HiTab.HiTabBundler$HiTabBundlerHeader"/>
     <class id="113"  name="org.jgroups.tests.perf.MPerfTransSim$MPerfHeader"/>
     <class id="114" name="org.jgroups.protocols.HiTab.MessageRejectionHeader"/>
+
+    <!-- DECOUPLED -->
     <class id="115" name="org.jgroups.protocols.DecoupledBroadcast.DecoupledHeader"/>
 
+    <!-- RMSysIntegratedProbing -->
+    <class id="116" name="org.jgroups.protocols.RMSysIntegratedNMC.PCSynch$PCSynchHeader"/>
+    <class id="117" name="org.jgroups.protocols.RMSysIntegratedNMC.RMCastHeader"/>
 </magic-number-class-mapping>
