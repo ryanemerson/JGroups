@@ -76,7 +76,6 @@ public class PCSynch extends Protocol {
     public void start() throws Exception {
         super.start();
         startClockSynch();
-        log.setLevel("trace");
     }
 
     @Override
