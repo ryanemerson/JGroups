@@ -116,8 +116,8 @@ final public class RMSys extends Protocol {
     public void deliver(Message message) {
         message.setDest(localAddress);
 
-        if (log.isDebugEnabled()) {
-            log.debug("Deliver message " + message + " in total order");
+        if (log.isTraceEnabled()) {
+            log.trace("Deliver message " + message + " in total order");
         }
 
         up_prot.up(new Event(Event.MSG, message));
@@ -134,8 +134,8 @@ final public class RMSys extends Protocol {
         message.putHeader(id, RMCastHeader.createBroadcastHeader(messageId, localAddress, 0, data, destinations));
         timer.execute(new MessageBroadcaster(message, 0, data.getMessageCopies(), data.getEta(), id));
 
-        if (log.isDebugEnabled())
-            log.debug("RMCast Sent := " + messageId);
+        if (log.isTraceEnabled())
+            log.trace("RMCast Sent := " + messageId);
     }
 
     public void handleMessage(Event event) {
