@@ -43,18 +43,19 @@ final public class RMSys extends Protocol {
     private ExecutorService executor;
     private View view;
 
+    private final boolean profilingEnabled = true;
+    private final Profiler profiler = new Profiler(profilingEnabled);
+
     @Override
     public void init() throws Exception {
-        log.setLevel("trace");
-
         timer = getTransport().getTimer();
         clock = new PCSynch();
 
         // TODO change so that Events are passed up and down the stack (temporary hack)
         getProtocolStack().insertProtocol(clock, ProtocolStack.BELOW, this.getName());
 
-        nmc = new NMC(clock);
-        deliveryManager = new DeliveryManager(nmc);
+        nmc = new NMC(clock, profiler);
+        deliveryManager = new DeliveryManager(nmc, profiler);
     }
 
     @Override
@@ -67,6 +68,10 @@ final public class RMSys extends Protocol {
 
     @Override
     public void stop() {
+        if (log.isDebugEnabled()) {
+            log.debug(nmc.getData().toString());
+            log.debug(profiler.toString());
+        }
     }
 
     @Override
@@ -116,10 +121,10 @@ final public class RMSys extends Protocol {
     public void deliver(Message message) {
         message.setDest(localAddress);
 
-        if (log.isTraceEnabled()) {
+        if (log.isTraceEnabled())
             log.trace("Deliver message " + message + " in total order");
-        }
 
+        profiler.messageDelivered();
         up_prot.up(new Event(Event.MSG, message));
     }
 
@@ -157,9 +162,11 @@ final public class RMSys extends Protocol {
         MessageRecord newRecord = new MessageRecord(header);
         MessageRecord oldRecord = (MessageRecord) ((ConcurrentHashMap) messageRecords).putIfAbsent(header.getId(), newRecord);
         if (oldRecord == null) {
-            up_prot.up(event); // Deliver to the above layer if this is the first time RMCast has received M
+            Message message = (Message) event.getArg();
+            deliveryManager.addMessage(message); // Add to the delivery manager if this is the first time RMCast has received M
             record = newRecord;
-            receivedMessages.put(header.getId(), (Message) event.getArg()); // Store actual message, need for retransmission
+            receivedMessages.put(header.getId(), message); // Store actual message, need for retransmission
+            profiler.messageReceived(header.getCopy() > 0);
         } else {
             record = oldRecord;
         }
@@ -174,6 +181,7 @@ final public class RMSys extends Protocol {
         // Only record probe information if the message has come directly from its source i.e not disseminated
         if (header.getDisseminator().equals(originator)) {
             nmc.receiveProbe(header); // Record probe information piggybacked on this message
+            profiler.probeReceieved();
         }
     }
 
@@ -188,7 +196,9 @@ final public class RMSys extends Protocol {
             return;
         }
 
-        if (header.getDisseminator().equals(header.getId().getOriginator()) && !record.crashNotified) {
+        Address originator = header.getId().getOriginator();
+        Address disseminator = header.getDisseminator();
+        if (disseminator.equals(originator) && !record.crashNotified) {
             // TODO SEND NO CRASH NOTIFICATION
             // Effectively cancels the CrashedTimeout as nothing will happen once this is set to true
             record.crashNotified = true;
@@ -197,10 +207,10 @@ final public class RMSys extends Protocol {
         if (header.getCopy() == header.getCopyTotal()) {
             record.largestCopyReceived = header.getCopy();
         } else {
-            if (!header.getId().getOriginator().equals(localAddress)
-                    && header.getCopy() > record.largestCopyReceived
-                    || (header.getCopy() == record.largestCopyReceived && (header.getDisseminator().equals(header
-                    .getId().getOriginator()) || header.getDisseminator().compareTo(record.broadcastLeader) < 0))) {
+            if (!originator.equals(localAddress) && header.getCopy() > record.largestCopyReceived
+                    || (header.getCopy() == record.largestCopyReceived && (disseminator.equals(originator)
+                        || record.broadcastLeader == null
+                        || disseminator.compareTo(record.broadcastLeader) < 0))) { // TODO fix nullpointer with compareTO
 
                 if (log.isTraceEnabled())
                     log.trace("Starting responsiveness timeout for message := " + header.getId());
@@ -297,6 +307,7 @@ final public class RMSys extends Protocol {
 
     final class ProbeScheduler implements Runnable, TimeScheduler.Task {
         private boolean initialProbesReceived = false;
+        private boolean initialProbesSent = false;
         private int numberOfProbesSent = 0;
 
         @Override
@@ -314,8 +325,10 @@ final public class RMSys extends Protocol {
                 initialProbesReceived = true;
             }
 
-            if (log.isDebugEnabled() && numberOfProbesSent >= initialProbeCount)
+            if (log.isDebugEnabled() && !initialProbesSent && numberOfProbesSent >= initialProbeCount) {
                 log.debug("Initial probes sent");
+                initialProbesSent = true;
+            }
         }
 
         public MessageBroadcaster createEmptyProbeMessage() {
@@ -328,7 +341,7 @@ final public class RMSys extends Protocol {
         }
 
         public long nextInterval() {
-            return numberOfProbesSent >= initialProbeCount && initialProbesReceived ? 0 : initialProbeFreq;
+            return initialProbesSent && initialProbesReceived ? 0 : initialProbeFreq;
         }
     }
 
@@ -405,6 +418,7 @@ final public class RMSys extends Protocol {
             record.largestCopyReceived = messageCopy;
             record.lastBroadcast = messageCopy;
             executeAgain();
+            profiler.messageDisseminated();
         }
 
         // We use this instead of timer.scheduleWithDynamicInterval because using timer.execute() executes the initial task
@@ -416,8 +430,8 @@ final public class RMSys extends Protocol {
     }
 
     final class MessageRecord {
-        final private MessageId id;
-        final private int totalCopies;
+        private final MessageId id;
+        private final int totalCopies;
         private volatile int largestCopyReceived; // Largest copy received
         private volatile Address broadcastLeader; // Set to null if none
         private volatile int lastBroadcast;

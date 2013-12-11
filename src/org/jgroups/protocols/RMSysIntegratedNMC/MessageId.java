@@ -13,7 +13,7 @@ import java.io.DataOutput;
  * @author ryan
  * @since 4.0
  */
-public class MessageId implements SizeStreamable {
+public class MessageId implements SizeStreamable, Comparable<MessageId> {
     private long timestamp;
     private Address originator;
 
@@ -56,6 +56,18 @@ public class MessageId implements SizeStreamable {
     public void readFrom(DataInput in) throws Exception {
         timestamp = in.readLong();
         originator = Util.readAddress(in);
+    }
+
+    @Override
+    public int compareTo(MessageId other) {
+        if (other == null) return 1;
+
+        if (timestamp < other.timestamp)
+            return -1;
+        else if(timestamp > other.timestamp)
+            return 1;
+        else
+            return originator.compareTo(other.originator);
     }
 
     @Override

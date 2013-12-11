@@ -15,12 +15,13 @@ import java.util.concurrent.locks.ReentrantLock;
 public class NMC {
 
     private double reliabilityProb = 0.9999;
-    private int epochSize = 250; // The number of latencies that correspond to a single latency
+    private int epochSize = 100; // The number of latencies that correspond to a single latency
     private int recentPastSize = 1000; // The number of latencies that defines the recent past
     private double qThreshold = 1.05; // The threshold for calculating Q
     private double etaProbability = 0.90;
 
     private final PCSynch clock;
+    private final Profiler profiler;
     private final List<Integer> currentLatencies = new ArrayList<Integer>(epochSize);
     private final List<Integer> recentPastLatencies = Collections.synchronizedList(new ArrayList<Integer>());
     private final ReentrantLock lock = new ReentrantLock(true);
@@ -30,8 +31,9 @@ public class NMC {
 
     private Log log = LogFactory.getLog(RMSys.class);
 
-    public NMC(PCSynch clock) {
+    public NMC(PCSynch clock, Profiler profiler) {
         this.clock = clock;
+        this.profiler = profiler;
     }
 
     public long getClockTime() {
@@ -68,8 +70,10 @@ public class NMC {
         try {
             addLatency(probeLatencyMilli);
             NMCData data = header.getNmcData();
-            if (data != null) // If data == null then there is no xMax to store (message must be an initial empty probe)
+            if (data != null) { // If data == null then there is no xMax to store (message must be an initial empty probe)
                 addXMax(data.getXMax());
+                profiler.addGlobalXmax(data.getXMax());
+            }
         } finally {
             lock.unlock();
         }
@@ -90,6 +94,7 @@ public class NMC {
             addCurrentLatenciesToRecentPast();
             calculateNMCValues();
         }
+        profiler.addProbeLatency(latency);
     }
 
     private void addCurrentLatenciesToRecentPast() {
@@ -155,13 +160,15 @@ public class NMC {
         double q = exceedQThreshold / numberOfLatencies;
         int rho = calculateRho(q);
         int eta = (int) Math.ceil(-1 * d * Math.log(1 - etaProbability)); // Calculate 1 - e - Np / d = 0.99
-        int omega = (int) Math.ceil(eta - d);
+        int omega = eta - d;
         int capD = xMax + (rho * eta);
         int capS = xMax + ((rho + 2) * eta) + omega;
         nmcData = new NMCData(eta, rho, omega, capD, capS, xMax);
 
         if (log.isDebugEnabled())
             log.debug("NMCData recorded | " + nmcData);
+
+        profiler.addLocalXmax(maxLatency); // Store local xMax
     }
 
     // Forces decimals to always round up, pessimistic!
