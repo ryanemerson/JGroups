@@ -29,20 +29,20 @@ public class DeliveryManager {
     public void addMessage(Message message) {
         MessageRecord record = new MessageRecord(message);
         calculateDeliveryTime(record);
-        synchronized (deliveryQueue) { // TODO investigate ... without this missorderings can occur when two DTs are very close (2 decimal places)
             long delay = record.getDelay(TimeUnit.NANOSECONDS);
             if (delay > 0) {
                 deliveryQueue.add(record);
             } else
                 rejectMessage(record, delay);
-        }
     }
 
     public List<Message> getDeliverableMessages() throws InterruptedException {
+        final List<MessageRecord> deliverableRecord = new ArrayList<MessageRecord>();
         final List<Message> deliverable = new ArrayList<Message>();
-        MessageRecord record;
-        while ((record = deliveryQueue.poll()) != null) {
-            deliverable.add(record.message);
+        if (deliveryQueue.drainTo(deliverableRecord) > 0) {
+            for (MessageRecord record : deliverableRecord) {
+                deliverable.add(record.message);
+            }
         }
         return deliverable;
     }
@@ -60,7 +60,7 @@ public class DeliveryManager {
     }
 
     private void rejectMessage(MessageRecord record, long delay) {
-        log.error("Message rejected | " + record + " | Calculated Delivery Delay := " + delay + "ns");
+        log.error("Message rejected | " + record + " | Calculated Delivery Delay := " + (int) Math.ceil(delay / 1000000.0) + "ms");
         profiler.messageRejected();
     }
 
@@ -94,6 +94,7 @@ public class DeliveryManager {
         public String toString() {
             return "MessageRecord{" +
                     "id=" + id +
+                    ", header=" + getHeader() +
                     ", deliveryTime=" + deliveryTime +
                     '}';
         }

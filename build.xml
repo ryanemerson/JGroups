@@ -198,7 +198,7 @@
             <fileset dir="conf">
             </fileset>
             <manifest>
-                <attribute name="Main-Class" value="org.jgroups.tests.perf.UPerfBox"/>
+                <attribute name="Main-Class" value="org.jgroups.protocols.RMSysIntegratedNMC.Test" />
                 <!-- attribute name="Main-Class" value="org.jgroups.tests.TestToaOrderDecoupled"/-->
                 <!-- attribute name="Main-Class" value="org.jgroups.tests.TestToaOrderDecoupled"/-->
             </manifest>

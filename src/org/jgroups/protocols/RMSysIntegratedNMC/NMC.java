@@ -15,7 +15,7 @@ import java.util.concurrent.locks.ReentrantLock;
 public class NMC {
 
     private double reliabilityProb = 0.9999;
-    private int epochSize = 100; // The number of latencies that correspond to a single latency
+    private int epochSize = 100; // The number of latencies received before NMC values are calculated
     private int recentPastSize = 1000; // The number of latencies that defines the recent past
     private double qThreshold = 1.05; // The threshold for calculating Q
     private double etaProbability = 0.90;
@@ -88,9 +88,7 @@ public class NMC {
         if (currentLatencies.size() < epochSize)
             currentLatencies.add(latency);
 
-        log.trace("currentLatencies Size := " + currentLatencies.size());
-
-        if (currentLatencies.size() == epochSize) {
+        if (currentLatencies.size() % epochSize == 0) {
             addCurrentLatenciesToRecentPast();
             calculateNMCValues();
         }
@@ -108,9 +106,6 @@ public class NMC {
     }
 
     private void calculateNMCValues() {
-        if (!initialProbesReceived())
-            return;
-
         if (log.isTraceEnabled())
             log.trace("Calculate NMC values");
 
@@ -131,7 +126,7 @@ public class NMC {
             }
         }
         int d = 0;
-        int temp = 0;
+        int processedLatencies = 0; // Number of latencies that have been processed thus far
         int exceedQThreshold = 0;
         boolean dFlag = false;
 
@@ -142,20 +137,21 @@ public class NMC {
             int[] tempLatencies = latencyMap.get(key);
             for (int yy = 0; yy < tempLatencies.length; yy++) {
                 int latency = key + yy;
-                if ((key + yy) > maxLatency)
+                if (latency > maxLatency)
                     break CLOOP;
 
-                temp += tempLatencies[yy];
-                if (temp >= numberOfLatencies * 0.64 && !dFlag) {
-                    d = key + yy;
+                processedLatencies += tempLatencies[yy];
+                if (processedLatencies >= numberOfLatencies * 0.64 && !dFlag) {
+                    d = latency;
                     dFlag = true;
                 }
 
-                if (latency * qThreshold > maxLatency)
+                if (tempLatencies[yy] > 0 && latency * qThreshold > maxLatency)
                     exceedQThreshold++;
             }
         }
         addXMax(maxLatency);
+        profiler.addLocalXmax(xMax); // Store local xMax
 
         double q = exceedQThreshold / numberOfLatencies;
         int rho = calculateRho(q);
@@ -167,8 +163,6 @@ public class NMC {
 
         if (log.isDebugEnabled())
             log.debug("NMCData recorded | " + nmcData);
-
-        profiler.addLocalXmax(maxLatency); // Store local xMax
     }
 
     // Forces decimals to always round up, pessimistic!

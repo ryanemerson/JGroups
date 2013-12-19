@@ -48,6 +48,7 @@ final public class RMSys extends Protocol {
 
     @Override
     public void init() throws Exception {
+        log.setLevel("debug");
         timer = getTransport().getTimer();
         clock = new PCSynch();
 
@@ -137,6 +138,7 @@ final public class RMSys extends Protocol {
 
         MessageId messageId = new MessageId(clock.getTime(), localAddress);
         message.putHeader(id, RMCastHeader.createBroadcastHeader(messageId, localAddress, 0, data, destinations));
+        message.setFlag(Message.Flag.DONT_BUNDLE);
         timer.execute(new MessageBroadcaster(message, 0, data.getMessageCopies(), data.getEta(), id));
 
         if (log.isTraceEnabled())
@@ -150,27 +152,40 @@ final public class RMSys extends Protocol {
     }
 
     public void handleMessage(Event event, RMCastHeader header) {
-        recordProbe(header); // Record probe latency
+        // No need to RMCast empty probe messages as we only want the latency
+        if (header.getType() != RMCastHeader.EMPTY_PROBE_MESSAGE) {
+            if (log.isTraceEnabled())
+                log.trace("Message received | " + header);
 
-        if (header.getType() == RMCastHeader.EMPTY_PROBE_MESSAGE)
-            return; // No need to RMCast empty probe messages as we only want the latency
+            final MessageRecord record;
+            MessageRecord newRecord = new MessageRecord(header);
+            MessageRecord oldRecord = (MessageRecord) ((ConcurrentHashMap) messageRecords).putIfAbsent(header.getId(), newRecord);
+            if (oldRecord == null) {
+                Message message = (Message) event.getArg();
+                deliveryManager.addMessage(message); // Add to the delivery manager if this is the first time RMCast has received M
+                record = newRecord;
+                receivedMessages.put(header.getId(), message); // Store actual message, need for retransmission
+                profiler.messageReceived(header.getCopy() > 0);
 
-        if (log.isTraceEnabled())
-            log.trace("Message received | " + header);
-
-        final MessageRecord record;
-        MessageRecord newRecord = new MessageRecord(header);
-        MessageRecord oldRecord = (MessageRecord) ((ConcurrentHashMap) messageRecords).putIfAbsent(header.getId(), newRecord);
-        if (oldRecord == null) {
-            Message message = (Message) event.getArg();
-            deliveryManager.addMessage(message); // Add to the delivery manager if this is the first time RMCast has received M
-            record = newRecord;
-            receivedMessages.put(header.getId(), message); // Store actual message, need for retransmission
-            profiler.messageReceived(header.getCopy() > 0);
-        } else {
-            record = oldRecord;
+                if (header.getCopy() > 0)
+                    log.error("-----\n Copy > 0 is first copy := " + header.getId() + " | DD := " + ((calculateDeliveryTime(header)) - nmc.getClockTime()) / 1000000.0 + "ms \n -----");
+            } else {
+                record = oldRecord;
+                if (header.getCopy() == 0)
+                    log.error("-----\n Copy 0 received second := " + header.getId() + " | DD := " + ((calculateDeliveryTime(header)) - nmc.getClockTime()) / 1000000.0 + "ms \n -----");
+            }
+            handleRMCastCopies(header, record);
         }
-        handleRMCastCopies(header, record);
+        recordProbe(header); // Record probe latency
+    }
+
+    // TODO remove
+    private long calculateDeliveryTime(RMCastHeader header) {
+        NMCData data = header.getNmcData();
+        long startTime = header.getId().getTimestamp();
+        long delay = TimeUnit.MILLISECONDS.toNanos(Math.max(data.getCapD(), data.getXMax() + data.getCapS()));
+        delay = delay + nmc.getMaxClockError();
+        return startTime + delay;
     }
 
     private void recordProbe(RMCastHeader header) {
@@ -278,10 +293,7 @@ final public class RMSys extends Protocol {
         for (Address destination : address.getAddresses()) {
             Message messageCopy = message.copy();
             messageCopy.setDest(destination);
-            if (!destination.equals(localAddress))
-                down_prot.down(new Event(Event.MSG, messageCopy));
-            else
-                handleMessage(new Event(Event.MSG, messageCopy));
+            down_prot.down(new Event(Event.MSG, messageCopy));
         }
     }
 
@@ -366,6 +378,7 @@ final public class RMSys extends Protocol {
 
         @Override
         public void run() {
+            System.out.println("HERE");
             RMCastHeader header = (RMCastHeader) message.getHeader(headerId);
             header.setCopy(currentCopy.intValue());
 
