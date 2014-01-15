@@ -16,6 +16,7 @@ import java.io.DataOutput;
 public class MessageId implements SizeStreamable, Comparable<MessageId> {
     private long timestamp;
     private Address originator;
+    private long sequence;
 
     public MessageId() {
     }
@@ -26,10 +27,7 @@ public class MessageId implements SizeStreamable, Comparable<MessageId> {
 
         this.timestamp = timestamp;
         this.originator = originator;
-    }
-
-    public MessageId(long timestamp, Address originator) {
-        this(timestamp, originator, -1);
+        this.sequence = sequence;
     }
 
     public long getTimestamp() {
@@ -40,27 +38,35 @@ public class MessageId implements SizeStreamable, Comparable<MessageId> {
         return originator;
     }
 
+    public long getSequence() {
+        return sequence;
+    }
 
     @Override
     public int size() {
-        return Util.size(timestamp) + Util.size(originator);
+        return Util.size(timestamp) + Util.size(originator) + Util.size(sequence);
     }
 
     @Override
     public void writeTo(DataOutput out) throws Exception {
         out.writeLong(timestamp);
         Util.writeAddress(originator, out);
+        out.writeLong(sequence);
     }
 
     @Override
     public void readFrom(DataInput in) throws Exception {
         timestamp = in.readLong();
         originator = Util.readAddress(in);
+        sequence = in.readLong();
     }
 
     @Override
     public int compareTo(MessageId other) {
         if (other == null) return 1;
+
+        if (originator.equals(other.originator))
+            return Long.signum(sequence - other.sequence);
 
         if (timestamp < other.timestamp)
             return -1;
@@ -77,6 +83,7 @@ public class MessageId implements SizeStreamable, Comparable<MessageId> {
 
         MessageId messageId = (MessageId) o;
 
+        if (sequence != messageId.sequence) return false;
         if (timestamp != messageId.timestamp) return false;
         if (originator != null ? !originator.equals(messageId.originator) : messageId.originator != null) return false;
 
@@ -87,6 +94,7 @@ public class MessageId implements SizeStreamable, Comparable<MessageId> {
     public int hashCode() {
         int result = (int) (timestamp ^ (timestamp >>> 32));
         result = 31 * result + (originator != null ? originator.hashCode() : 0);
+        result = 31 * result + (int) (sequence ^ (sequence >>> 32));
         return result;
     }
 
@@ -95,6 +103,7 @@ public class MessageId implements SizeStreamable, Comparable<MessageId> {
         return "MessageId{" +
                 "timestamp=" + timestamp +
                 ", originator=" + originator +
+                ", sequence=" + sequence +
                 '}';
     }
 }

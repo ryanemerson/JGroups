@@ -31,6 +31,12 @@ final public class RMSys extends Protocol {
     @Property(name = "minimum_nodes", description = "The minimum number of nodes allowed in a cluster")
     private int minimumNodes = 2;
 
+    @Property(name = "max_acks_per_message", description = "The maximum number of messages that can be acked in one message")
+    private int numberOfAcks = 50;
+
+    @Property(name = "max_ack_wait", description = "The delay before an empty ack message is sent if no other broadcasts are made")
+    private int ackDelay = 20;
+
     private final Map<MessageId, MessageRecord> messageRecords = new ConcurrentHashMap<MessageId, MessageRecord>();
     private final Map<MessageId, Message> receivedMessages = new ConcurrentHashMap<MessageId, Message>();
     private final Map<MessageId, Future> responsiveTasks = new ConcurrentHashMap<MessageId, Future>();
@@ -38,13 +44,27 @@ final public class RMSys extends Protocol {
     private PCSynch clock = null;
     private NMC nmc = null;
     private DeliveryManager deliveryManager = null;
+    private SenderManager senderManager = null;
     private Address localAddress = null;
     private TimeScheduler timer;
     private ExecutorService executor;
     private View view;
+    private Future sendEmptyAckFuture;
 
     private final boolean profilingEnabled = true;
     private final Profiler profiler = new Profiler(profilingEnabled);
+
+    public PCSynch getClock() {
+        return clock;
+    }
+
+    public NMC getNMC() {
+        return nmc;
+    }
+
+    public Address getLocalAddress() {
+        return localAddress;
+    }
 
     @Override
     public void init() throws Exception {
@@ -56,7 +76,8 @@ final public class RMSys extends Protocol {
         getProtocolStack().insertProtocol(clock, ProtocolStack.BELOW, this.getName());
 
         nmc = new NMC(clock, profiler);
-        deliveryManager = new DeliveryManager(nmc, profiler);
+        deliveryManager = new DeliveryManager(this, profiler);
+        senderManager = new SenderManager(clock, numberOfAcks);
     }
 
     @Override
@@ -72,6 +93,7 @@ final public class RMSys extends Protocol {
         if (log.isDebugEnabled()) {
             log.debug(nmc.getData().toString());
             log.debug(profiler.toString());
+            log.debug(deliveryManager.toString());
         }
     }
 
@@ -119,7 +141,7 @@ final public class RMSys extends Protocol {
         return down_prot.down(event);
     }
 
-    public void deliver(Message message) {
+    private void deliver(Message message) {
         message.setDest(localAddress);
 
         if (log.isTraceEnabled())
@@ -129,63 +151,90 @@ final public class RMSys extends Protocol {
         up_prot.up(new Event(Event.MSG, message));
     }
 
-    public void sendRMCast(Message message) {
+    private void sendRMCast(Message message) {
+        // Stop empty ack message from being sent, unless it has already started
+        if (sendEmptyAckFuture != null)
+            sendEmptyAckFuture.cancel(false);
+
         NMCData data = nmc.getData();
 
+        // TODO change so that only box members are selected
         Collection<Address> destinations = view.getMembers();
         if (message.getDest() == null)
             message.setDest(new AnycastAddress(destinations)); // If null must set to Anycast Address
 
-        MessageId messageId = new MessageId(clock.getTime(), localAddress);
-        message.putHeader(id, RMCastHeader.createBroadcastHeader(messageId, localAddress, 0, data, destinations));
-        message.setFlag(Message.Flag.DONT_BUNDLE);
+        MessageId messageId = new MessageId(clock.getTime(), localAddress, senderManager.nextSequence());
+        RMCastHeader header = RMCastHeader.createBroadcastHeader(messageId, localAddress, 0, data, destinations,
+                senderManager.newBroadcast(messageId), senderManager.getIdsToAck());
+        message.putHeader(id, header);
         timer.execute(new MessageBroadcaster(message, 0, data.getMessageCopies(), data.getEta(), id));
+    }
 
+    private void sendEmptyAckMessage() {
+        Collection<MessageId> acks = senderManager.getIdsToAck();
+        if (acks.isEmpty())
+            return;
+
+        // TODO change so that only box members are selected
+        Message message = new Message(new AnycastAddress(view.getMembers()));
+        MessageId messageId = new MessageId(clock.getTime(), localAddress, -1);
+        message.putHeader(id, RMCastHeader.createEmptyAckHeader(messageId, view.getMembers(), acks));
+        broadcastMessage(message, false);
+
+        if (log.isDebugEnabled())
+            log.debug("Empty ack message sent | #Acks :=  " + acks.size() + " | Acks := " + acks);
+
+        if (senderManager.numberOfAcksWaiting() > 0)
+            sendEmptyAckMessage();
+    }
+
+    private void handleMessage(Event event, RMCastHeader header) {
         if (log.isTraceEnabled())
-            log.trace("RMCast Sent := " + messageId);
-    }
+            log.trace("Message received | " + header);
 
-    public void handleMessage(Event event) {
-        Message message = (Message) event.getArg();
-        RMCastHeader header = (RMCastHeader) message.getHeader(id);
-        handleMessage(event, header);
-    }
+        if (header.getType() == RMCastHeader.EMPTY_ACK_MESSAGE) {
+            deliveryManager.processEmptyAckMessage(header);
+            return;
+        }
 
-    public void handleMessage(Event event, RMCastHeader header) {
         // No need to RMCast empty probe messages as we only want the latency
         if (header.getType() != RMCastHeader.EMPTY_PROBE_MESSAGE) {
-            if (log.isTraceEnabled())
-                log.trace("Message received | " + header);
-
             final MessageRecord record;
             MessageRecord newRecord = new MessageRecord(header);
             MessageRecord oldRecord = (MessageRecord) ((ConcurrentHashMap) messageRecords).putIfAbsent(header.getId(), newRecord);
             if (oldRecord == null) {
                 Message message = (Message) event.getArg();
                 deliveryManager.addMessage(message); // Add to the delivery manager if this is the first time RMCast has received M
-                record = newRecord;
                 receivedMessages.put(header.getId(), message); // Store actual message, need for retransmission
-                profiler.messageReceived(header.getCopy() > 0);
 
-                if (header.getCopy() > 0)
-                    log.error("-----\n Copy > 0 is first copy := " + header.getId() + " | DD := " + ((calculateDeliveryTime(header)) - nmc.getClockTime()) / 1000000.0 + "ms \n -----");
+                record = newRecord;
+                profiler.messageReceived(header.getCopy() > 0);
             } else {
                 record = oldRecord;
-                if (header.getCopy() == 0)
-                    log.error("-----\n Copy 0 received second := " + header.getId() + " | DD := " + ((calculateDeliveryTime(header)) - nmc.getClockTime()) / 1000000.0 + "ms \n -----");
             }
             handleRMCastCopies(header, record);
         }
         recordProbe(header); // Record probe latency
     }
 
-    // TODO remove
-    private long calculateDeliveryTime(RMCastHeader header) {
-        NMCData data = header.getNmcData();
-        long startTime = header.getId().getTimestamp();
-        long delay = TimeUnit.MILLISECONDS.toNanos(Math.max(data.getCapD(), data.getXMax() + data.getCapS()));
-        delay = delay + nmc.getMaxClockError();
-        return startTime + delay;
+    // Schedule an emptyAckMessage to be sent after ackDelay period of time
+    // This should be called whenever a new message is received
+    public void handleAcks(RMCastHeader header) {
+        if (header.getId().getOriginator().equals(localAddress))
+            return;
+
+        senderManager.addMessageToAck(header.getId());
+
+        // If a future is already in progress and hasn't completed, then do nothing as that future will execute sooner
+        // and should send the acks that this message would have sent
+        if (sendEmptyAckFuture == null || sendEmptyAckFuture.isDone()) {
+            sendEmptyAckFuture = timer.schedule(new Runnable() {
+                @Override
+                public void run() {
+                    sendEmptyAckMessage();
+                }
+            }, ackDelay, TimeUnit.MILLISECONDS);
+        }
     }
 
     private void recordProbe(RMCastHeader header) {
@@ -224,8 +273,8 @@ final public class RMSys extends Protocol {
         } else {
             if (!originator.equals(localAddress) && header.getCopy() > record.largestCopyReceived
                     || (header.getCopy() == record.largestCopyReceived && (disseminator.equals(originator)
-                        || record.broadcastLeader == null
-                        || disseminator.compareTo(record.broadcastLeader) < 0))) { // TODO fix nullpointer with compareTO
+                    || record.broadcastLeader == null
+                    || disseminator.compareTo(record.broadcastLeader) < 0))) {
 
                 if (log.isTraceEnabled())
                     log.trace("Starting responsiveness timeout for message := " + header.getId());
@@ -282,6 +331,10 @@ final public class RMSys extends Protocol {
     }
 
     private void broadcastMessage(Message message) {
+        broadcastMessage(message, true);
+    }
+
+    private void broadcastMessage(Message message, boolean sendToLocal) {
         if (!(message.getDest() instanceof AnycastAddress))
             throw new IllegalArgumentException("A messages destination must be an AnycastAddress");
 
@@ -291,6 +344,9 @@ final public class RMSys extends Protocol {
         message.setSrc(localAddress);
         AnycastAddress address = (AnycastAddress) message.getDest();
         for (Address destination : address.getAddresses()) {
+            if (!sendToLocal && destination.equals(localAddress))
+                continue;
+
             Message messageCopy = message.copy();
             messageCopy.setDest(destination);
             down_prot.down(new Event(Event.MSG, messageCopy));
@@ -327,7 +383,8 @@ final public class RMSys extends Protocol {
             if (view == null || view.size() < minimumNodes || !clock.isSynchronised())
                 return;
 
-            log.trace("Sending empty probe messsage | Clock synch := " + clock.isSynchronised());
+            if (log.isTraceEnabled())
+                log.trace("Sending empty probe messsage | Clock synch := " + clock.isSynchronised());
             timer.execute(createEmptyProbeMessage()); // Send empty probe messages
             numberOfProbesSent++;
 
@@ -345,7 +402,7 @@ final public class RMSys extends Protocol {
 
         public MessageBroadcaster createEmptyProbeMessage() {
             Collection<Address> destinations = view.getMembers(); // TODO change so this is just box members? Not all view members
-            MessageId messageId = new MessageId(clock.getTime(), localAddress);
+            MessageId messageId = new MessageId(clock.getTime(), localAddress, -1); // Sequence is not relevant hence -1
             Header header = RMCastHeader.createEmptyProbeHeader(messageId, localAddress, nmc.getData(), destinations);
             Message message = new Message().putHeader(id, header);
             message.setDest(new AnycastAddress(destinations));
@@ -378,7 +435,6 @@ final public class RMSys extends Protocol {
 
         @Override
         public void run() {
-            System.out.println("HERE");
             RMCastHeader header = (RMCastHeader) message.getHeader(headerId);
             header.setCopy(currentCopy.intValue());
 

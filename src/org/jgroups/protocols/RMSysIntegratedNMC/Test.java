@@ -19,17 +19,18 @@ import java.util.concurrent.TimeUnit;
  * @since 4.0
  */
 public class Test extends ReceiverAdapter {
-    public static void main(String[] args) {
-        try {
+    public static void main(String[] args) throws Exception{
+//        try {
             new Test().run("RMSysIntegrated.xml");
-        } catch (Exception e) {
-            System.out.println("Error: " + e.getMessage() + " | " + e.getCause());
-        }
+//        } catch (Exception e) {
+//            System.out.println("Error: " + e.getMessage() + " | " + e.getCause());
+//        }
     }
 
-    private final int NUMBER_MESSAGES_TO_SEND = 10000;
+    private final int NUMBER_MESSAGES_TO_SEND = 6000;
     private final int TIME_BETWEEN_REQUESTS = 10;
-    private final String PATH = "/work/a7109534/";
+//    private final String PATH = "/work/a7109534/";
+    private final String PATH = "";
     private final List<RMCastHeader> deliveredMessages = new ArrayList<RMCastHeader>();
     private ExecutorService outputThread = Executors.newSingleThreadExecutor();
     private Address localAddress;
@@ -45,7 +46,7 @@ public class Test extends ReceiverAdapter {
         System.out.println("Number of message to send := " + NUMBER_MESSAGES_TO_SEND);
         System.out.println("Time between each request := " + TIME_BETWEEN_REQUESTS);
 
-        Util.sleep(1000 * 30);
+        Util.sleep(1000 * 10);
         int count = 0;
         while (true) {
             AnycastAddress anycastAddress = new AnycastAddress(channel.getView().getMembers());
@@ -58,7 +59,7 @@ public class Test extends ReceiverAdapter {
                 break;
         }
         System.out.println("Sending finished!");
-        Util.sleep(1000 * 30);
+        Util.sleep(1000 * 60);
         writeHeadersToFile(new ArrayList<RMCastHeader>(deliveredMessages));
         Util.sleep(1000 * 10);
         channel.disconnect();
