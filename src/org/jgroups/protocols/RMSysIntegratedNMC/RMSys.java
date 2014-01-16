@@ -178,7 +178,7 @@ final public class RMSys extends Protocol {
         // TODO change so that only box members are selected
         Message message = new Message(new AnycastAddress(view.getMembers()));
         MessageId messageId = new MessageId(clock.getTime(), localAddress, -1);
-        message.putHeader(id, RMCastHeader.createEmptyAckHeader(messageId, view.getMembers(), acks));
+        message.putHeader(id, RMCastHeader.createEmptyAckHeader(messageId, view.getMembers(), senderManager.getVectorClock(), acks));
         broadcastMessage(message, false);
 
         if (log.isDebugEnabled())
@@ -342,9 +342,14 @@ final public class RMSys extends Protocol {
             log.trace("Broadcast Message := " + message.getHeader(id));
 
         message.setSrc(localAddress);
+        if (sendToLocal) {
+            Message messageCopy = message.copy();
+            handleMessage(new Event(Event.MSG, messageCopy), (RMCastHeader) messageCopy.getHeader(id));
+        }
+
         AnycastAddress address = (AnycastAddress) message.getDest();
         for (Address destination : address.getAddresses()) {
-            if (!sendToLocal && destination.equals(localAddress))
+            if (destination.equals(localAddress))
                 continue;
 
             Message messageCopy = message.copy();

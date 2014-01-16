@@ -38,8 +38,8 @@ public class RMCastHeader extends Header {
         return new RMCastHeader(EMPTY_PROBE_MESSAGE, id, disseminator, 0, data, destinations, null, null);
     }
 
-    public static RMCastHeader createEmptyAckHeader(MessageId id, Collection<Address> destinations, Collection<MessageId> acks) {
-        return new RMCastHeader(EMPTY_ACK_MESSAGE, id, id.getOriginator(), 0, null, destinations, null, acks);
+    public static RMCastHeader createEmptyAckHeader(MessageId id, Collection<Address> destinations, VectorClock vectorClock, Collection<MessageId> acks) {
+        return new RMCastHeader(EMPTY_ACK_MESSAGE, id, id.getOriginator(), 0, null, destinations, vectorClock, acks);
     }
 
     public static RMCastHeader createBroadcastHeader(MessageId id, Address disseminator, int copy, NMCData nmcData,

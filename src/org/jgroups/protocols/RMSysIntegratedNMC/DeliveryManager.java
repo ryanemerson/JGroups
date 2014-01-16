@@ -53,8 +53,8 @@ public class DeliveryManager {
                 log.debug("Message added | " + record);
 
             // Process vc & acks at the start, so that placeholders are always created before a message is added to the deliverySet
-            processVectorClock(record);
             processAcks(record);
+            processVectorClock(record);
 
             MessageRecord existingRecord = messageRecords.get(record.id);
             if (existingRecord == null) {
@@ -111,6 +111,7 @@ public class DeliveryManager {
                 log.debug("Empty Ack Message received | Acks := " + header.getAcks());
 
             processAcks(header.getId().getOriginator(), header.getAcks());
+            processVectorClock(header.getVectorClock());
 
             if (deliverySet.first().isDeliverable())
                 messageReceived.signal();
@@ -120,7 +121,10 @@ public class DeliveryManager {
     }
 
     private void processVectorClock(MessageRecord record) {
-        VectorClock vc = record.getHeader().getVectorClock();
+        processVectorClock(record.getHeader().getVectorClock());
+    }
+
+    private void processVectorClock(VectorClock vc) {
         if (vc.getLastBroadcast() != null)
             createPlaceholder(vc.getLastBroadcast());
 
