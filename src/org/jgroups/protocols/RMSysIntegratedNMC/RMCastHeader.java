@@ -172,12 +172,14 @@ public class RMCastHeader extends Header {
     @Override
     public String toString() {
         return "RMCastHeader{" +
-                "type=" + type2String(type) +
+                "type=" + type +
                 ", id=" + id +
                 ", disseminator=" + disseminator +
                 ", copy=" + copy +
                 ", nmcData=" + nmcData +
                 ", destinations=" + destinations +
+                ", vectorClock=" + vectorClock +
+                ", acks=" + acks +
                 '}';
     }
 
@@ -185,6 +187,8 @@ public class RMCastHeader extends Header {
         switch (t) {
             case EMPTY_PROBE_MESSAGE:
                 return "EMPTY_PROBE_MESSAGE";
+            case EMPTY_ACK_MESSAGE:
+                return "EMPTY_ACK_MESSAGE";
             case BROADCAST_MESSAGE:
                 return "BROADCAST_MESSAGE";
             default:

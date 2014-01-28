@@ -11,20 +11,20 @@ import java.util.Map;
 
 public class VectorClock implements SizeStreamable {
     private MessageId lastBroadcast;
-    private Map<Address, MessageId> ackRecord;
+    private Map<Address, MessageId> messagesReceived;
 
     public static VectorClock copyVectorClock(VectorClock clock) {
-        return new VectorClock(clock.lastBroadcast, clock.ackRecord);
+        return new VectorClock(clock.lastBroadcast, clock.messagesReceived);
     }
 
     public VectorClock() {
         lastBroadcast = null;
-        ackRecord = new HashMap<Address, MessageId>();
+        messagesReceived = new HashMap<Address, MessageId>();
     }
 
-    public VectorClock(MessageId lastBroadcast, Map<Address, MessageId> ackRecord) {
+    public VectorClock(MessageId lastBroadcast, Map<Address, MessageId> messagesReceived) {
         this.lastBroadcast = lastBroadcast;
-        this.ackRecord = ackRecord;
+        this.messagesReceived = messagesReceived;
     }
 
     public MessageId getLastBroadcast() {
@@ -35,12 +35,12 @@ public class VectorClock implements SizeStreamable {
         this.lastBroadcast = lastBroadcast;
     }
 
-    public Map<Address, MessageId> getAckRecord() {
-        return ackRecord;
+    public Map<Address, MessageId> getMessagesReceived() {
+        return messagesReceived;
     }
 
-    public void setAckRecord(Map<Address, MessageId> ackRecord) {
-        this.ackRecord = ackRecord;
+    public void setMessagesReceived(Map<Address, MessageId> messagesReceived) {
+        this.messagesReceived = messagesReceived;
     }
 
     @Override
@@ -57,25 +57,25 @@ public class VectorClock implements SizeStreamable {
     @Override
     public void readFrom(DataInput in) throws Exception {
         lastBroadcast = (MessageId) Util.readStreamable(MessageId.class, in);
-        ackRecord = readAckRecord(in);
+        messagesReceived = readAckRecord(in);
     }
 
     @Override
     public String toString() {
         return "VectorClock{" +
                 "lastBroadcast=" + lastBroadcast +
-                ", ackRecord=" + ackRecord +
+                ", messagesReceived=" + messagesReceived +
                 '}';
     }
 
     private void writeAckRecord(DataOutput out) throws Exception {
-        if (ackRecord == null) {
+        if (messagesReceived == null) {
             out.writeShort(-1);
             return;
         }
 
-        out.writeShort(ackRecord.size());
-        for (Map.Entry<Address, MessageId> entry : ackRecord.entrySet()) {
+        out.writeShort(messagesReceived.size());
+        for (Map.Entry<Address, MessageId> entry : messagesReceived.entrySet()) {
             Util.writeAddress(entry.getKey(), out);
             Util.writeStreamable(entry.getValue(), out);
         }
@@ -93,7 +93,7 @@ public class VectorClock implements SizeStreamable {
 
     private int getAckRecordSize() {
         int size = 0;
-        for (Map.Entry<Address, MessageId> entry : ackRecord.entrySet()) {
+        for (Map.Entry<Address, MessageId> entry : messagesReceived.entrySet()) {
             size += Util.size(entry.getKey()) + entry.getValue().size();
         }
         return size;

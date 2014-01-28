@@ -67,6 +67,8 @@ public class PCSynch extends Protocol {
     }
 
     public void startClockSynch() {
+        log.setLevel("debug");
+
         clock = new VirtualClock();
         timer = getTransport().getTimer();
         timer.scheduleAtFixedRate(new RequestSender(), 0, synchFrequency, TimeUnit.MINUTES);

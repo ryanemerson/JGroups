@@ -27,7 +27,8 @@ public class Test extends ReceiverAdapter {
 //        }
     }
 
-    private final int NUMBER_MESSAGES_TO_SEND = 6000;
+    private final int NUMBER_MESSAGES_TO_SEND = 100000;
+    private final int NUMBER_MESSAGES_PER_FILE = 10000;
     private final int TIME_BETWEEN_REQUESTS = 10;
 //    private final String PATH = "/work/a7109534/";
     private final String PATH = "";
@@ -60,7 +61,7 @@ public class Test extends ReceiverAdapter {
         }
         System.out.println("Sending finished!");
         Util.sleep(1000 * 60);
-        writeHeadersToFile(new ArrayList<RMCastHeader>(deliveredMessages));
+//        writeHeadersToFile(new ArrayList<RMCastHeader>(deliveredMessages));
         Util.sleep(1000 * 10);
         channel.disconnect();
         System.exit(0);
@@ -71,7 +72,7 @@ public class Test extends ReceiverAdapter {
             RMCastHeader header = (RMCastHeader) msg.getHeader((short) 1008);
             deliveredMessages.add(header);
 
-            if (deliveredMessages.size() == NUMBER_MESSAGES_TO_SEND) {
+            if (deliveredMessages.size() % NUMBER_MESSAGES_PER_FILE == 0) {
                 final List<RMCastHeader> outputHeaders = new ArrayList<RMCastHeader>(deliveredMessages);
                 deliveredMessages.clear();
                 // Output using a single thread to ensure that this operation does not effect receiving messages
@@ -95,8 +96,8 @@ public class Test extends ReceiverAdapter {
                     true)), true);
         } catch (Exception e) {
             System.out.println("Error: " + e);
+            return null;
         }
-        return null;
     }
 
     private void writeHeadersToFile(List<RMCastHeader> headers) {

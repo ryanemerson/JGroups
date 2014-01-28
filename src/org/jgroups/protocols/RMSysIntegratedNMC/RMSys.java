@@ -32,7 +32,7 @@ final public class RMSys extends Protocol {
     private int minimumNodes = 2;
 
     @Property(name = "max_acks_per_message", description = "The maximum number of messages that can be acked in one message")
-    private int numberOfAcks = 50;
+    private int numberOfAcks = 10;
 
     @Property(name = "max_ack_wait", description = "The delay before an empty ack message is sent if no other broadcasts are made")
     private int ackDelay = 20;
@@ -68,7 +68,7 @@ final public class RMSys extends Protocol {
 
     @Override
     public void init() throws Exception {
-        log.setLevel("debug");
+//        log.setLevel("debug");
         timer = getTransport().getTimer();
         clock = new PCSynch();
 
@@ -95,6 +95,9 @@ final public class RMSys extends Protocol {
             log.debug(profiler.toString());
             log.debug(deliveryManager.toString());
         }
+        System.out.println(nmc.getData().toString());
+        System.out.println(profiler.toString());
+        System.out.println(deliveryManager.toString());
     }
 
     @Override
@@ -163,28 +166,28 @@ final public class RMSys extends Protocol {
         if (message.getDest() == null)
             message.setDest(new AnycastAddress(destinations)); // If null must set to Anycast Address
 
-        MessageId messageId = new MessageId(clock.getTime(), localAddress, senderManager.nextSequence());
-        RMCastHeader header = RMCastHeader.createBroadcastHeader(messageId, localAddress, 0, data, destinations,
-                senderManager.newBroadcast(messageId), senderManager.getIdsToAck());
-        message.putHeader(id, header);
+        RMCastHeader header = deliveryManager.addLocalMessage(senderManager, message, localAddress, data, id, destinations);
         timer.execute(new MessageBroadcaster(message, 0, data.getMessageCopies(), data.getEta(), id));
+
+        if (log.isDebugEnabled())
+            log.debug("Broadcast MSG := " + header);
     }
 
     private void sendEmptyAckMessage() {
-        Collection<MessageId> acks = senderManager.getIdsToAck();
-        if (acks.isEmpty())
+        Collection<Address> destinations = view.getMembers(); // TODO change so that only box members are selected
+        RMCastHeader header = senderManager.newEmptyBroadcast(localAddress, destinations);
+        if (header == null)
             return;
 
-        // TODO change so that only box members are selected
-        Message message = new Message(new AnycastAddress(view.getMembers()));
-        MessageId messageId = new MessageId(clock.getTime(), localAddress, -1);
-        message.putHeader(id, RMCastHeader.createEmptyAckHeader(messageId, view.getMembers(), senderManager.getVectorClock(), acks));
+        Message message = new Message(new AnycastAddress(destinations));
+        message.putHeader(this.id, header);
         broadcastMessage(message, false);
 
         if (log.isDebugEnabled())
-            log.debug("Empty ack message sent | #Acks :=  " + acks.size() + " | Acks := " + acks);
+            log.debug("Empty ack message sent ct := " + clock.getTime() +
+                      " | #Acks :=  " + header.getAcks().size() + " | Acks := " + header.getAcks());
 
-        if (senderManager.numberOfAcksWaiting() > 0)
+        if (senderManager.acksRequired())
             sendEmptyAckMessage();
     }
 
@@ -223,6 +226,7 @@ final public class RMSys extends Protocol {
         if (header.getId().getOriginator().equals(localAddress))
             return;
 
+        log.debug("Ack MSG := " + header.getId());
         senderManager.addMessageToAck(header.getId());
 
         // If a future is already in progress and hasn't completed, then do nothing as that future will execute sooner

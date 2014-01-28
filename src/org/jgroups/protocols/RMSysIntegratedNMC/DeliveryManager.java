@@ -37,18 +37,31 @@ public class DeliveryManager {
         this.profiler = profiler;
     }
 
+    public RMCastHeader addLocalMessage(SenderManager senderManager, Message message, Address localAddress, NMCData data,
+                                short rmsysId, Collection<Address> destinations) {
+        lock.lock();
+        try {
+            RMCastHeader header = senderManager.newMessageBroadcast(localAddress, data, destinations);
+            message.putHeader(rmsysId, header);
+            MessageRecord record = new MessageRecord(message);
+
+            if (log.isDebugEnabled())
+                log.debug("Local Message added | " + record);
+
+            deliverySet.add(record);
+            messageRecords.put(record.id, record);
+            return header;
+        } finally {
+            lock.unlock();
+        }
+    }
+
     public void addMessage(Message message) {
         MessageRecord record = new MessageRecord(message);
         calculateDeliveryTime(record);
 
-        long start = System.nanoTime();
         lock.lock();
         try {
-            long fin = System.nanoTime();
-            long calc = fin - start;
-            if (calc > 3000000)
-                log.debug("Lock Aquire time := " + calc);
-
             if (log.isDebugEnabled())
                 log.debug("Message added | " + record);
 
@@ -85,18 +98,17 @@ public class DeliveryManager {
 
             MessageRecord record;
             while (!deliverySet.isEmpty() && (record = deliverySet.first()).isDeliverable()) {
-                if (!deliverySet.remove(record))
-                    log.debug("Record not removed | " + record + " | \n\n\t\t\t\t\t" + toString());
+                deliverySet.remove(record);
                 messageRecords.remove(record.id);
                 deliverable.add(record.message);
                 deliveredMsgRecord.put(record.id.getOriginator(), record.id);
                 lastDelivered = record.id;
 
                 int delay = (int) Math.ceil(rmSys.getClock().getTime() - record.id.getTimestamp() / 1000000.0);
-                // Ensure that the stored delay is not negative (occurs due to clock skew)
-                profiler.addDeliveryLatency(delay < 0 ? 0 : delay); // Store delivery latency in milliseconds
+                // Ensure that the stored delay is not negative (occurs due to clock skew) SHOULD be irrelevant
+                profiler.addDeliveryLatency(delay); // Store delivery latency in milliseconds
 
-                log.debug("Deliver Msg := " + record.id + " | ackRecord := " + record.ackRecord + " | Deliverable := " + record.isDeliverable());
+//                log.debug("Deliver Msg := " + record.id + " | ackRecord := " + record.ackRecord + " | Deliverable := " + record.isDeliverable());
             }
         } finally {
             lock.unlock();
@@ -128,7 +140,7 @@ public class DeliveryManager {
         if (vc.getLastBroadcast() != null)
             createPlaceholder(vc.getLastBroadcast());
 
-        for (MessageId id : vc.getAckRecord().values())
+        for (MessageId id : vc.getMessagesReceived().values())
             createPlaceholder(id);
     }
 
@@ -156,7 +168,7 @@ public class DeliveryManager {
 
     private void createPlaceholder(Address ackSource, MessageId id, boolean ack) {
         // If id is older than the last delivered message, from the originator node, than do not create a placeholder
-        if (id.compareTo(lastDelivered) <= 0)
+        if (id.compareTo(lastDelivered) <= 0 && id.compareTo(deliveredMsgRecord.get(id.getOriginator())) <= 0)
             return;
 
         MessageRecord placeholderRecord = new MessageRecord(id, ackSource);
@@ -216,7 +228,8 @@ public class DeliveryManager {
             // therefore we don't want to add a entry to the ackRecord
             if (ackSource != null)
                 ackRecord.put(ackSource, true);
-            log.debug("Placeholder created := " + this);
+            if (log.isTraceEnabled())
+                log.trace("Placeholder created := " + this);
         }
 
         MessageRecord(Message message) {
@@ -238,10 +251,6 @@ public class DeliveryManager {
             ackRecord.put(source, true);
             if (log.isTraceEnabled())
                 log.trace("Add ack from  := " + source + " | For message := " + id + " | Deliverable := " + isDeliverable() + " | ackRecord := " + ackRecord);
-
-            if (log.isDebugEnabled())
-                log.debug("Add ack from  := " + source + " | For message := " + id + " | Deliverable := " + isDeliverable() +
-                        " | ackRecord := " + ackRecord + " |\n\t\t\t deliverSet first := " + deliverySet.first());
         }
 
         void addMessage(MessageRecord newRecord) {
@@ -255,6 +264,9 @@ public class DeliveryManager {
         }
 
         boolean isDeliverable() {
+            if (id.getTimestamp() > rmSys.getClock().getTime())
+                return false;
+
             if (isPlaceholder())
                 return false;
 
@@ -266,7 +278,6 @@ public class DeliveryManager {
             if (previous != null && id.getSequence() != previous.getSequence() + 1)
                 return false;
 
-//            return vectorClockMessagesReceived();
             return true;
         }
 
@@ -275,27 +286,8 @@ public class DeliveryManager {
             // Also don't put to the map if there is already a mapping for an address, necessary in scenarios where
             // an ack(s) has been received before the actual message
             for (Address address : header.getDestinations())
-                if (!address.equals(rmSys.getLocalAddress()) && !address.equals(id.getOriginator()) && !ackRecord.containsKey(address)) {
+                if (!address.equals(rmSys.getLocalAddress()) && !address.equals(id.getOriginator()) && !ackRecord.containsKey(address))
                     ackRecord.put(address, false);
-                    log.debug("Add to ackRecord := " + address);
-                }
-        }
-
-        boolean vectorClockMessagesReceived() {
-            VectorClock vc = getHeader().getVectorClock();
-
-//                if (vc.getLastBroadcast() != null && vc.getLastBroadcast().compareTo(delivered) > 0)
-//
-//
-//                if (vc.getLastBroadcast() != null && delivered.compareTo(vc.getLastBroadcast()) > 0) {
-////                    log.debug("VCMR() first if | delivered := " + delivered + " | vc.getLastBroadcast := " + vc.getLastBroadcast());
-//                    return false;
-//                }
-//
-//                for (MessageId vcAck : vc.getAckRecord().values())
-//                    if (delivered.compareTo(vcAck) > 0)
-//                        return false;
-            return true;
         }
 
         @Override
