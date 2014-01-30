@@ -17,6 +17,10 @@ public class Profiler {
         MESSAGES_RECEIVED,
         MESSAGES_DELIVERED,
         MESSAGES_REJECTED,
+        EMPTY_PROBE_MESSAGES_SENT,
+        EMPTY_PROBE_MESSAGES_RECEIVED,
+        EMPTY_ACK_MESSAGES_SENT,
+        EMPTY_ACK_MESSAGES_RECEIVED,
         FIRST_COPY_NOT_0,
         MESSAGES_DISSEMINATED // Actually records the number of copies disseminated
     }
@@ -82,6 +86,34 @@ public class Profiler {
         counters.get(Counter.MESSAGES_RECEIVED).incrementAndGet();
         if (firstCopyAbsent)
             counters.get(Counter.FIRST_COPY_NOT_0).incrementAndGet();
+    }
+
+    public void emptyProbeMessageReceived() {
+        if (!profileEnabled)
+            return;
+
+        counters.get(Counter.EMPTY_PROBE_MESSAGES_RECEIVED).incrementAndGet();
+    }
+
+    public void emptyProbeMessageSent() {
+        if (!profileEnabled)
+            return;
+
+        counters.get(Counter.EMPTY_PROBE_MESSAGES_SENT).incrementAndGet();
+    }
+
+    public void emptyAckMessageReceived() {
+        if (!profileEnabled)
+            return;
+
+        counters.get(Counter.EMPTY_ACK_MESSAGES_RECEIVED).incrementAndGet();
+    }
+
+    public void emptyAckMessageSent() {
+        if (!profileEnabled)
+            return;
+
+        counters.get(Counter.EMPTY_ACK_MESSAGES_SENT).incrementAndGet();
     }
 
     public void messageRejected() {

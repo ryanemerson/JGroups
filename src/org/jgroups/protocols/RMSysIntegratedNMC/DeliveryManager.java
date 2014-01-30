@@ -43,6 +43,11 @@ public class DeliveryManager {
         try {
             RMCastHeader header = senderManager.newMessageBroadcast(localAddress, data, destinations);
             message.putHeader(rmsysId, header);
+
+            // Copy necessary to prevent message.setDest in deliver() from affecting broadcasts of copies > 0
+            // Without this the RMSys.broadcastMessage() will throw an exception if a message has been delivered
+            // before all of it's copies have been broadcast, this is because the msg destination is set to a single destination in deliver()
+            message = message.copy();
             MessageRecord record = new MessageRecord(message);
 
             if (log.isDebugEnabled())
@@ -104,7 +109,7 @@ public class DeliveryManager {
                 deliveredMsgRecord.put(record.id.getOriginator(), record.id);
                 lastDelivered = record.id;
 
-                int delay = (int) Math.ceil(rmSys.getClock().getTime() - record.id.getTimestamp() / 1000000.0);
+                int delay = (int) Math.ceil((rmSys.getClock().getTime() - record.id.getTimestamp()) / 1000000.0);
                 // Ensure that the stored delay is not negative (occurs due to clock skew) SHOULD be irrelevant
                 profiler.addDeliveryLatency(delay); // Store delivery latency in milliseconds
 

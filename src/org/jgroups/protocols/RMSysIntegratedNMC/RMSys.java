@@ -20,9 +20,10 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @since 4.0
  */
 final public class RMSys extends Protocol {
+
     @Property(name = "initial_probe_frequency", description = "The time (in milliseconds) between each probe message that is" +
             " sent during initialisation")
-    private final int initialProbeFreq = 5; // Time between each probe during initial probe period
+    private final int initialProbeFrequency = 5; // Time between each probe during initial probe period
 
     @Property(name = "initial_probe_count", description = "The number of probes that should be sent by this node" +
             " before message sending can occur")
@@ -163,10 +164,15 @@ final public class RMSys extends Protocol {
 
         // TODO change so that only box members are selected
         Collection<Address> destinations = view.getMembers();
-        if (message.getDest() == null)
+        if (message.getDest() == null || !(message.getDest() instanceof AnycastAddress))
             message.setDest(new AnycastAddress(destinations)); // If null must set to Anycast Address
 
+        // Generate message header and store locally
         RMCastHeader header = deliveryManager.addLocalMessage(senderManager, message, localAddress, data, id, destinations);
+        messageRecords.put(header.getId(), new MessageRecord(header));
+        receivedMessages.put(header.getId(), message); // Store actual message, need for retransmission
+
+        // schedule message broadcast
         timer.execute(new MessageBroadcaster(message, 0, data.getMessageCopies(), data.getEta(), id));
 
         if (log.isDebugEnabled())
@@ -181,12 +187,13 @@ final public class RMSys extends Protocol {
 
         Message message = new Message(new AnycastAddress(destinations));
         message.putHeader(this.id, header);
-        broadcastMessage(message, false);
+        broadcastMessage(message);
 
         if (log.isDebugEnabled())
             log.debug("Empty ack message sent ct := " + clock.getTime() +
                       " | #Acks :=  " + header.getAcks().size() + " | Acks := " + header.getAcks());
 
+        profiler.emptyAckMessageSent();
         if (senderManager.acksRequired())
             sendEmptyAckMessage();
     }
@@ -197,11 +204,10 @@ final public class RMSys extends Protocol {
 
         if (header.getType() == RMCastHeader.EMPTY_ACK_MESSAGE) {
             deliveryManager.processEmptyAckMessage(header);
-            return;
+            profiler.emptyAckMessageReceived();
         }
-
         // No need to RMCast empty probe messages as we only want the latency
-        if (header.getType() != RMCastHeader.EMPTY_PROBE_MESSAGE) {
+        else if (header.getType() != RMCastHeader.EMPTY_PROBE_MESSAGE) {
             final MessageRecord record;
             MessageRecord newRecord = new MessageRecord(header);
             MessageRecord oldRecord = (MessageRecord) ((ConcurrentHashMap) messageRecords).putIfAbsent(header.getId(), newRecord);
@@ -216,6 +222,8 @@ final public class RMSys extends Protocol {
                 record = oldRecord;
             }
             handleRMCastCopies(header, record);
+        } else {
+            profiler.emptyProbeMessageReceived();
         }
         recordProbe(header); // Record probe latency
     }
@@ -335,22 +343,13 @@ final public class RMSys extends Protocol {
     }
 
     private void broadcastMessage(Message message) {
-        broadcastMessage(message, true);
-    }
-
-    private void broadcastMessage(Message message, boolean sendToLocal) {
         if (!(message.getDest() instanceof AnycastAddress))
-            throw new IllegalArgumentException("A messages destination must be an AnycastAddress");
+            throw new IllegalArgumentException("A messages destination must be an AnycastAddress | getDest() := " + message.getDest() + " | header := " + message.getHeader(id));
 
         if (log.isTraceEnabled())
             log.trace("Broadcast Message := " + message.getHeader(id));
 
         message.setSrc(localAddress);
-        if (sendToLocal) {
-            Message messageCopy = message.copy();
-            handleMessage(new Event(Event.MSG, messageCopy), (RMCastHeader) messageCopy.getHeader(id));
-        }
-
         AnycastAddress address = (AnycastAddress) message.getDest();
         for (Address destination : address.getAddresses()) {
             if (destination.equals(localAddress))
@@ -396,6 +395,7 @@ final public class RMSys extends Protocol {
                 log.trace("Sending empty probe messsage | Clock synch := " + clock.isSynchronised());
             timer.execute(createEmptyProbeMessage()); // Send empty probe messages
             numberOfProbesSent++;
+            profiler.emptyProbeMessageSent();
 
             if (!initialProbesReceived && nmc.initialProbesReceived()) {
                 if (log.isDebugEnabled())
@@ -403,8 +403,9 @@ final public class RMSys extends Protocol {
                 initialProbesReceived = true;
             }
 
-            if (log.isDebugEnabled() && !initialProbesSent && numberOfProbesSent >= initialProbeCount) {
-                log.debug("Initial probes sent");
+            if (!initialProbesSent && numberOfProbesSent >= initialProbeCount) {
+                if (log.isDebugEnabled())
+                    log.debug("Initial probes sent");
                 initialProbesSent = true;
             }
         }
@@ -419,7 +420,7 @@ final public class RMSys extends Protocol {
         }
 
         public long nextInterval() {
-            return initialProbesSent && initialProbesReceived ? 0 : initialProbeFreq;
+            return initialProbesSent && initialProbesReceived ? 0 : initialProbeFrequency;
         }
     }
 
