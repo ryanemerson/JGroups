@@ -19,6 +19,7 @@ public class NMC {
     private int recentPastSize = 1000; // The number of latencies that defines the recent past
     private double qThreshold = 1.05; // The threshold for calculating Q
     private double etaProbability = 0.90;
+    private double alpha = 0.9; // The value alpha that is used to update xMax
 
     private final PCSynch clock;
     private final Profiler profiler;
@@ -80,8 +81,8 @@ public class NMC {
     }
 
     private void addXMax(int maxLatency) {
-        if (maxLatency > xMax)
-            xMax = maxLatency;
+        xMax = (int) Math.ceil(((1 - alpha) * xMax) + (alpha * maxLatency));
+        profiler.addLocalXmax(xMax); // Store local xMax
     }
 
     private void addLatency(int latency) {
@@ -151,7 +152,6 @@ public class NMC {
             }
         }
         addXMax(maxLatency);
-        profiler.addLocalXmax(xMax); // Store local xMax
 
         double q = exceedQThreshold / numberOfLatencies;
         int rho = calculateRho(q);
@@ -173,7 +173,7 @@ public class NMC {
         long result = value / 1000000;
         if (result > Integer.MAX_VALUE)
             throw new IllegalArgumentException("The calculated long value is greater than Iteger.MAX_VALUE | " +
-                    "input := " + value + " | calculated value := " +  result);
+                    "input := " + value + " | calculated value := " + result);
         return (int) Math.ceil(value / 1000000d);
     }
 
