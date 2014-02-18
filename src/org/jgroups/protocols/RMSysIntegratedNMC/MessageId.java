@@ -14,9 +14,9 @@ import java.io.DataOutput;
  * @since 4.0
  */
 public class MessageId implements SizeStreamable, Comparable<MessageId> {
-    private long timestamp;
-    private Address originator;
-    private long sequence;
+    private volatile long timestamp;
+    private volatile Address originator;
+    private volatile long sequence;
 
     public MessageId() {
     }
@@ -65,8 +65,17 @@ public class MessageId implements SizeStreamable, Comparable<MessageId> {
     public int compareTo(MessageId other) {
         if (other == null) return 1;
 
+        if (this.equals(other))
+            return 0;
+
         if (originator.equals(other.originator))
-            return Long.signum(sequence - other.sequence);
+            if (timestamp == other.timestamp && timestamp == -1)
+                return Long.signum(sequence - other.sequence);
+            else
+                return Long.signum(timestamp - other.timestamp);
+
+        if (originator.equals(other.originator) && sequence == other.sequence)
+            return Long.signum(timestamp - other.timestamp);
 
         if (timestamp < other.timestamp)
             return -1;
@@ -82,10 +91,14 @@ public class MessageId implements SizeStreamable, Comparable<MessageId> {
         if (o == null || getClass() != o.getClass()) return false;
 
         MessageId messageId = (MessageId) o;
+        if (sequence != messageId.sequence)
+            return false;
 
-        if (sequence != messageId.sequence) return false;
-        if (timestamp != messageId.timestamp) return false;
-        if (originator != null ? !originator.equals(messageId.originator) : messageId.originator != null) return false;
+        if (timestamp != messageId.timestamp)
+            return false;
+
+        if (originator != null ? !originator.equals(messageId.originator) : messageId.originator != null)
+            return false;
 
         return true;
     }

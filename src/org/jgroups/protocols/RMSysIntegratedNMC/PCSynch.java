@@ -9,6 +9,8 @@ import org.jgroups.util.Util;
 
 import java.io.DataInput;
 import java.io.DataOutput;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -42,6 +44,9 @@ public class PCSynch extends Protocol {
 
     private int minimumNodes = 2;
 
+    private boolean allNodesSynched = true;
+    private List<String> synchedHostnames;
+    private List<Address> synchMembers;
     private View view;
     private VirtualClock clock;
     private Address master;
@@ -50,16 +55,19 @@ public class PCSynch extends Protocol {
     private volatile boolean synchronised = false;
     private volatile boolean synchInProgress = false;
 
-    public long getTime() {
-        return clock.getTime();
+    public PCSynch() {
     }
 
-    public long getMaximumError() {
-        return maxLatency;
-    }
-
-    public boolean isSynchronised() {
-        return synchronised;
+    public PCSynch(List<String> synchedHostnames) {
+        this.synchedHostnames = synchedHostnames;
+        synchMembers = new ArrayList<Address>();
+        allNodesSynched = false;
+        if (view != null && view.size() > 0) {
+            for (Address node : view.getMembers())
+                for (String hostname : synchedHostnames)
+                    if (node.toString().contains(hostname))
+                        synchMembers.add(node);
+        }
     }
 
     @Override
@@ -67,7 +75,7 @@ public class PCSynch extends Protocol {
     }
 
     public void startClockSynch() {
-        log.setLevel("debug");
+        log.setLevel("info");
 
         clock = new VirtualClock();
         timer = getTransport().getTimer();
@@ -109,7 +117,20 @@ public class PCSynch extends Protocol {
                 }
                 return null;
             case Event.VIEW_CHANGE:
-                    view = (View) event.getArg();
+                View oldView = view;
+                view = (View) event.getArg();
+                if (allNodesSynched) {
+                    synchMembers = view.getMembers();
+                } else if (oldView == null || oldView.size() < view.size()) { // Node added to view
+                    for (Address node : view.getMembers())
+                        for (String hostname : synchedHostnames)
+                            if (node.toString().contains(hostname))
+                                synchMembers.add(node);
+                } else { // Node removed from view
+                    for (Address member : synchMembers)
+                        if (!view.getMembers().contains(member))
+                            synchMembers.remove(member);
+                }
                 return up_prot.up(event);
         }
         return up_prot.up(event);
@@ -123,6 +144,18 @@ public class PCSynch extends Protocol {
                 return down_prot.down(event);
         }
         return down_prot.down(event);
+    }
+
+    public long getTime() {
+        return clock.getTime();
+    }
+
+    public long getMaximumError() {
+        return maxLatency;
+    }
+
+    public boolean isSynchronised() {
+        return synchronised;
     }
 
     private Message generateMessage(Address destination, Header header) {
@@ -164,20 +197,20 @@ public class PCSynch extends Protocol {
             synchronised = true;
             synchInProgress = false;
 
-            if (log.isDebugEnabled())
-                log.debug("Synchronisation Succeeded | Clock difference := " + clock.getDifference());
+            if (log.isInfoEnabled())
+                log.info("Synchronisation Succeeded | Clock difference := " + clock.getDifference());
         }
     }
 
     final public class RequestSender implements Runnable {
         public void run() {
             // TODO can we improve this????
-            while (view == null || view.size() < minimumNodes) {
+            while (view == null || view.size() < minimumNodes || synchMembers.isEmpty()) {
                 Util.sleep(1); // Don't start clockSynch until at least minimum number of nodes have joined the cluster
             }
 
             int messagesSent = 0;
-            master = view.getMembers().get(0); // Need to make this consistent for all nodes, when dynamic discovery is used
+            master = synchMembers.get(0); // Need to make this consistent for all nodes, when dynamic discovery is used
 
             // If this node is the master then no need to synch
             if (!localAddress.equals(master)) {
@@ -191,8 +224,8 @@ public class PCSynch extends Protocol {
                 }
             } else {
                 synchronised = true;
-                if (log.isDebugEnabled())
-                    log.debug("Do nothing, I'm the master node");
+                if (log.isInfoEnabled())
+                    log.info("Do nothing, I'm the master node");
                 return;
             }
 

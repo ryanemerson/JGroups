@@ -6,10 +6,7 @@ import org.jgroups.stack.Protocol;
 import org.jgroups.stack.ProtocolStack;
 import org.jgroups.util.TimeScheduler;
 
-import java.util.Collection;
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
+import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -52,29 +49,37 @@ final public class RMSys extends Protocol {
     private View view;
     private Future sendEmptyAckFuture;
 
+    private boolean allNodesActive = true;
+    private List<String> activeHostnames;
+    private List<Address> activeMembers = new ArrayList<Address>();
+
     private final boolean profilingEnabled = true;
     private final Profiler profiler = new Profiler(profilingEnabled);
 
-    public PCSynch getClock() {
-        return clock;
+    public RMSys() {
     }
 
-    public NMC getNMC() {
-        return nmc;
-    }
-
-    public Address getLocalAddress() {
-        return localAddress;
+    public RMSys(PCSynch clock, List<String> activeHostnames) {
+        this.clock = clock;
+        this.activeHostnames = activeHostnames;
+        allNodesActive = false;
+        if (view != null && view.size() > 0) {
+            for (Address node : view.getMembers())
+                for (String hostname : activeHostnames)
+                    if (node.toString().contains(hostname))
+                        activeMembers.add(node);
+        }
     }
 
     @Override
     public void init() throws Exception {
-//        log.setLevel("debug");
-        timer = getTransport().getTimer();
-        clock = new PCSynch();
+        if (clock == null) {
+            clock = new PCSynch();
 
-        // TODO change so that Events are passed up and down the stack (temporary hack)
-        getProtocolStack().insertProtocol(clock, ProtocolStack.BELOW, this.getName());
+            // TODO change so that Events are passed up and down the stack (temporary hack)
+            getProtocolStack().insertProtocol(clock, ProtocolStack.BELOW, this.getName());
+        }
+        timer = getTransport().getTimer();
 
         nmc = new NMC(clock, profiler);
         deliveryManager = new DeliveryManager(this, profiler);
@@ -83,7 +88,10 @@ final public class RMSys extends Protocol {
 
     @Override
     public void start() throws Exception {
-        super.start();
+//        log.setLevel("debug");
+        if (activeMembers.size() > 0)
+            nmc.setActiveNodes(activeMembers.size());
+
         executor = Executors.newSingleThreadExecutor();
         executor.execute(new DeliverMessages());
         timer.scheduleWithDynamicInterval(new ProbeScheduler());
@@ -96,9 +104,6 @@ final public class RMSys extends Protocol {
             log.debug(profiler.toString());
             log.debug(deliveryManager.toString());
         }
-        System.out.println(nmc.getData().toString());
-        System.out.println(profiler.toString());
-        System.out.println(deliveryManager.toString());
     }
 
     @Override
@@ -114,14 +119,29 @@ final public class RMSys extends Protocol {
                 handleMessage(event, header);
                 return null;
             case Event.VIEW_CHANGE:
+                View oldView = view;
                 view = (View) event.getArg();
+                if (allNodesActive) {
+                    activeMembers = view.getMembers();
+                } else if (oldView == null || oldView.size() < view.size()) { // Node added to view
+                    for (Address node : view.getMembers())
+                        for (String hostname : activeHostnames)
+                            if (node.toString().contains(hostname))
+                                activeMembers.add(node);
+                } else { // Node removed from view
+                    for (Address member : activeMembers)
+                        if (!view.getMembers().contains(member))
+                            activeMembers.remove(member);
+                }
 
                 if (log.isDebugEnabled())
                     log.debug("View Change | new view := " + view);
 
-                // TODO How to make this associated with just box members
+                // TODO How to make this associated with just box members?
+                // There must be a cleaner solution then passing hostnames!
                 // Use a seperate view for those involved with RMSys i.e. boxMembers
-                nmc.setActiveNodes(view.size());
+                if (nmc != null)
+                    nmc.setActiveNodes(activeMembers.size());
                 break;
         }
         return up_prot.up(event);
@@ -145,11 +165,24 @@ final public class RMSys extends Protocol {
         return down_prot.down(event);
     }
 
+    public PCSynch getClock() {
+        return clock;
+    }
+
+    public Address getLocalAddress() {
+        return localAddress;
+    }
+
     private void deliver(Message message) {
         message.setDest(localAddress);
 
-        if (log.isTraceEnabled())
-            log.trace("Deliver message " + message + " in total order");
+        if (log.isDebugEnabled())
+            log.debug("Deliver message " + message.getHeader(id));
+
+        RMCastHeader header = (RMCastHeader) message.getHeader(this.id);
+        messageRecords.remove(header.getId());
+        receivedMessages.remove(header.getId());
+        responsiveTasks.remove(header.getId());
 
         profiler.messageDelivered();
         up_prot.up(new Event(Event.MSG, message));
@@ -162,9 +195,11 @@ final public class RMSys extends Protocol {
 
         NMCData data = nmc.getData();
 
-        // TODO change so that only box members are selected
-        Collection<Address> destinations = view.getMembers();
-        if (message.getDest() == null || !(message.getDest() instanceof AnycastAddress))
+        // TODO is this if necessary? Should the destination always be set to activeMembers regardless of the applications request?
+        // As total order broadcasts can't be sent to subsets, only a set of nodes.
+        // How would this work when a node is considered unresponsive?
+        Collection<Address> destinations = activeMembers;
+//        if (message.getDest() == null || !(message.getDest() instanceof AnycastAddress))
             message.setDest(new AnycastAddress(destinations)); // If null must set to Anycast Address
 
         // Generate message header and store locally
@@ -180,7 +215,7 @@ final public class RMSys extends Protocol {
     }
 
     private void sendEmptyAckMessage() {
-        Collection<Address> destinations = view.getMembers(); // TODO change so that only box members are selected
+        Collection<Address> destinations = activeMembers; // TODO change so that only box members are selected
         RMCastHeader header = senderManager.newEmptyBroadcast(localAddress, destinations);
         if (header == null)
             return;
@@ -208,6 +243,13 @@ final public class RMSys extends Protocol {
         }
         // No need to RMCast empty probe messages as we only want the latency
         else if (header.getType() != RMCastHeader.EMPTY_PROBE_MESSAGE) {
+            // If this headers sequence has already expired then we don't want to process it again
+            if (deliveryManager.hasMessageExpired(header)) {
+                if (header.getCopy() == 0)
+                    recordProbe(header); // Still record the probe latency, as we want to take into account larger latencies
+                return;
+            }
+
             final MessageRecord record;
             MessageRecord newRecord = new MessageRecord(header);
             MessageRecord oldRecord = (MessageRecord) ((ConcurrentHashMap) messageRecords).putIfAbsent(header.getId(), newRecord);
@@ -234,7 +276,6 @@ final public class RMSys extends Protocol {
         if (header.getId().getOriginator().equals(localAddress))
             return;
 
-        log.debug("Ack MSG := " + header.getId());
         senderManager.addMessageToAck(header.getId());
 
         // If a future is already in progress and hasn't completed, then do nothing as that future will execute sooner
@@ -267,8 +308,6 @@ final public class RMSys extends Protocol {
             Future f = responsiveTasks.get(header.getId());
             if (f != null)
                 f.cancel(true);
-
-            receivedMessages.remove(header.getId());
             return;
         }
 
@@ -388,7 +427,7 @@ final public class RMSys extends Protocol {
 
         @Override
         public void run() {
-            if (view == null || view.size() < minimumNodes || !clock.isSynchronised())
+            if (view == null || activeMembers.size() < minimumNodes || !clock.isSynchronised())
                 return;
 
             if (log.isTraceEnabled())
@@ -408,10 +447,13 @@ final public class RMSys extends Protocol {
                     log.debug("Initial probes sent");
                 initialProbesSent = true;
             }
+
+            if (log.isInfoEnabled() && initialProbesReceived && initialProbesSent)
+                log.info("Initial probes sent and received");
         }
 
         public MessageBroadcaster createEmptyProbeMessage() {
-            Collection<Address> destinations = view.getMembers(); // TODO change so this is just box members? Not all view members
+            Collection<Address> destinations = activeMembers;
             MessageId messageId = new MessageId(clock.getTime(), localAddress, -1); // Sequence is not relevant hence -1
             Header header = RMCastHeader.createEmptyProbeHeader(messageId, localAddress, nmc.getData(), destinations);
             Message message = new Message().putHeader(id, header);
