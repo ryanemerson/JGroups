@@ -55,6 +55,9 @@ public class DeliveryManager {
             calculateDeliveryTime(record);
             addRecordToDeliverySet(record);
 
+            if (deliverySet.first().isDeliverable())
+                messageReceived.signal();
+
             if (log.isDebugEnabled())
                 log.debug("Local Message added | " + record + (deliverySet.isEmpty() ? "" : " | deliverySet 1st := " + deliverySet.first()));
 
@@ -71,8 +74,21 @@ public class DeliveryManager {
 
         lock.lock();
         try {
+            if (hasMessageExpired(record.getHeader())) {
+                if (log.isErrorEnabled())
+                    log.error("An old message has been sent to the DeliveryManager | Message and its records discarded");
+                rmSys.collectGarbage(record.id); // Remove records created in RMSys
+                return;
+            }
+
             if (log.isDebugEnabled())
                 log.debug("Message added | " + record + (deliverySet.isEmpty() ? "" : " | deliverySet 1st := " + deliverySet.first()));
+
+//            if (record.id.getSequence() > 50000)
+//                log.setLevel("error");
+
+            if (log.isErrorEnabled())
+                log.error("Message added | " + record + (deliverySet.isEmpty() ? "" : " | deliverySet 1st := " + deliverySet.first()));
 
             // Process vc & acks at the start, so that placeholders are always created before a message is added to the deliverySet
             processAcks(record);
@@ -94,11 +110,11 @@ public class DeliveryManager {
             if (deliverySet.isEmpty())
                 messageReceived.await();
 
-
             MessageRecord record;
             while (!deliverySet.isEmpty() && (record = deliverySet.first()).isDeliverable()) {
                 MessageId id = record.id;
-                deliverySet.remove(record);
+                if (!deliverySet.remove(record))
+                    log.error("Record not removed from the delivery Set := " + record.id);
                 messageRecords.remove(id);
                 deliverable.add(record.message);
                 deliveredMsgRecord.put(id.getOriginator(), id);

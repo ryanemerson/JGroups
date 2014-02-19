@@ -88,7 +88,7 @@ final public class RMSys extends Protocol {
 
     @Override
     public void start() throws Exception {
-//        log.setLevel("debug");
+        log.setLevel("fatal");
         if (activeMembers.size() > 0)
             nmc.setActiveNodes(activeMembers.size());
 
@@ -173,16 +173,22 @@ final public class RMSys extends Protocol {
         return localAddress;
     }
 
+    public void collectGarbage(MessageId id) {
+        messageRecords.remove(id);
+        receivedMessages.remove(id);
+        responsiveTasks.remove(id);
+    }
+
     private void deliver(Message message) {
         message.setDest(localAddress);
 
         if (log.isDebugEnabled())
             log.debug("Deliver message " + message.getHeader(id));
 
+            log.error("Deliver message " + message.getHeader(id));
+
         RMCastHeader header = (RMCastHeader) message.getHeader(this.id);
-        messageRecords.remove(header.getId());
-        receivedMessages.remove(header.getId());
-        responsiveTasks.remove(header.getId());
+        collectGarbage(header.getId());
 
         profiler.messageDelivered();
         up_prot.up(new Event(Event.MSG, message));
