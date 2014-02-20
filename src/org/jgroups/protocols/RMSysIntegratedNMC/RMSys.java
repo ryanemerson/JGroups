@@ -79,21 +79,22 @@ final public class RMSys extends Protocol {
             // TODO change so that Events are passed up and down the stack (temporary hack)
             getProtocolStack().insertProtocol(clock, ProtocolStack.BELOW, this.getName());
         }
-        timer = getTransport().getTimer();
-
-        nmc = new NMC(clock, profiler);
-        deliveryManager = new DeliveryManager(this, profiler);
-        senderManager = new SenderManager(clock, numberOfAcks);
     }
 
     @Override
     public void start() throws Exception {
-        log.setLevel("fatal");
+//        log.setLevel("fatal");
         if (activeMembers.size() > 0)
             nmc.setActiveNodes(activeMembers.size());
 
+        nmc = new NMC(clock, profiler);
+        deliveryManager = new DeliveryManager(this, profiler);
+        senderManager = new SenderManager(clock, numberOfAcks);
+
         executor = Executors.newSingleThreadExecutor();
         executor.execute(new DeliverMessages());
+
+        timer = getTransport().getTimer();
         timer.scheduleWithDynamicInterval(new ProbeScheduler());
     }
 
@@ -184,8 +185,6 @@ final public class RMSys extends Protocol {
 
         if (log.isDebugEnabled())
             log.debug("Deliver message " + message.getHeader(id));
-
-            log.error("Deliver message " + message.getHeader(id));
 
         RMCastHeader header = (RMCastHeader) message.getHeader(this.id);
         collectGarbage(header.getId());

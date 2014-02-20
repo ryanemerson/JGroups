@@ -4,6 +4,7 @@ import org.jgroups.*;
 import org.jgroups.util.Util;
 
 import java.io.BufferedWriter;
+import java.io.File;
 import java.io.FileWriter;
 import java.io.PrintWriter;
 import java.util.ArrayList;
@@ -28,10 +29,10 @@ public class Test extends ReceiverAdapter {
     }
 
     private final int NUMBER_MESSAGES_TO_SEND = 100000;
-    private final int NUMBER_MESSAGES_PER_FILE = 10000;
+    private final int NUMBER_MESSAGES_PER_FILE = 5000;
     private final int TIME_BETWEEN_REQUESTS = 10;
-//    private final String PATH = "/work/a7109534/";
-    private final String PATH = "";
+    private final String PATH = "/work/a7109534/";
+//    private final String PATH = "";
     private final List<RMCastHeader> deliveredMessages = new ArrayList<RMCastHeader>();
     private ExecutorService outputThread = Executors.newSingleThreadExecutor();
     private Address localAddress;
@@ -55,6 +56,11 @@ public class Test extends ReceiverAdapter {
             channel.send(message);
             Util.sleep(TIME_BETWEEN_REQUESTS);
             count++;
+
+//            if (count == 5000) {
+//                channel.getProtocolStack().getTopProtocol().getDownProtocol().log.setLevel("debug");
+//                System.out.println("Log level changed | new level := " + channel.getProtocolStack().getTopProtocol().getDownProtocol().log.getLevel());
+//            }
 
             if (count == NUMBER_MESSAGES_TO_SEND)
                 break;
@@ -92,6 +98,8 @@ public class Test extends ReceiverAdapter {
 
     private PrintWriter getPrintWriter(Address localAddress, int count) {
         try {
+            new File(PATH).mkdirs();
+
             return new PrintWriter(new BufferedWriter(new FileWriter(PATH + "DeliveredMessages" + localAddress + "-" + count + ".csv",
                     true)), true);
         } catch (Exception e) {

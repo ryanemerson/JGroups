@@ -1,11 +1,7 @@
 package org.jgroups.protocols.DecoupledBroadcast;
 
-import org.jgroups.Address;
-import org.jgroups.AnycastAddress;
-import org.jgroups.Event;
-import org.jgroups.Message;
+import org.jgroups.*;
 import org.jgroups.logging.Log;
-import org.jgroups.protocols.tom.ToaHeader;
 import org.jgroups.stack.Protocol;
 
 import java.util.*;
@@ -68,11 +64,8 @@ public class OrderingBox {
     }
 
     public void receiveOrdering(MessageInfo messageInfo, Message message) {
-        if (log.isTraceEnabled()) {
-            ToaHeader h = (ToaHeader) message.getHeader((short) 58);
+        if (log.isTraceEnabled())
             log.trace("Receive Ordering message | " + messageInfo);
-            log.trace("TOA Header In Method := " + h.getSequencerNumber() + " | ID := " + h.getMessageID());
-        }
 
         // Once a message has been received at this layer, it will have been received at others (at least in the same order)
         // Increment sequence, retrive ordering request, place into ordered list

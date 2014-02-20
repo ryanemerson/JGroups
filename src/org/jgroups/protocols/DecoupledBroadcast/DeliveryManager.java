@@ -78,10 +78,10 @@ public class DeliveryManager {
         return msgsToDeliver;
     }
 
-    public void addMessageToDeliver(DecoupledHeader header, Message message) {
+    public void addMessageToDeliver(DecoupledHeader header, Message message, boolean local) {
         if (header.getMessageInfo().getOrdering() <= lastDelivered.longValue()) {
             if (log.isDebugEnabled())
-                log.debug("Message already received or Missed! | " + header.getMessageInfo().getOrdering());
+                log.debug("Message already received or Missed! | " + header.getMessageInfo().getOrdering() + " | local := " + local);
             return;
         }
 
@@ -111,11 +111,6 @@ public class DeliveryManager {
             // lastOrder has already been delivered, so this message is deliverable
             record.isDeliverable = true;
             lastDelivered.set(thisMessagesOrder);
-
-            if (log.isTraceEnabled()) {
-                log.trace("readyToDeliver := " + messageInfo.getOrdering());
-                log.trace("LastDelivered == " + lastDelivered.longValue() + " | | " + thisMessagesOrder);
-            }
             return true;
         }
         if (log.isTraceEnabled())

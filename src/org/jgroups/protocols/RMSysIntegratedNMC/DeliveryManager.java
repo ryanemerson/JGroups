@@ -75,20 +75,14 @@ public class DeliveryManager {
         lock.lock();
         try {
             if (hasMessageExpired(record.getHeader())) {
-                if (log.isErrorEnabled())
-                    log.error("An old message has been sent to the DeliveryManager | Message and its records discarded");
+                if (log.isInfoEnabled())
+                    log.info("An old message has been sent to the DeliveryManager | Message and its records discarded");
                 rmSys.collectGarbage(record.id); // Remove records created in RMSys
                 return;
             }
 
             if (log.isDebugEnabled())
                 log.debug("Message added | " + record + (deliverySet.isEmpty() ? "" : " | deliverySet 1st := " + deliverySet.first()));
-
-//            if (record.id.getSequence() > 50000)
-//                log.setLevel("error");
-
-            if (log.isErrorEnabled())
-                log.error("Message added | " + record + (deliverySet.isEmpty() ? "" : " | deliverySet 1st := " + deliverySet.first()));
 
             // Process vc & acks at the start, so that placeholders are always created before a message is added to the deliverySet
             processAcks(record);

@@ -2,9 +2,13 @@ package org.jgroups.protocols.DecoupledBroadcast;
 
 import org.jgroups.*;
 import org.jgroups.annotations.Property;
-import org.jgroups.protocols.tom.ToaHeader;
+import org.jgroups.blocks.MethodCall;
+import org.jgroups.protocols.RMSysIntegratedNMC.PCSynch;
+import org.jgroups.protocols.RMSysIntegratedNMC.RMSys;
 import org.jgroups.stack.Protocol;
+import org.jgroups.stack.ProtocolStack;
 
+import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -34,7 +38,7 @@ public class Decoupled extends Protocol {
     private Random random = new Random(); // Random object for selecting which box member to use
     private ExecutorService executor;
     // If true then ordering requests will only be sent to one box member, otherwise all box members are used
-    private final boolean singleOrderPoint = true;
+    private final boolean singleOrderPoint = false;
 
     public Decoupled() {
     }
@@ -42,17 +46,27 @@ public class Decoupled extends Protocol {
     @Override
     public void init() throws Exception {
         setLevel("info");
-        if (boxMember)
+        if (boxMember) {
+            List<String> hostnames = new ArrayList<String>();
+            hostnames.add("csvm0067");
+            hostnames.add("csvm0068");
+            PCSynch clock = new PCSynch(hostnames);
+            RMSys rmSys = new RMSys(clock, hostnames);
+
+            // TODO change so that Events are passed up and down the stack (temporary hack)
+            getProtocolStack().insertProtocol(clock, ProtocolStack.BELOW, this.getName());
+            getProtocolStack().insertProtocol(rmSys, ProtocolStack.BELOW, this.getName());
+            getTransport().getTimer().schedule(new BoxMemberAnnouncement(), 20, TimeUnit.SECONDS);
+
+            // Must be after the protocols have been added to the stack to ensure that down_prot is set to the correct protocol
             box = new OrderingBox(id, log, down_prot, viewManager, boxMembers);
+        }
     }
 
     @Override
     public void start() throws Exception {
         executor = Executors.newSingleThreadExecutor();
         executor.execute(new DeliverMessages());
-
-        if (boxMember)
-            getTransport().getTimer().schedule(new BoxMemberAnnouncement(), 20, TimeUnit.SECONDS);
     }
 
     @Override
@@ -79,9 +93,6 @@ public class Decoupled extends Protocol {
                         box.handleOrderingRequest(header.getMessageInfo());
                         break;
                     case DecoupledHeader.BOX_ORDERING:
-                        ToaHeader h = (ToaHeader) message.getHeader((short) 58);
-                        if (log.isTraceEnabled())
-                            log.debug("TOA Header In SWITCH := " + h.getSequencerNumber() + " | ID := " + h.getMessageID());
                         box.receiveOrdering(header.getMessageInfo(), message);
                         break;
                     case DecoupledHeader.BOX_RESPONSE:
@@ -130,9 +141,6 @@ public class Decoupled extends Protocol {
     }
 
     private void handleMessageRequest(Event event) {
-        if (log.isTraceEnabled())
-            log.trace("Handle Message Request");
-
         Message message = (Message) event.getArg();
         Address destination = message.getDest();
 
@@ -202,8 +210,28 @@ public class Decoupled extends Protocol {
         Message requestMessage = new Message(destination).src(localAddress).putHeader(id, header);
         down_prot.down(new Event(Event.MSG, requestMessage));
 
-        if (log.isTraceEnabled())
-            log.trace("Ordering Request Sent to " + destination + " | " + header);
+        if (log.isTraceEnabled()) {
+            try {
+                MethodCall mc = (MethodCall) objectFromBuffer(message.getBuffer(), message.getOffset(), message.getLength());
+                log.trace("Ordering Request Sent to " + destination + " | " + header + " | UPerf Seq := " + mc.getArgs()[0]);
+            } catch(Exception e) {
+                log.trace("Cast exception: " + e);
+            }
+        }
+    }
+
+    public Object objectFromBuffer(byte[] buffer, int offset, int length) throws Exception {
+        ByteBuffer buf=ByteBuffer.wrap(buffer, offset, length);
+
+        byte type=buf.get();
+        if (type == 10) {
+            Long longarg=buf.getLong();
+            int len=buf.getInt();
+            byte[] arg2=new byte[len];
+            buf.get(arg2, 0, arg2.length);
+            return new MethodCall(type, longarg, arg2);
+        }
+        return null;
     }
 
     private void handleOrderingResponse(DecoupledHeader responseHeader) {
@@ -248,7 +276,7 @@ public class Decoupled extends Protocol {
         DecoupledHeader header = (DecoupledHeader)message.getHeader(id);
         if (deliverToSelf) {
             message.setDest(localAddress);
-            deliveryManager.addMessageToDeliver(header, message);
+            deliveryManager.addMessageToDeliver(header, message, true);
         } else {
             messageStore.remove(header.getMessageInfo().getId());
         }
@@ -256,8 +284,8 @@ public class Decoupled extends Protocol {
 
     private void handleBroadcast(DecoupledHeader header, Message message) {
         if (log.isTraceEnabled())
-            log.debug("Broadcast received | " + header.getMessageInfo().getOrdering());
-        deliveryManager.addMessageToDeliver(header, message);
+            log.debug("Broadcast received | " + header.getMessageInfo().getOrdering() + " | Src := " + message.getSrc());
+        deliveryManager.addMessageToDeliver(header, message, false);
     }
 
     private void handleSingleDestination(Message message) {
