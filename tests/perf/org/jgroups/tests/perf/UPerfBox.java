@@ -37,11 +37,11 @@ public class UPerfBox extends ReceiverAdapter {
 
     // ============ configurable properties ==================
     private boolean sync=true, oob=false, anycastRequests=false;
-    private int num_threads=25;
-    private int num_msgs=20000, msg_size=1000;
+    private int num_threads=25, timeout=0;
+    private int num_msgs=1000000, msg_size=1000;
     private int anycast_count=2;
     private boolean use_anycast_addrs = true;
-    private double read_percentage=0.8; // 80% reads, 20% writes
+    private double read_percentage=0; // 80% reads, 20% writes
     private List<String> boxMembers  = new ArrayList<String>();
     // =======================================================
 
@@ -135,7 +135,7 @@ public class UPerfBox extends ReceiverAdapter {
             return;
         Address coord = pickCoordinator();
         System.out.println("Coordinator := " + coord);
-        ConfigOptions config=(ConfigOptions)disp.callRemoteMethod(coord, new MethodCall(GET_CONFIG), new RequestOptions(ResponseMode.GET_ALL, 5000));
+        ConfigOptions config=(ConfigOptions)disp.callRemoteMethod(coord, new MethodCall(GET_CONFIG), new RequestOptions(ResponseMode.GET_ALL, timeout));
         if(config != null) {
             this.oob=config.oob;
             this.sync=config.sync;
@@ -158,12 +158,15 @@ public class UPerfBox extends ReceiverAdapter {
     }
 
     private Address pickCoordinator() {
-        if (boxMembers == null)
+        if (boxMembers == null) {
+            System.out.println("Box Members is null");
             return members.get(0);
+        }
         for (Address address : members) {
-            for (String boxName : boxMembers)
+            for (String boxName : boxMembers) {
                 if (!address.toString().contains(boxName))
                     return address;
+            }
         }
         return null;
     }
@@ -534,8 +537,8 @@ public class UPerfBox extends ReceiverAdapter {
             Object[] get_args={0};
             MethodCall get_call=new MethodCall(GET, get_args);
             MethodCall put_call=new MethodCall(PUT, put_args);
-            RequestOptions get_options=new RequestOptions(ResponseMode.GET_ALL, 40000, false, null);
-            RequestOptions put_options=new RequestOptions(sync ? ResponseMode.GET_ALL : ResponseMode.GET_NONE, 40000, true, null);
+            RequestOptions get_options=new RequestOptions(ResponseMode.GET_ALL, timeout, false, null);
+            RequestOptions put_options=new RequestOptions(sync ? ResponseMode.GET_ALL : ResponseMode.GET_NONE, timeout, true, null);
 
             // Don't use bundling as we have sync requests (e.g. GETs) regardless of whether we set sync=true or false
             get_options.setFlags(Message.Flag.DONT_BUNDLE);
@@ -555,6 +558,9 @@ public class UPerfBox extends ReceiverAdapter {
 
             while(true) {
                 long i=num_msgs_sent.getAndIncrement();
+                if (i % 100000 == 0)
+                    System.out.println("Put #" + i + " complete");
+
                 if(i >= num_msgs_to_send)
                     break;
 
