@@ -72,9 +72,10 @@
          min_threshold="0.4"/>
     <FRAG2 frag_size="60K"  />
     <RSVP resend_interval="2000" timeout="10000"/>
-    <tom.TOA />
+    <!--tom.TOA /-->
     <DecoupledBroadcast.Decoupled
-            box_member="true" />
+            box_member="true"
+            total_order="TOA" />
     <pbcast.STATE_TRANSFER />
     <!-- pbcast.FLUSH  /-->
 </config>

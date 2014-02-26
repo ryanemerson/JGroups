@@ -68,6 +68,7 @@
     <RSVP resend_interval="2000" timeout="10000"/>
     <!--RMSysIntegratedNMC.RMSys /-->
     <DecoupledBroadcast.Decoupled
-            box_member="true" />
+            box_member="true"
+            total_order="hybrid" />
     <pbcast.STATE_TRANSFER />
 </config>

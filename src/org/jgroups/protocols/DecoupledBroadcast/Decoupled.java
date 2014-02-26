@@ -5,6 +5,7 @@ import org.jgroups.annotations.Property;
 import org.jgroups.blocks.MethodCall;
 import org.jgroups.protocols.RMSysIntegratedNMC.PCSynch;
 import org.jgroups.protocols.RMSysIntegratedNMC.RMSys;
+import org.jgroups.protocols.tom.TOA;
 import org.jgroups.stack.Protocol;
 import org.jgroups.stack.ProtocolStack;
 
@@ -25,6 +26,9 @@ public class Decoupled extends Protocol {
 
     @Property(name = "box_member", description = "Is this node a box member")
     private boolean boxMember = false;
+
+    @Property(name = "total_order", description = "The name of the total order protocol to be used by box members")
+    private String totalOrderProtocol = "TOA";
 
     private Address localAddress = null;
     private final ViewManager viewManager = new ViewManager();
@@ -47,19 +51,40 @@ public class Decoupled extends Protocol {
     public void init() throws Exception {
         setLevel("info");
         if (boxMember) {
+            createProtocolStack();
+            getTransport().getTimer().schedule(new BoxMemberAnnouncement(), 20, TimeUnit.SECONDS);
+
+            // Must be after the protocols have been added to the stack to ensure that down_prot is set to the correct protocol
+            box = new OrderingBox(id, log, down_prot, viewManager, boxMembers);
+        }
+    }
+
+    private void createProtocolStack() throws Exception {
+        String protocol = totalOrderProtocol;
+        if (protocol.equalsIgnoreCase("TOA")) {
+            TOA toa = new TOA();
+            getProtocolStack().insertProtocol(toa, ProtocolStack.BELOW, this.getName());
+            if (log.isInfoEnabled())
+                log.info("Total Order protocol := TOA");
+        } else if(protocol.equalsIgnoreCase("Hybrid")) {
             List<String> hostnames = new ArrayList<String>();
-            hostnames.add("csvm0067");
-            hostnames.add("csvm0068");
+            hostnames.add("mill053");
+            hostnames.add("mill058");
+            hostnames.add("mill059");
+
             PCSynch clock = new PCSynch(hostnames);
             RMSys rmSys = new RMSys(clock, hostnames);
 
             // TODO change so that Events are passed up and down the stack (temporary hack)
             getProtocolStack().insertProtocol(clock, ProtocolStack.BELOW, this.getName());
             getProtocolStack().insertProtocol(rmSys, ProtocolStack.BELOW, this.getName());
-            getTransport().getTimer().schedule(new BoxMemberAnnouncement(), 20, TimeUnit.SECONDS);
 
-            // Must be after the protocols have been added to the stack to ensure that down_prot is set to the correct protocol
-            box = new OrderingBox(id, log, down_prot, viewManager, boxMembers);
+            if (log.isInfoEnabled())
+                log.info("Total Order protocol := Hybrid");
+        } else {
+            if (log.isFatalEnabled())
+                log.fatal("Invalid total order protocol selected");
+            System.exit(1);
         }
     }
 
@@ -201,7 +226,6 @@ public class Decoupled extends Protocol {
         byte[] dest = viewManager.getDestinationsAsByteArray(destinations);
         if (log.isTraceEnabled())
             log.trace("Send ordering request | " + messageId + " | dest " + destinations + " | view " + view + " | byte[]" + Arrays.toString(dest));
-
 
         MessageInfo messageInfo = new MessageInfo(messageId, view.getViewId(), dest);
         DecoupledHeader header = DecoupledHeader.createBoxRequest(messageInfo);
