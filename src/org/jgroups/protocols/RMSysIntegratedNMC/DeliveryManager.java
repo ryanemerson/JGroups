@@ -76,7 +76,7 @@ public class DeliveryManager {
         try {
             if (hasMessageExpired(record.getHeader())) {
                 if (log.isInfoEnabled())
-                    log.info("An old message has been sent to the DeliveryManager | Message and its records discarded");
+                    log.info("An old message has been sent to the DeliveryManager | Message and its records discarded | id := " + record.id);
                 rmSys.collectGarbage(record.id); // Remove records created in RMSys
                 return;
             }
@@ -102,13 +102,12 @@ public class DeliveryManager {
         lock.lock();
         try {
             if (deliverySet.isEmpty())
-                messageReceived.await();
+                messageReceived.await(1, TimeUnit.MILLISECONDS);
 
             MessageRecord record;
             while (!deliverySet.isEmpty() && (record = deliverySet.first()).isDeliverable()) {
                 MessageId id = record.id;
-                if (!deliverySet.remove(record))
-                    log.error("Record not removed from the delivery Set := " + record.id);
+                deliverySet.remove(record);
                 messageRecords.remove(id);
                 deliverable.add(record.message);
                 deliveredMsgRecord.put(id.getOriginator(), id);
@@ -146,7 +145,7 @@ public class DeliveryManager {
         MessageId lastDeliveredId = deliveredMsgRecord.get(messageId.getOriginator());
 
         boolean result = lastDeliveredId != null && lastDeliveredId.getSequence() >= messageId.getSequence();
-        if (result && log.isErrorEnabled())
+        if (result && log.isDebugEnabled())
             log.debug("MSG received that has a seq < the last message delivered from " + lastDeliveredId.getOriginator() +
                     " therefore this message is ignored");
 
@@ -156,7 +155,9 @@ public class DeliveryManager {
     private void handleNewMessageRecord(MessageRecord record) {
         MessageRecord existingRecord = messageRecords.get(record.id);
         if (existingRecord == null) {
-            log.debug("New MessageRecord created | " + record);
+            if (log.isTraceEnabled())
+                log.trace("New MessageRecord created | " + record);
+
             MessageId placeholderId = new MessageId(-1, record.id.getOriginator(), record.id.getSequence());
             MessageRecord placeholderRecord = messageRecords.get(placeholderId);
             if (placeholderRecord != null) {
@@ -166,7 +167,9 @@ public class DeliveryManager {
             existingRecord = record;
             addRecordToDeliverySet(existingRecord);
         } else {
-            log.debug("Message added to existing record | " + existingRecord);
+            if (log.isTraceEnabled())
+                log.trace("Message added to existing record | " + existingRecord);
+
             existingRecord.addMessage(record);
         }
     }
@@ -182,12 +185,11 @@ public class DeliveryManager {
     }
 
     private void processVectorClock(VectorClock vc) {
-        if (vc.getLastBroadcast() != null)
+        if (vc.getLastBroadcast() != null) {
             createPlaceholder(vc.getLastBroadcast());
-
-        for (MessageId id : vc.getMessagesReceived().values()) {
-            createPlaceholder(id);
-            checkForMissingSequences(id, vc.getLastBroadcast());
+            // Necessary to check for missing sequences from the sending node.
+            // Without this, seq placeholders wont be made in situations where there are only two sending nodes
+            checkForMissingSequences(vc.getLastBroadcast());
         }
     }
 
@@ -231,32 +233,36 @@ public class DeliveryManager {
         MessageRecord placeholderRecord = new MessageRecord(id, ackSource);
         addRecordToDeliverySet(placeholderRecord);
 
-        if (log.isDebugEnabled())
-            log.debug("Normal Placeholder created := " + placeholderRecord);
+        if (log.isTraceEnabled())
+            log.trace("Normal Placeholder created := " + placeholderRecord);
 
         if (ack)
             placeholderRecord.addAck(ackSource);
     }
 
-    private void checkForMissingSequences(MessageId id, MessageId lastBroadcast) {
-        Address origin = id.getOriginator();
-        long sequence = id.getSequence();
+    private void checkForMissingSequences(MessageId lastBroadcast) {
+        Address origin = lastBroadcast.getOriginator();
+        long sequence = lastBroadcast.getSequence();
         long lastDeliveredSeq = -1;
         MessageId lastDelivered = deliveredMsgRecord.get(origin);
         if (lastDelivered != null)
             lastDeliveredSeq =  deliveredMsgRecord.get(origin).getSequence();
 
-        if (sequence <= lastDeliveredSeq + 1)
+        if (sequence <= lastDeliveredSeq)
             return;
 
         Set<Long> receivedSet = getReceivedSeqRecord(origin);
         for (long missingSeq = sequence; missingSeq > lastDeliveredSeq; missingSeq--) {
-            if (!receivedSet.contains(missingSeq) && !(origin.equals(lastBroadcast.getOriginator()) && missingSeq == lastBroadcast.getSequence())) {
+            // Stops the last broadcast from being added again (last broadcast is always processed first in vc)
+            if (missingSeq == sequence)
+                continue;
+
+            if (!receivedSet.contains(missingSeq)) {
                 MessageRecord seqPlaceholder = new MessageRecord(origin, missingSeq);
                 addRecordToDeliverySet(seqPlaceholder);
 
-                if (log.isInfoEnabled())
-                    log.info("seqPlaceholder added to the delivery set | " + seqPlaceholder);
+                if (log.isTraceEnabled())
+                    log.trace("seqPlaceholder added to the delivery set | " + seqPlaceholder);
             }
         }
     }

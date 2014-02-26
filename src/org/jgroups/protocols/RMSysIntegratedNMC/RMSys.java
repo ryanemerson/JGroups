@@ -83,7 +83,7 @@ final public class RMSys extends Protocol {
 
     @Override
     public void start() throws Exception {
-//        log.setLevel("fatal");
+        log.setLevel("fatal");
         if (activeMembers.size() > 0)
             nmc.setActiveNodes(activeMembers.size());
 
@@ -313,6 +313,7 @@ final public class RMSys extends Protocol {
             Future f = responsiveTasks.get(header.getId());
             if (f != null)
                 f.cancel(true);
+            responsiveTasks.remove(header.getId());
             return;
         }
 
@@ -341,6 +342,9 @@ final public class RMSys extends Protocol {
     }
 
     private void responsivenessTimeout(final MessageRecord record, final RMCastHeader header) {
+        if (deliveryManager.hasMessageExpired(header))
+            return;
+
         final NMCData data = header.getNmcData(); // Use included NMC data to ensure that the values relate to this message
         record.largestCopyReceived = header.getCopy();
         record.broadcastLeader = header.getDisseminator();
@@ -353,7 +357,7 @@ final public class RMSys extends Protocol {
             // Final check before creating the task ensuring another thread hasn't completed the broadcast of this message
             if (record.largestCopyReceived >= header.getCopyTotal())
                 return;
-            Future task = timer.schedule(new Runnable() {
+            Runnable r = new Runnable() {
                 @Override
                 public void run() {
                     if (record.largestCopyReceived < header.getCopyTotal()) {
@@ -362,7 +366,7 @@ final public class RMSys extends Protocol {
                         int eta = data.getEta();
                         final int ran = r.nextInt(eta < 1 ? eta + 1 : eta) + 1; // +1 makes 0 exclusive and eta inclusive
 
-                        Future nextTask = timer.schedule(new Runnable() {
+                        Runnable newTask = new Runnable() {
                             public void run() {
                                 // Check to see if we still need to start disseminating
                                 if (record.largestCopyReceived < header.getCopyTotal()) {
@@ -374,16 +378,24 @@ final public class RMSys extends Protocol {
                                     timer.execute(new MessageDisseminator(record, header, data.getEta()));
                                 }
                             }
-                        }, ran, TimeUnit.MILLISECONDS);
+                        };
                         // Set the responsivenes task to be this newTask.
                         // Allows this newTask to be cancelled if this method is called by a subsequent message copy
-                        responsiveTasks.put(record.id, nextTask);
+                        createResponsiveTask(header, newTask, ran);
                     }
                 }
-            }, timeout, TimeUnit.MILLISECONDS);
+            };
             // Store this task so that it can be used by the above if statement when the method is called again
-            responsiveTasks.put(record.id, task);
+            createResponsiveTask(header, r, timeout);
         }
+    }
+
+    private void createResponsiveTask(RMCastHeader header, Runnable r, int timeout) {
+        if (deliveryManager.hasMessageExpired(header))
+            return;
+
+        Future task = timer.schedule(r, timeout, TimeUnit.MILLISECONDS);
+        responsiveTasks.put(header.getId(), task);
     }
 
     private void broadcastMessage(Message message) {
