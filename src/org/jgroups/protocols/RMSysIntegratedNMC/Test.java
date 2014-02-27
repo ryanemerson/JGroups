@@ -1,6 +1,7 @@
 package org.jgroups.protocols.RMSysIntegratedNMC;
 
 import org.jgroups.*;
+import org.jgroups.protocols.tom.ToaHeader;
 import org.jgroups.util.Util;
 
 import java.io.BufferedWriter;
@@ -11,7 +12,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 
 /**
  * // TODO: Document this
@@ -21,26 +21,39 @@ import java.util.concurrent.TimeUnit;
  */
 public class Test extends ReceiverAdapter {
     public static void main(String[] args) throws Exception{
-//        try {
-            new Test().run("RMSysIntegrated.xml");
-//        } catch (Exception e) {
-//            System.out.println("Error: " + e.getMessage() + " | " + e.getCause());
-//        }
+        String propsFile = "RMSysIntegrated.xml";
+        int numberOfMessages = 100000;
+        for (int i = 0; i < args.length; i++) {
+            if("-config".equals(args[i])) {
+                propsFile = args[++i];
+                continue;
+            }
+            if("-nr-messages".equals(args[i])) {
+                numberOfMessages = Integer.parseInt(args[++i]);
+                continue;
+            }
+        }
+        new Test(propsFile, numberOfMessages).run();
     }
 
-    private final int NUMBER_MESSAGES_TO_SEND = 100000;
+    private final String PROPERTIES_FILE;
+    private final int NUMBER_MESSAGES_TO_SEND;
     private final int NUMBER_MESSAGES_PER_FILE = 5000;
-    private final int TIME_BETWEEN_REQUESTS = 10;
+    private final int TIME_BETWEEN_REQUESTS = 1;
     private final String PATH = "/work/a7109534/";
-//    private final String PATH = "";
-    private final List<RMCastHeader> deliveredMessages = new ArrayList<RMCastHeader>();
+    private final List<Header> deliveredMessages = new ArrayList<Header>();
     private ExecutorService outputThread = Executors.newSingleThreadExecutor();
     private Address localAddress;
     private int count = 1;
 
-    public void run(String propsFile) throws Exception {
-        System.out.println(propsFile);
-        final JChannel channel = new JChannel(propsFile);
+    public Test(String propsFile, int numberOfMessages) {
+        PROPERTIES_FILE = propsFile;
+        NUMBER_MESSAGES_TO_SEND = numberOfMessages;
+    }
+
+    public void run() throws Exception {
+        System.out.println(PROPERTIES_FILE + " | " + NUMBER_MESSAGES_TO_SEND + " messages");
+        final JChannel channel = new JChannel(PROPERTIES_FILE);
         channel.setReceiver(this);
         channel.connect("uperfBox");
         localAddress = channel.getAddress();
@@ -57,29 +70,23 @@ public class Test extends ReceiverAdapter {
             Util.sleep(TIME_BETWEEN_REQUESTS);
             count++;
 
-//            if (count == 5000) {
-//                channel.getProtocolStack().getTopProtocol().getDownProtocol().log.setLevel("debug");
-//                System.out.println("Log level changed | new level := " + channel.getProtocolStack().getTopProtocol().getDownProtocol().log.getLevel());
-//            }
-
             if (count == NUMBER_MESSAGES_TO_SEND)
                 break;
         }
         System.out.println("Sending finished!");
         Util.sleep(1000 * 60);
-//        writeHeadersToFile(new ArrayList<RMCastHeader>(deliveredMessages));
-        Util.sleep(1000 * 10);
         channel.disconnect();
         System.exit(0);
     }
 
     public void receive(Message msg) {
         synchronized (deliveredMessages) {
-            RMCastHeader header = (RMCastHeader) msg.getHeader((short) 1008);
+            short protocolId = (short) (PROPERTIES_FILE.equals("RMsysIntegrated.xml") ? 1008 : 58);
+            Header header = msg.getHeader(protocolId);
             deliveredMessages.add(header);
 
             if (deliveredMessages.size() % NUMBER_MESSAGES_PER_FILE == 0) {
-                final List<RMCastHeader> outputHeaders = new ArrayList<RMCastHeader>(deliveredMessages);
+                final List<Header> outputHeaders = new ArrayList<Header>(deliveredMessages);
                 deliveredMessages.clear();
                 // Output using a single thread to ensure that this operation does not effect receiving messages
                 outputThread.submit(new Runnable() {
@@ -108,17 +115,13 @@ public class Test extends ReceiverAdapter {
         }
     }
 
-    private void writeHeadersToFile(List<RMCastHeader> headers) {
+    private void writeHeadersToFile(List<Header> headers) {
         PrintWriter out = getPrintWriter(localAddress, count);
-        for (RMCastHeader header : headers)
-            out.println(header.getId() + " | DT := " + calculateDeliveryTime(header));
+        for (Header header : headers)
+            if (PROPERTIES_FILE.equals("RMsysIntegrated.xml"))
+                out.println(((RMCastHeader) header).getId());
+            else if (PROPERTIES_FILE.equals("toa.xml"))
+                out.println(((ToaHeader)header).getMessageID());
         count++;
-    }
-
-    private long calculateDeliveryTime(RMCastHeader header) {
-        NMCData data = header.getNmcData();
-        long startTime = header.getId().getTimestamp();
-        long delay = TimeUnit.MILLISECONDS.toNanos(Math.max(data.getCapD(), data.getXMax() + data.getCapS()));
-        return startTime + delay + 1000000;
     }
 }
