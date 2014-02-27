@@ -27,6 +27,9 @@ public class Decoupled extends Protocol {
     @Property(name = "box_member", description = "Is this node a box member")
     private boolean boxMember = false;
 
+    @Property(name = "box_members", description = "A list of hostnames that will be box members (seperated by a colon)")
+    private String boxHostnames = "";
+
     @Property(name = "total_order", description = "The name of the total order protocol to be used by box members")
     private String totalOrderProtocol = "TOA";
 
@@ -68,9 +71,13 @@ public class Decoupled extends Protocol {
                 log.info("Total Order protocol := TOA");
         } else if(protocol.equalsIgnoreCase("Hybrid")) {
             List<String> hostnames = new ArrayList<String>();
-            hostnames.add("mill053");
-            hostnames.add("mill058");
-            hostnames.add("mill059");
+            hostnames.addAll(Arrays.asList(boxHostnames.split(":")));
+
+            if (hostnames.isEmpty()) {
+                if (log.isFatalEnabled())
+                    log.fatal("Box members must be specified in the configuration file!");
+                System.exit(1);
+            }
 
             PCSynch clock = new PCSynch(hostnames);
             RMSys rmSys = new RMSys(clock, hostnames);

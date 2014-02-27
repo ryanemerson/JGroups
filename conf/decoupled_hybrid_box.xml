@@ -69,6 +69,7 @@
     <!--RMSysIntegratedNMC.RMSys /-->
     <DecoupledBroadcast.Decoupled
             box_member="true"
-            total_order="hybrid" />
+            total_order="hybrid"
+            box_members="mill014:mill015:mill016" />
     <pbcast.STATE_TRANSFER />
 </config>
