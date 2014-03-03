@@ -38,7 +38,7 @@ public class UPerfBox extends ReceiverAdapter {
     // ============ configurable properties ==================
     private boolean sync=true, oob=false, anycastRequests=false;
     private int num_threads=25, timeout=0;
-    private int num_msgs=1000000, msg_size=1000;
+    private int num_msgs=10000, msg_size=1000;
     private int anycast_count=2;
     private boolean use_anycast_addrs = true;
     private double read_percentage=0; // 80% reads, 20% writes
@@ -131,8 +131,12 @@ public class UPerfBox extends ReceiverAdapter {
             System.err.println("registering the channel in JMX failed: " + ex);
         }
 
-        if(members.size() < 2)
-            return;
+//        if(members.size() < 2)
+//            return;
+
+        while (members.size() < 2)
+            Util.sleep(1);
+
         Address coord = pickCoordinator();
         System.out.println("Coordinator := " + coord);
         ConfigOptions config=(ConfigOptions)disp.callRemoteMethod(coord, new MethodCall(GET_CONFIG), new RequestOptions(ResponseMode.GET_ALL, timeout));
@@ -558,9 +562,6 @@ public class UPerfBox extends ReceiverAdapter {
 
             while(true) {
                 long i=num_msgs_sent.getAndIncrement();
-                if (i % 100000 == 0)
-                    System.out.println("Put #" + i + " complete");
-
                 if(i >= num_msgs_to_send)
                     break;
 
@@ -577,13 +578,6 @@ public class UPerfBox extends ReceiverAdapter {
                         Collection<Address> targets=pickAnycastTargets();
                         put_args[0]=i;
                         RspList rsp = disp.callRemoteMethods(targets, put_call, put_options);
-                        if (!rsp.get(targets.iterator().next()).wasReceived()) {
-                            System.out.println("ResponseList := " + rsp);
-                            System.out.println("Missing put := " + i);
-                            System.out.println("----------------------------------------------------");
-                        }
-                        if (rsp.getSuspectedMembers().size() > 0)
-                            System.out.println(rsp);
                         num_puts++;
                     }
                 }
