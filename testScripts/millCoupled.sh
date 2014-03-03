@@ -1,6 +1,6 @@
 #!/bin/bash
 #arr=(csvm0064 csvm0065 csvm0066 csvm0067 csvm0068)
-arr=(mill026 mill027 mill030 mill032 mill033)
+arr=(mill014 mill015)
 geometry=109x24+10+40
 outDir="workspace/output/"
 props="toa_TCP.xml"
@@ -9,7 +9,7 @@ command="java -Djava.net.preferIPv4Stack=true -jar workspace/mperf.jar -props $p
 control=" -control true"
 
 if [[ $# < 1 ]]; then
-    for i in {0..4}; do
+    for i in {0..2}; do
         HOST="a7109534@${arr[$i]}"
         if [[ $i > 0 ]]; then
             ssh -T -o ConnectTimeout=1 -o StrictHostKeychecking=no  $HOST <<-ENDEXP

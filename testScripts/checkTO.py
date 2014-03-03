@@ -2,14 +2,16 @@
 import os
 from collections import defaultdict
 
-hosts = {'mill026', 'mill027', 'mill030'}
+hosts = {'mill002', 'mill004'}
 user = 'a7109534'
 file_location = '/work/a7109534/'
+#file_location = '/home/ryan/workspace/JGroups'
+#file_location = '/home/pg/p11/a7109534/'
 file_wildcard = '*'
-get_file = file_location + file_wildcard
-destination = '.'
-number_of_rounds = 4
 extension = ".csv"
+get_file = file_location + file_wildcard + extension
+destination = '.'
+number_of_rounds = 400
 
 os.system("rm *" + extension)
 for hostname in hosts:
