@@ -13,6 +13,7 @@ import org.jgroups.util.Util;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
+import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
 
@@ -22,11 +23,11 @@ import java.util.List;
  * @author Bela Ban
  * @since 3.3
  */
-@Test(groups=Global.FUNCTIONAL,sequential=true)
+@Test(groups=Global.FUNCTIONAL,singleThreaded=true)
 public class NAKACK2_RetransmitTest {
     protected static final short ID=ClassConfigurator.getProtocolId(NAKACK2.class);
     protected static final Address A=Util.createRandomAddress("A"), B=Util.createRandomAddress("B");
-
+    protected static final View    view=View.create(A, 1, A, B);
     protected NAKACK2       nak;
     protected MockTransport transport;
     protected MockProtocol  receiver;
@@ -42,7 +43,7 @@ public class NAKACK2_RetransmitTest {
 
         nak.down(new Event(Event.BECOME_SERVER));
         nak.down(new Event(Event.SET_LOCAL_ADDRESS, A));
-        Digest digest=new Digest(B, 0, 0);
+        Digest digest=new Digest(view.getMembersRaw(), new long[]{0, 0, 0, 0});
         nak.down(new Event(Event.SET_DIGEST, digest));
     }
 
@@ -104,9 +105,9 @@ public class NAKACK2_RetransmitTest {
     /** Asserts that the delivered messages are in the same order than the expected seqnos and then clears the list */
     protected void assertReceived(long ... seqnos) {
         List<Long> msgs=receiver.getMsgs();
-        assert msgs.size() == seqnos.length : "expected=" + Util.array2String(seqnos) + ", received=" + msgs;
+        assert msgs.size() == seqnos.length : "expected=" + Arrays.toString(seqnos) + ", received=" + msgs;
         for(int i=0; i < seqnos.length; i++)
-            assert seqnos[i] == msgs.get(i) : "expected=" + Util.array2String(seqnos) + ", received=" + msgs;
+            assert seqnos[i] == msgs.get(i) : "expected=" + Arrays.toString(seqnos) + ", received=" + msgs;
         msgs.clear();
     }
 
@@ -114,10 +115,10 @@ public class NAKACK2_RetransmitTest {
     protected void assertXmitRequests(long ... expected_seqnos) {
         List<Long> actual_xmit_reqs=transport.getXmitRequests();
         assert actual_xmit_reqs.size() == expected_seqnos.length
-          : "size mismatch: expected=" + Util.array2String(expected_seqnos) + ", received=" + actual_xmit_reqs;
+          : "size mismatch: expected=" + Arrays.toString(expected_seqnos) + ", received=" + actual_xmit_reqs;
         for(int i=0; i < expected_seqnos.length; i++) {
             assert expected_seqnos[i] == actual_xmit_reqs.get(i)
-              : "expected=" + Util.array2String(expected_seqnos) + ", received=" + actual_xmit_reqs;
+              : "expected=" + Arrays.toString(expected_seqnos) + ", received=" + actual_xmit_reqs;
         }
         actual_xmit_reqs.clear();
     }

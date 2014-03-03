@@ -5,10 +5,7 @@ package org.jgroups;
 import org.jgroups.conf.ClassConfigurator;
 import org.jgroups.logging.Log;
 import org.jgroups.logging.LogFactory;
-import org.jgroups.util.Buffer;
-import org.jgroups.util.Headers;
-import org.jgroups.util.Streamable;
-import org.jgroups.util.Util;
+import org.jgroups.util.*;
 
 import java.io.*;
 import java.util.Map;
@@ -21,7 +18,7 @@ import java.util.Map;
  * <p>
  * The byte buffer can point to a reference, and we can subset it using index and length. However,
  * when the message is serialized, we only write the bytes between index and length.
- * 
+ *
  * @since 2.0
  * @author Bela Ban
  */
@@ -64,7 +61,8 @@ public class Message implements Streamable {
         NO_TOTAL_ORDER((short)(1 << 5)),    // bypass total order (e.g. SEQUENCER)
         NO_RELAY(      (short)(1 << 6)),    // bypass relaying (RELAY)
         RSVP(          (short)(1 << 7)),    // ack of a multicast (https://issues.jboss.org/browse/JGRP-1389)
-        INTERNAL(      (short)(1 << 8));    // for internal use by JGroups only, don't use !
+        INTERNAL(      (short)(1 << 8)),    // for internal use by JGroups only, don't use !
+        SKIP_BARRIER(  (short)(1 << 9));    // passing messages through a closed BARRIER
 
         final short value;
         Flag(short value) {this.value=value;}
@@ -101,7 +99,7 @@ public class Message implements Streamable {
 
    /**
     * Constructs a Message given a destination Address
-    * 
+    *
     * @param dest
     *           Address of receiver. If it is <em>null</em> then the message sent to the group.
     *           Otherwise, it contains a single destination and is sent to that member.
@@ -114,7 +112,7 @@ public class Message implements Streamable {
 
    /**
     * Constructs a Message given a destination Address, a source Address and the payload byte buffer
-    * 
+    *
     * @param dest
     *           Address of receiver. If it is <em>null</em> then the message sent to the group.
     *           Otherwise, it contains a single destination and is sent to that member.
@@ -145,7 +143,7 @@ public class Message implements Streamable {
     * message, it would still have a ref to the original byte[] buffer passed in as argument, and so we would
     * retransmit a changed byte[] buffer !
     * </em>
-    * 
+    *
     * @param dest
     *           Address of receiver. If it is <em>null</em> then the message sent to the group.
     *           Otherwise, it contains a single destination and is sent to that member.
@@ -174,7 +172,7 @@ public class Message implements Streamable {
 
    /**
     * Constructs a Message given a destination Address, a source Address and the payload Object
-    * 
+    *
     * @param dest
     *           Address of receiver. If it is <em>null</em> then the message sent to the group.
     *           Otherwise, it contains a single destination and is sent to that member.
@@ -231,7 +229,7 @@ public class Message implements Streamable {
 
    /**
     * Returns a copy of the buffer if offset and length are used, otherwise a reference.
-    * 
+    *
     * @return byte array with a copy of the buffer.
     */
     final public byte[] getBuffer() {
@@ -317,9 +315,9 @@ public class Message implements Streamable {
     }
 
    /**
-    * 
+    *
     * Returns the number of bytes in the buffer
-    * 
+    *
     */
     public int getLength() {
         return length;
@@ -438,7 +436,7 @@ public class Message implements Streamable {
 
    /**
     * Same as {@link #setFlag(Flag...)} except that transient flags are not marshalled
-    * @param flag The flag
+    * @param flags The flag
     */
    public Message setTransientFlag(TransientFlag ... flags) {
        if(flags != null)
@@ -452,7 +450,7 @@ public class Message implements Streamable {
     * Atomically checks if a given flag is set and - if not - sets it. When multiple threads
     * concurrently call this method with the same flag, only one of them will be able to set the
     * flag
-    * 
+    *
     * @param flag
     * @return True if the flag could be set, false if not (was already set)
     */
@@ -501,7 +499,7 @@ public class Message implements Streamable {
 
    /**
     * Puts a header given a key into the map, only if the key doesn't exist yet
-    * 
+    *
     * @param id
     * @param hdr
     * @return the previous value associated with the specified key, or <tt>null</tt> if there was no
@@ -532,7 +530,7 @@ public class Message implements Streamable {
     * Create a copy of the message. If offset and length are used (to refer to another buffer), the
     * copy will contain only the subset offset and length point to, copying the subset into the new
     * copy.
-    * 
+    *
     * @param copy_buffer
     * @return Message with specified data
     */
@@ -547,7 +545,7 @@ public class Message implements Streamable {
     * Note that for headers, only the arrays holding references to the headers are copied, not the headers themselves !
     * The consequence is that the headers array of the copy hold the *same* references as the original, so do *not*
     * modify the headers ! If you want to change a header, copy it and call {@link Message#putHeader(short,Header)} again.
-    * 
+    *
     * @param copy_buffer
     * @param copy_headers
     *           Copy the headers
@@ -572,7 +570,7 @@ public class Message implements Streamable {
 
    /**
     * Doesn't copy any headers except for those with ID >= copy_headers_above
-    * 
+    *
     * @param copy_buffer
     * @param starting_id
     * @return A message with headers whose ID are >= starting_id
@@ -696,13 +694,7 @@ public class Message implements Streamable {
         if(src_addr != null)
             Util.writeAddress(src_addr, out);
 
-        // 5. buf
-        if(buf != null) {
-            out.writeInt(length);
-            out.write(buf, offset, length);
-        }
-
-        // 6. headers
+        // 5. headers
         int size=headers.size();
         out.writeShort(size);
         final short[]  ids=headers.getRawIDs();
@@ -713,18 +705,24 @@ public class Message implements Streamable {
                 writeHeader(hdrs[i], out);
             }
         }
+
+        // 6. buf
+        if(buf != null) {
+            out.writeInt(length);
+            out.write(buf, offset, length);
+        }
     }
 
    /**
     * Writes the message to the output stream, but excludes the dest and src addresses unless the
     * src address given as argument is different from the message's src address
-    * 
+    *
     * @param src
     * @param out
     * @param excluded_headers Don't marshal headers that are part of excluded_headers
     * @throws Exception
     */
-    public void writeToNoAddrs(Address src, DataOutputStream out, short ... excluded_headers) throws Exception {
+    public void writeToNoAddrs(Address src, DataOutput out, short ... excluded_headers) throws Exception {
         byte leading=0;
 
         boolean write_src_addr=src == null || src_addr != null && !src_addr.equals(src);
@@ -745,13 +743,7 @@ public class Message implements Streamable {
         if(write_src_addr)
             Util.writeAddress(src_addr, out);
 
-        // 5. buf
-        if(buf != null) {
-            out.writeInt(length);
-            out.write(buf, offset, length);
-        }
-
-        // 6. headers
+        // 5. headers
         int size=headers.size(excluded_headers);
         out.writeShort(size);
         final short[]  ids=headers.getRawIDs();
@@ -763,6 +755,12 @@ public class Message implements Streamable {
                 out.writeShort(ids[i]);
                 writeHeader(hdrs[i], out);
             }
+        }
+
+        // 6. buf
+        if(buf != null) {
+            out.writeInt(length);
+            out.write(buf, offset, length);
         }
     }
 
@@ -783,15 +781,7 @@ public class Message implements Streamable {
         if(Util.isFlagSet(leading, SRC_SET))
             src_addr=Util.readAddress(in);
 
-        // 5. buf
-        if(Util.isFlagSet(leading, BUF_SET)) {
-            int len=in.readInt();
-            buf=new byte[len];
-            in.readFully(buf, 0, len);
-            length=len;
-        }
-
-        // 6. headers
+        // 5. headers
         int len=in.readShort();
         headers=createHeaders(len);
 
@@ -804,16 +794,65 @@ public class Message implements Streamable {
             ids[i]=id;
             hdrs[i]=hdr;
         }
+
+        // 6. buf
+        if(Util.isFlagSet(leading, BUF_SET)) {
+            len=in.readInt();
+            buf=new byte[len];
+            in.readFully(buf, 0, len);
+            length=len;
+        }
+    }
+
+
+    /** Reads the message's contents from an input stream, but skips the buffer and instead returns the
+     * position (offset) at which the buffer starts */
+    public int readFromSkipPayload(ByteArrayDataInputStream in) throws Exception {
+
+        // 1. read the leading byte first
+        byte leading=in.readByte();
+
+        // 2. the flags
+        flags=in.readShort();
+
+        // 3. dest_addr
+        if(Util.isFlagSet(leading, DEST_SET))
+            dest_addr=Util.readAddress(in);
+
+        // 4. src_addr
+        if(Util.isFlagSet(leading, SRC_SET))
+            src_addr=Util.readAddress(in);
+
+        // 5. headers
+        int len=in.readShort();
+        headers=createHeaders(len);
+
+        short[]  ids=headers.getRawIDs();
+        Header[] hdrs=headers.getRawHeaders();
+
+        for(int i=0; i < len; i++) {
+            short id=in.readShort();
+            Header hdr=readHeader(in);
+            ids[i]=id;
+            hdrs[i]=hdr;
+        }
+
+        // 6. buf
+        if(!Util.isFlagSet(leading, BUF_SET))
+            return -1;
+
+        length=in.readInt();
+        return in.position();
     }
 
     /* --------------------------------- End of Interface Streamable ----------------------------- */
 
-   /**
-    * Returns the exact size of the marshalled message. Uses method size() of each header to compute
-    * the size, so if a Header subclass doesn't implement size() we will use an approximation.
-    * However, most relevant header subclasses have size() implemented correctly. (See
-    * org.jgroups.tests.SizeTest).
-    * 
+    /**
+     * Returns the exact size of the marshalled message. Uses method size() of each header to compute
+     * the size, so if a Header subclass doesn't implement size() we will use an approximation.
+     * However, most relevant header subclasses have size() implemented correctly. (See
+     * org.jgroups.tests.SizeTest).
+     *
     * @return The number of bytes for the marshalled message
     */
     public long size() {
@@ -823,12 +862,13 @@ public class Message implements Streamable {
             retval+=Util.size(dest_addr);
         if(src_addr != null)
             retval+=Util.size(src_addr);
-        if(buf != null)
-            retval+=Global.INT_SIZE // length (integer)
-                    + length;       // number of bytes in the buffer
 
         retval+=Global.SHORT_SIZE;  // number of headers
         retval+=headers.marshalledSize();
+
+        if(buf != null)
+            retval+=Global.INT_SIZE // length (integer)
+              + length;       // number of bytes in the buffer
         return retval;
     }
 

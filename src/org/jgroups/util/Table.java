@@ -30,6 +30,7 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 public class Table<T> {
     protected final int            num_rows;
+    /** Must be a power of 2 for efficient modular arithmetic **/
     protected final int            elements_per_row;
     protected final double         resize_factor;
     protected T[][]                matrix;
@@ -86,7 +87,7 @@ public class Table<T> {
 
 
     public Table() {
-        this(5, 10000, 0, DEFAULT_RESIZE_FACTOR);
+        this(5, 8192, 0, DEFAULT_RESIZE_FACTOR);
     }
 
     public Table(long offset) {
@@ -105,7 +106,7 @@ public class Table<T> {
     /**
      * Creates a new table
      * @param num_rows the number of rows in the matrix
-     * @param elements_per_row the number of messages per row.
+     * @param elements_per_row the number of elements per row
      * @param offset the seqno before the first seqno to be inserted. E.g. if 0 then the first seqno will be 1
      * @param resize_factor teh factor with which to increase the number of rows
      * @param max_compaction_time the max time in milliseconds after we attempt a compaction
@@ -113,7 +114,7 @@ public class Table<T> {
     @SuppressWarnings("unchecked")
     public Table(int num_rows, int elements_per_row, long offset, double resize_factor, long max_compaction_time) {
         this.num_rows=num_rows;
-        this.elements_per_row=elements_per_row;
+        this.elements_per_row=Util.getNextHigherPowerOfTwo(elements_per_row);
         this.resize_factor=resize_factor;
         this.max_compaction_time=TimeUnit.NANOSECONDS.convert(max_compaction_time, TimeUnit.MILLISECONDS);
         this.offset=this.low=this.hr=this.hd=offset;
@@ -126,6 +127,7 @@ public class Table<T> {
     public AtomicBoolean getProcessing() {return processing;}
 
     public long getOffset()              {return offset;}
+    public int  getElementsPerRow()      {return elements_per_row;}
 
     /** Returns the total capacity in the matrix */
     public int capacity()                {return matrix.length * elements_per_row;}
@@ -149,7 +151,7 @@ public class Table<T> {
     public void resetStats()             {num_compactions=num_moves=num_resizes=num_purges=0;}
 
     /** Returns the highest deliverable (= removable) seqno. This may be higher than {@link #getHighestDelivered()},
-     * e.g. if messages have been added but not yet removed */
+     * e.g. if elements have been added but not yet removed */
     public long getHighestDeliverable() {
         HighestDeliverable visitor=new HighestDeliverable();
         lock.lock();
@@ -188,7 +190,7 @@ public class Table<T> {
     public boolean add(long seqno, T element) {
         lock.lock();
         try {
-            return _add(seqno, element);
+            return _add(seqno, element, true);
         }
         finally {
             lock.unlock();
@@ -196,9 +198,9 @@ public class Table<T> {
     }
 
     /**
-     * Adds messages from list to the table
+     * Adds elements from list to the table
      * @param list
-     * @return True if at least 1 message was added successfully
+     * @return True if at least 1 element was added successfully
      */
     public boolean add(final List<Tuple<Long,T>> list) {
        return add(list, false);
@@ -206,23 +208,41 @@ public class Table<T> {
 
 
     /**
-     * Adds messages from list to the table, removes messages from list that were not added to the table
+     * Adds elements from list to the table, removes elements from list that were not added to the table
      * @param list
-     * @return True if at least 1 message was added successfully. This guarantees that the list has at least 1 message
+     * @return True if at least 1 element was added successfully. This guarantees that the list has at least 1 element
      */
-    public boolean add(final List<Tuple<Long,T>> list, boolean remove_added_msgs) {
-        if(list == null)
+    public boolean add(final List<Tuple<Long,T>> list, boolean remove_added_elements) {
+        return add(list, remove_added_elements, null);
+    }
+
+    /**
+     * Adds elements from the list to the table
+     * @param list The list of tuples of seqnos and elements. If remove_added_elements is true, if elements could
+     *             not be added to the table (e.g. because they were already present or the seqno was < HD), those
+     *             elements will be removed from list
+     * @param remove_added_elements If true, elements that could not be added to the table are removed from list
+     * @param const_value If non-null, this value should be used rather than the values of the list tuples
+     * @return True if at least 1 element was added successfully, false otherwise.
+     */
+    public boolean add(final List<Tuple<Long,T>> list, boolean remove_added_elements, T const_value) {
+        if(list == null || list.isEmpty())
             return false;
         boolean added=false;
         lock.lock();
         try {
+            // find the highest seqno (unfortunately, the list is not ordered by seqno)
+            long highest_seqno=findHighestSeqno(list);
+            if(highest_seqno != -1 && computeRow(highest_seqno) >= matrix.length)
+                resize(highest_seqno);
+
             for(Iterator<Tuple<Long,T>> it=list.iterator(); it.hasNext();) {
                 Tuple<Long,T> tuple=it.next();
                 long seqno=tuple.getVal1();
-                T element=tuple.getVal2();
-                if(_add(seqno, element))
+                T element=const_value != null? const_value : tuple.getVal2();
+                if(_add(seqno, element, false))
                     added=true;
-                else if(remove_added_msgs)
+                else if(remove_added_elements)
                     it.remove();
             }
             return added;
@@ -337,11 +357,22 @@ public class Table<T> {
         return removeMany(null, nullify, max_results);
     }
 
-
     public List<T> removeMany(final AtomicBoolean processing, boolean nullify, int max_results) {
+        return removeMany(processing, nullify, max_results, null);
+    }
+
+
+    /**
+     * Removes between 0 and max_results elements from the table and returns them in a list. If filter is non-null,
+     * only elements which the filter accepts are returned. Note that elements are always removed from the table,
+     * but may or may not get added to the returned list.
+     * @return A list of element. A null list means no more elements are in the table and processing (if set)
+     * will be set to false
+     */
+    public List<T> removeMany(final AtomicBoolean processing, boolean nullify, int max_results, Filter<T> filter) {
         lock.lock();
         try {
-            Remover remover=new Remover(nullify, max_results);
+            Remover remover=new Remover(nullify, max_results, filter);
             forEach(hd+1, hr, remover);
             List<T> retval=remover.getList();
             if(processing != null && (retval == null || retval.isEmpty()))
@@ -457,12 +488,12 @@ public class Table<T> {
         }
     }
 
-    protected boolean _add(long seqno, T element) {
+    protected boolean _add(long seqno, T element, boolean check_if_resize_needed) {
         if(seqno <= hd)
             return false;
 
         int row_index=computeRow(seqno);
-        if(row_index >= matrix.length) {
+        if(check_if_resize_needed && row_index >= matrix.length) {
             resize(seqno);
             row_index=computeRow(seqno);
         }
@@ -477,6 +508,17 @@ public class Table<T> {
             return true;
         }
         return false;
+    }
+
+    // list must not be null or empty
+    protected long findHighestSeqno(List<Tuple<Long,T>> list) {
+        long seqno=-1;
+        for(Tuple<Long,T> tuple: list) {
+            Long val=tuple.getVal1();
+            if(val != null && val > seqno)
+                seqno=val;
+        }
+        return seqno;
     }
 
     /** Moves rows down the matrix, by removing purged rows. If resizing to accommodate seqno is still needed, computes
@@ -561,7 +603,7 @@ public class Table<T> {
 
 
     /**
-     * Returns a list of missing (= null) messages
+     * Returns a list of missing (= null) elements
      * @return
      */
     public SeqnoList getMissing() {
@@ -642,7 +684,11 @@ public class Table<T> {
         int diff=(int)(seqno - offset);
         if(diff < 0)
             return diff;
-        return diff % elements_per_row;
+
+        // return diff % elements_per_row
+
+        // same as mod, but (apparently, I'm told) more efficient
+        return diff & (elements_per_row - 1);
     }
 
     protected class Counter implements Visitor<T> {
@@ -675,14 +721,20 @@ public class Table<T> {
 
 
     protected class Remover implements Visitor<T> {
-        protected final boolean nullify;
-        protected final int     max_results;
-        protected List<T>       list;
-        protected int           num_results;
+        protected final boolean      nullify;
+        protected final int          max_results;
+        protected List<T>            list;
+        protected int                num_results;
+        protected final Filter<T>    filter;
 
         public Remover(boolean nullify, int max_results) {
+            this(nullify, max_results, null);
+        }
+
+        public Remover(boolean nullify, int max_results, Filter<T> filter) {
             this.nullify=nullify;
             this.max_results=max_results;
+            this.filter=filter;
         }
 
         public List<T> getList() {return list;}
@@ -690,18 +742,24 @@ public class Table<T> {
         @GuardedBy("lock")
         public boolean visit(long seqno, T element, int row, int column) {
             if(element != null) {
-                if(list == null)
-                    list=new LinkedList<T>();
-                list.add(element);
+                if(filter == null || filter.accept(element)) {
+                    if(list == null)
+                        list=new LinkedList<T>();
+                    list.add(element);
+                    num_results++;
+                }
                 if(seqno > hd)
                     hd=seqno;
                 size=Math.max(size-1, 0); // cannot be < 0 (well that would be a bug, but let's have this 2nd line of defense !)
                 if(nullify) {
                     matrix[row][column]=null;
+                    // if we're nulling the last element of a row, null the row as well
+                    if(column == elements_per_row-1)
+                        matrix[row]=null;
                     if(seqno > low)
                         low=seqno;
                 }
-                return max_results == 0 || ++num_results < max_results;
+                return max_results == 0 || num_results < max_results;
             }
             return false;
         }

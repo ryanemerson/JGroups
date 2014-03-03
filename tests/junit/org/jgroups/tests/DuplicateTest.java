@@ -26,7 +26,7 @@ import java.util.concurrent.ConcurrentMap;
  * messages. 
  * @author Bela Ban
  */
-@Test(groups=Global.STACK_DEPENDENT,sequential=true)
+@Test(groups=Global.STACK_DEPENDENT,singleThreaded=true)
 public class DuplicateTest extends ChannelTestBase {
     private JChannel   a, b, c;
     protected Address  a1, a2, a3;
@@ -161,7 +161,7 @@ public class DuplicateTest extends ChannelTestBase {
         for(JChannel ch: channels) {
             STABLE stable=(STABLE)ch.getProtocolStack().findProtocol(STABLE.class);
             if(stable != null)
-                stable.runMessageGarbageCollection();
+                stable.gc();
         }
     }
 

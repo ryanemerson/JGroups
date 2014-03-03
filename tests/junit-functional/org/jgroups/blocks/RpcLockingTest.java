@@ -17,7 +17,7 @@ import java.util.Arrays;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
 
-@Test(groups = Global.FUNCTIONAL, sequential = true)
+@Test(groups = {Global.FUNCTIONAL,Global.EAP_EXCLUDED}, sequential = true)
 public class RpcLockingTest {
 	protected JChannel            a, b;
 	protected MessageDispatcher   disp_a, disp_b;
@@ -109,7 +109,7 @@ public class RpcLockingTest {
         if (lock_a.tryLock()) {
             try {
                 System.out.println("A aquired the lock, about to send message to B");
-                String rsp=disp_a.sendMessage(new Message(b.getAddress(),"bla"), RequestOptions.SYNC().setTimeout(60000));
+                String rsp=disp_a.sendMessage(new Message(b.getAddress(),"bla"), RequestOptions.SYNC().setTimeout(60000).setFlags(Message.Flag.OOB));
                 if (rsp == null) {
                     System.err.println("ERROR: didn't return correctly");
                     Assert.fail("Didn't return correctly");
@@ -138,7 +138,7 @@ public class RpcLockingTest {
 		if(lock_b.tryLock()) {
 			try {
 				System.out.println("B aquired the lock, about to send message to A");
-				String rsp = disp_b.sendMessage(new Message(a.getAddress(), "bla"), RequestOptions.SYNC());
+				String rsp = disp_b.sendMessage(new Message(a.getAddress(), "bla"), RequestOptions.SYNC().setFlags(Message.Flag.OOB));
 				if (rsp == null) {
                     System.err.println("ERROR: didn't return correctly");
 					Assert.fail("Didn't return correctly");
@@ -157,7 +157,7 @@ public class RpcLockingTest {
 		if(lock_a.tryLock(5000, TimeUnit.MILLISECONDS)) {
 			try {
 				System.out.println("A aquired the lock, about to send message to B");
-                String rsp = disp_a.sendMessage(new Message(b.getAddress(), "bla"), RequestOptions.SYNC().setTimeout(60000));
+                String rsp = disp_a.sendMessage(new Message(b.getAddress(), "bla"), RequestOptions.SYNC().setTimeout(60000).setFlags(Message.Flag.OOB));
 				if (rsp == null) {
 					System.err.println("ERROR: didn't return correctly");
 					Assert.fail("Didn't return correctly");

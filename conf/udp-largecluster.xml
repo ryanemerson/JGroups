@@ -20,7 +20,6 @@
          loopback="true"
          max_bundle_size="64K"
          max_bundle_timeout="30"
-         ip_ttl="${jgroups.udp.ip_ttl:8}"
          enable_diagnostics="true"
          thread_naming_pattern="cl"
 
@@ -67,8 +66,7 @@
               xmit_table_max_compaction_time="30000"
               max_msg_batch_size="500"/>
     <pbcast.STABLE stability_delay="2000" desired_avg_gossip="60000"
-                   max_bytes="4M"
-                   cap="0.1"/>
+                   max_bytes="4M"/>
     <pbcast.GMS print_local_addr="true"
                 join_timeout="10000"
                 view_bundling="true"

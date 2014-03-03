@@ -2,10 +2,13 @@
 
 package org.jgroups;
 
+import org.jgroups.annotations.Immutable;
 import org.jgroups.util.Util;
 
-import java.io.*;
-import java.util.ArrayList;
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -20,69 +23,76 @@ import java.util.List;
  * @since 2.0
  * @author Bela Ban
  */
+@Immutable
 public class MergeView extends View {
-    protected List<View> subgroups=null; // subgroups that merged into this single view (a list of Views)
+    protected View[] subgroups; // subgroups that merged into this single view (a list of Views)
 
-
-    /**
-     * Used by externalization
-     */
-    public MergeView() {
+    public MergeView() { // Used by externalization
     }
 
 
    /**
-    * Creates a new view
+    * Creates a new merge view
     * 
-    * @param vid
-    *           The view id of this view (can not be null)
-    * @param members
-    *           Contains a list of all the members in the view, can be empty but not null.
-    * @param subgroups
-    *           A list of Views representing the former subgroups
+    * @param view_id The view id of this view (can not be null)
+    * @param members Contains a list of all the members in the view, can be empty but not null.
+    * @param subgroups A list of Views representing the former subgroups
     */
-    public MergeView(ViewId vid, List<Address> members, List<View> subgroups) {
-        super(vid, members);
-        this.subgroups=subgroups;
+    public MergeView(ViewId view_id, List<Address> members, List<View> subgroups) {
+        super(view_id, members);
+        this.subgroups=listToArray(subgroups);
+    }
+
+    public MergeView(ViewId view_id, Address[] members, List<View> subgroups) {
+        super(view_id, members);
+        this.subgroups=listToArray(subgroups);
     }
 
 
    /**
     * Creates a new view
     * 
-    * @param creator
-    *           The creator of this view (can not be null)
-    * @param id
-    *           The lamport timestamp of this view
-    * @param members
-    *           Contains a list of all the members in the view, can be empty but not null.
-    * @param subgroups
-    *           A list of Views representing the former subgroups
+    * @param creator The creator of this view (can not be null)
+    * @param id The lamport timestamp of this view
+    * @param members Contains a list of all the members in the view, can be empty but not null.
+    * @param subgroups A list of Views representing the former subgroups
     */
     public MergeView(Address creator, long id, List<Address> members, List<View> subgroups) {
         super(creator, id, members);
-        this.subgroups=subgroups;
+        this.subgroups=listToArray(subgroups);
     }
 
 
     public List<View> getSubgroups() {
-        return subgroups;
+        return Collections.unmodifiableList(Arrays.asList(subgroups));
     }
 
 
-    public View copy() {
-        ViewId vid2=vid.copy();
-        List<Address> members2=members != null ? new ArrayList<Address>(members) : null;
-        List<View> subgroups2=subgroups != null ? new ArrayList<View>(subgroups) : null;
-        return new MergeView(vid2, members2, subgroups2);
+    public MergeView copy() {
+        return this;
+    }
+
+    public boolean deepEquals(View other) {
+        if(!super.deepEquals(other)) return false;
+        if(!(other instanceof MergeView))
+            return true;
+        MergeView other_view=(MergeView)other;
+        if(subgroups == null && other_view.subgroups == null) return true;
+        if(subgroups.length != other_view.subgroups.length)   return false;
+        for(int i=0; i < subgroups.length; i++) {
+            View my_view=subgroups[i], oth_view=other_view.subgroups[i];
+            if(!my_view.deepEquals(oth_view))
+                return false;
+        }
+        return true;
     }
 
     
     public String toString() {
         StringBuilder sb=new StringBuilder();
         sb.append("MergeView::").append(super.toString());
-        if(subgroups != null && !subgroups.isEmpty()) {
-            sb.append(", subgroups=");
+        if(subgroups != null && subgroups.length > 0) {
+            sb.append(", ").append(subgroups.length).append(" subgroups: ");
             sb.append(Util.printListWithDelimiter(subgroups, ", ", Util.MAX_LIST_PRINT_SIZE));
         }
         return sb.toString();
@@ -93,16 +103,27 @@ public class MergeView extends View {
         super.writeTo(out);
 
         // write subgroups
-        int len=subgroups != null? subgroups.size() : 0;
+        int len=subgroups != null? subgroups.length : 0;
         out.writeShort(len);
         if(len == 0)
             return;
         for(View v: subgroups) {
-            if(v instanceof MergeView)
-                out.writeBoolean(true);
-            else
-                out.writeBoolean(false);
-            v.writeTo(out);
+            int index=get(v.getCreator());
+            out.writeShort(index);
+            // if we don't find the member, write the addres (https://issues.jboss.org/browse/JGRP-1707)
+            if(index < 0)
+                Util.writeAddress(v.getCreator(), out);
+
+            out.writeLong(v.getViewId().getId());
+
+            int num_mbrs=v.size();
+            out.writeShort(num_mbrs);
+            for(Address mbr: v) {
+                index=get(mbr);
+                out.writeShort(index);
+                if(index < 0)
+                    Util.writeAddress(mbr, out);
+            }
         }
     }
 
@@ -110,13 +131,22 @@ public class MergeView extends View {
         super.readFrom(in);
         short len=in.readShort();
         if(len > 0) {
-            View v;
-            subgroups=new ArrayList<View>(len);
+            subgroups=new View[len];
             for(int i=0; i < len; i++) {
-                boolean is_merge_view=in.readBoolean();
-                v=is_merge_view? new MergeView() : new View();
-                v.readFrom(in);
-                subgroups.add(v);
+                int index=in.readShort();
+                Address creator=index >= 0 ? get(index) : Util.readAddress(in);
+                long id=in.readLong();
+                Address[] mbrs=new Address[in.readShort()];
+                for(int j=0; j < mbrs.length; j++) {
+                    index=in.readShort();
+                    mbrs[j]=index >= 0? get(index) : Util.readAddress(in);
+                }
+                try {
+                    View view=View.create(creator, id, mbrs);
+                    subgroups[i]=view;
+                }
+                catch(Throwable t) {
+                }
             }
         }
     }
@@ -124,15 +154,47 @@ public class MergeView extends View {
     public int serializedSize() {
         int retval=super.serializedSize();
         retval+=Global.SHORT_SIZE; // for size of subgroups vector
-
         if(subgroups == null)
             return retval;
         for(View v: subgroups) {
-            retval+=Global.BYTE_SIZE; // boolean for View or MergeView
-            retval+=v.serializedSize();
+            retval+=Global.SHORT_SIZE + Global.LONG_SIZE // creator and ID (ViewId)
+              + Global.SHORT_SIZE; // number of members in the subview
+
+            Address creator=v.getCreator();
+            if(get(creator) < 0)
+                retval+=Util.size(creator);
+
+            retval+=v.size() * Global.SHORT_SIZE; // a short (index) for each member
+            for(Address sub_mbr: v) {
+                int index=get(sub_mbr);
+                if(index < 0)
+                    retval+=Util.size(sub_mbr);
+            }
         }
         return retval;
     }
 
+    protected static View[] listToArray(List<View> list) {
+        if(list == null)
+            return null;
+        View[] retval=new View[list.size()];
+        int index=0;
+        for(View view: list)
+            retval[index++]=view;
+        return retval;
+    }
+
+    protected int get(Address member) {
+        if(member == null)
+            return -1;
+        for(int i=0; i < members.length; i++)
+            if(member.equals(members[i]))
+                return i;
+        return -1;
+    }
+
+    protected Address get(int index) {
+        return members != null && index >= 0 && index < members.length? members[index] : null;
+    }
 
 }

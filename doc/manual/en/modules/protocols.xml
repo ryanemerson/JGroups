@@ -78,7 +78,7 @@
         <para>
             <literal>bind_addr</literal> can be set to the address of a network interface, e.g. <literal>192.168.1.5</literal>.
             It can also be set for the entire stack using system property <literal>-Djgroups.bind_addr</literal>, which
-            overrrides the XML value (if given).
+            provides a value for bind_addr unless it has already been set in the XML config.
         </para>
         <para>
             The following special values are also recognized for <literal>bind_addr</literal>:
@@ -472,7 +472,7 @@
             <title>AWS_PING</title>
             <para>
                 This is a protocol written by Meltmedia, which uses the AWS API. It is not part of JGroups, but can be
-                downloaded at <ulink url="https://metmedia.github.com/jgroups-aws"/>.
+                downloaded at <ulink url="https://meltmedia.github.com/jgroups-aws"/>.
             </para>
         </section>
 
@@ -653,7 +653,22 @@
 
         </section>
 
-         <section id="FD_SOCK">
+
+        <section id="FD_ALL2">
+            <title>FD_ALL2</title>
+
+            <para>
+                Similar to FD_ALL, but doesn't use any timestamps. Instead, a boolean flag is associated with each
+                member. When a message or heartbeat (sent every interval ms) from P is received, P's flag is set to true.
+                The heartbeat checker checks every timeout ms for members whose flag is false, suspects those, and
+                - when done - resets all flags to false again.
+            </para>
+
+            ${FD_ALL2}
+
+        </section>
+
+        <section id="FD_SOCK">
             <title>FD_SOCK</title>
 
             <para>
@@ -1674,6 +1689,15 @@ keytool -genseckey -alias myKey -keypass changeit -storepass changeit  -keyalg B
                 The SUPERVISOR is explained in more detail in <xref linkend="Supervisor"/>
             </para>
             ${SUPERVISOR}
+        </section>
+
+        <section id="FORK">
+            <title>FORK</title>
+            <para>
+                FORK allows ForkChannels to piggy-back messages on a regular channel. Needs to be placed towards the
+                top of the stack. See <xref linkend="ForkChannel">ForkChannel</xref> for details.
+            </para>
+            ${FORK}
         </section>
 
     </section>

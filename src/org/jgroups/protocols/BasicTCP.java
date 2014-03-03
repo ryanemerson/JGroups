@@ -31,7 +31,7 @@ public abstract class BasicTCP extends TP {
     protected boolean     use_send_queues=true;
     
     @Property(description="Max number of messages in a send queue")
-    protected int         send_queue_size=10000;
+    protected int         send_queue_size=2000;
     
     @Property(description="Receiver buffer size in bytes")
     protected int         recv_buf_size=150000;
@@ -46,7 +46,7 @@ public abstract class BasicTCP extends TP {
     protected int         peer_addr_read_timeout=1000; // max time to block on reading of peer address
     
     @Property(description="Should TCP no delay flag be turned on")
-    protected boolean     tcp_nodelay=true;
+    protected boolean     tcp_nodelay=false;
     
     @Property(description="SO_LINGER in msec. Default of -1 disables it")
     protected int         linger=-1; // SO_LINGER (number of ms, -1 disables it)
@@ -86,6 +86,17 @@ public abstract class BasicTCP extends TP {
             if(discovery_prot != null && !discovery_prot.isDynamic())
                 throw new IllegalArgumentException("bind_port cannot be set to " + bind_port +
                                                      ", as no dynamic discovery protocol (e.g. MPING or TCPGOSSIP) has been detected.");
+        }
+
+        if(reaper_interval > 0 || conn_expire_time > 0) {
+            if(conn_expire_time == 0 && reaper_interval > 0) {
+                log.warn("reaper interval (%d) set, but not conn_expire_time, disabling reaping", reaper_interval);
+                reaper_interval=0;
+            }
+            else if(conn_expire_time > 0 && reaper_interval == 0) {
+                reaper_interval=conn_expire_time / 2;
+                log.warn("conn_expire_time (%d) is set but reaper_interval is 0; setting it to %d", conn_expire_time, reaper_interval);
+            }
         }
     }
 

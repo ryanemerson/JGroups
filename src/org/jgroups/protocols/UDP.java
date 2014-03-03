@@ -116,6 +116,12 @@ public class UDP extends TP {
     /** Runnable to receive unicast packets */
     protected PacketReceiver  ucast_receiver=null;
 
+    protected static final boolean is_android;
+
+    static  {
+        is_android=Util.checkForAndroid();
+    }
+
 
     /**
      * Usually, src addresses are nulled, and the receiver simply sets them to
@@ -186,27 +192,19 @@ public class UDP extends TP {
 
     protected void _send(InetAddress dest, int port, boolean mcast, byte[] data, int offset, int length) throws Exception {
         DatagramPacket packet=new DatagramPacket(data, offset, length, dest, port);
-        try {
-            if(mcast) {
-                if(mcast_sock != null && !mcast_sock.isClosed()) {
-                    try {
-                        mcast_sock.send(packet);
-                    }
-                    // solve reconnection issue with Windows (https://jira.jboss.org/browse/JGRP-1254)
-                    catch(NoRouteToHostException e) {
-                        log.warn(e.getMessage() +", reset interface");
-                        mcast_sock.setInterface(mcast_sock.getInterface());
-                    }
+        if(mcast) {
+            if(mcast_sock != null) {
+                try {
+                    mcast_sock.send(packet);
+                }
+                // solve reconnection issue with Windows (https://jira.jboss.org/browse/JGRP-1254)
+                catch(NoRouteToHostException e) {
+                    mcast_sock.setInterface(mcast_sock.getInterface());
                 }
             }
-            else {
-                if(sock != null && !sock.isClosed())
-                    sock.send(packet);
-            }
         }
-        catch(Exception ex) {
-            throw new Exception("dest=" + dest + ":" + port + " (" + length + " bytes)", ex);
-        }
+        else if(sock != null)
+            sock.send(packet);
     }
 
 
@@ -336,7 +334,7 @@ public class UDP extends TP {
                 sock.setTrafficClass(tos);
             }
             catch(SocketException e) {
-                log.warn("traffic class of " + tos + " could not be set, will be ignored: " + e);
+                log.warn(Util.getMessage("TrafficClass"), tos, e);
             }
         }
 
@@ -369,7 +367,7 @@ public class UDP extends TP {
                     mcast_sock.setTrafficClass(tos);
                 }
                 catch(SocketException e) {
-                    log.warn("traffic class of " + tos + " could not be set, will be ignored: " + e);
+                    log.warn(Util.getMessage("TrafficClass"), tos, e);
                 }
             }
 
@@ -426,17 +424,16 @@ public class UDP extends TP {
                                   MulticastSocket s,
                                   InetAddress mcastAddr) {
         SocketAddress tmp_mcast_addr=new InetSocketAddress(mcastAddr, mcast_port);
-        for(NetworkInterface intf:interfaces) {
+        for(NetworkInterface intf: interfaces) {
 
             //[ JGRP-680] - receive_on_all_interfaces requires every NIC to be configured
             try {
                 s.joinGroup(tmp_mcast_addr, intf);
-                if(log.isTraceEnabled())
-                    log.trace("joined " + tmp_mcast_addr + " on " + intf.getName());
+                log.trace("joined %s on %s", tmp_mcast_addr, intf.getName());
             }
             catch(IOException e) {
                 if(log.isWarnEnabled())
-                    log.warn("Could not join " + tmp_mcast_addr + " on interface " + intf.getName());
+                    log.warn(Util.getMessage("InterfaceJoinFailed"), tmp_mcast_addr, intf.getName());
             }
         }
     }
@@ -534,7 +531,7 @@ public class UDP extends TP {
             }
         }
         catch(Throwable ex) {
-            if(log.isWarnEnabled()) log.warn("failed setting send buffer size of " + send_buf_size + " in " + sock + ": " + ex);
+            log.warn(Util.getMessage("BufferSizeFailed"), "send", send_buf_size, sock, ex);
         }
 
         try {
@@ -546,7 +543,7 @@ public class UDP extends TP {
             }
         }
         catch(Throwable ex) {
-            if(log.isWarnEnabled()) log.warn("failed setting receive buffer size of " + recv_buf_size + " in " + sock + ": " + ex);
+            log.warn(Util.getMessage("BufferSizeFailed"), "receive", recv_buf_size, sock, ex);
         }
     }
 
@@ -671,6 +668,11 @@ public class UDP extends TP {
 
             while(thread != null && Thread.currentThread().equals(thread)) {
                 try {
+
+                    // solves Android ISSUE #24748 - DatagramPacket truncated UDP in ICS
+                    if(is_android)
+                        packet.setLength(receive_buf.length);
+
                     receiver_socket.receive(packet);
                     int len=packet.getLength();
                     if(len > receive_buf.length) {

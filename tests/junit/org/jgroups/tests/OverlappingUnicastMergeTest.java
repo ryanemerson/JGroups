@@ -17,7 +17,7 @@ import java.util.Set;
  * Related JIRA: https://jira.jboss.org/jira/browse/JGRP-940
  * @author Bela Ban
  */
-@Test(groups=Global.STACK_DEPENDENT,sequential=true)
+@Test(groups=Global.STACK_DEPENDENT,singleThreaded=true)
 public class OverlappingUnicastMergeTest extends ChannelTestBase {
     private JChannel a, b, c;
     private MyReceiver ra, rb, rc;
@@ -74,7 +74,7 @@ public class OverlappingUnicastMergeTest extends ChannelTestBase {
         System.out.println("A's view: " + a.getView());
 
         // Inject view {B,C} into B and C:
-        View new_view=Util.createView(b.getAddress(), 10, b.getAddress(), c.getAddress());
+        View new_view=View.create(b.getAddress(), 10, b.getAddress(), c.getAddress());
         injectView(new_view, b, c);
         assertEquals("A's view is " + a.getView(), 3, a.getView().size());
         assertEquals("B's view is " + b.getView(), 2, b.getView().size());
@@ -84,23 +84,23 @@ public class OverlappingUnicastMergeTest extends ChannelTestBase {
 
     public void testWithViewA() throws Exception {
         // Inject view {A} into A, B and C:
-        View new_view=Util.createView(a.getAddress(), 10, a.getAddress());
+        View new_view=View.create(a.getAddress(), 10, a.getAddress());
         injectView(new_view, a, b, c);
         sendAndCheckMessages(5, a, b, c);
     }
 
     public void testWithViewC() throws Exception {
         // Inject view {A} into A, B and C:
-        View new_view=Util.createView(c.getAddress(), 10, c.getAddress());
+        View new_view=View.create(c.getAddress(), 10, c.getAddress());
         injectView(new_view, a, b, c);
         sendAndCheckMessages(5, a, b, c);
     }
 
     public void testWithEveryoneHavingASingletonView() throws Exception {
         // Inject view {A} into A, B and C:
-        injectView(Util.createView(a.getAddress(), 10, a.getAddress()), a);
-        injectView(Util.createView(b.getAddress(), 10, b.getAddress()), b);
-        injectView(Util.createView(c.getAddress(), 10, c.getAddress()), c);
+        injectView(View.create(a.getAddress(), 10, a.getAddress()), a);
+        injectView(View.create(b.getAddress(), 10, b.getAddress()), b);
+        injectView(View.create(c.getAddress(), 10, c.getAddress()), c);
         sendAndCheckMessages(5, a, b, c);
     }
 
@@ -127,9 +127,8 @@ public class OverlappingUnicastMergeTest extends ChannelTestBase {
         for(JChannel ch: channels) {
             Address addr=ch.getAddress();
             for(Address dest: mbrs) {
-                for(int i=1; i <= num_msgs; i++) {
-                    ch.send(dest, "unicast msg #" + i + " from " + addr);
-                }
+                for(int i=1; i <= num_msgs; i++)
+                    ch.send(dest, addr + ":" + i);
             }
         }
         int total_msgs=num_msgs * channels.length;
@@ -173,9 +172,7 @@ public class OverlappingUnicastMergeTest extends ChannelTestBase {
     private static void modifyConfigs(JChannel ... channels) throws Exception {
         for(JChannel ch: channels) {
             ProtocolStack stack=ch.getProtocolStack();
-            stack.removeProtocol("MERGE2");
-            stack.removeProtocol("VERIFY_SUSPECT");
-            stack.removeProtocol("FC");
+            stack.removeProtocols("MERGE2", "VERIFY_SUSPECT", "FC");
         }
     }
 
@@ -192,8 +189,11 @@ public class OverlappingUnicastMergeTest extends ChannelTestBase {
         public void receive(Message msg) {
             Address dest=msg.getDest();
             boolean mcast=dest == null;
-            if(!mcast)
-                ucasts.add(msg);
+            if(!mcast) {
+                synchronized(ucasts) {
+                    ucasts.add(msg);
+                }
+            }
         }
 
         public void viewAccepted(View new_view) {

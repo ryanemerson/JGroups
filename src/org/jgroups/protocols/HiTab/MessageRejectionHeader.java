@@ -2,7 +2,7 @@ package org.jgroups.protocols.HiTab;
 
 import org.jgroups.Global;
 import org.jgroups.Header;
-import org.jgroups.util.Util;
+import org.jgroups.util.Bits;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -48,13 +48,13 @@ public class MessageRejectionHeader extends Header {
     @Override
     public void writeTo(DataOutput out) throws Exception {
         out.writeByte(type);
-        Util.writeLong(timeTaken, out);
+        Bits.writeLong(timeTaken, out);
     }
 
     @Override
     public void readFrom(DataInput in) throws Exception {
         type = in.readByte();
-        timeTaken = Util.readLong(in);
+        timeTaken = Bits.readLong(in);
     }
 
     @Override

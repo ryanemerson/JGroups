@@ -6,10 +6,8 @@ import org.jgroups.conf.PropertyConverters;
 import org.jgroups.protocols.PingData;
 import org.jgroups.stack.IpAddress;
 import org.jgroups.stack.Protocol;
-import org.jgroups.util.TimeScheduler;
-import org.jgroups.util.Tuple;
+import org.jgroups.util.*;
 import org.jgroups.util.UUID;
-import org.jgroups.util.Util;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -740,14 +738,14 @@ public class NMC extends Protocol {
         public void writeTo(DataOutput out) throws Exception {
             out.writeByte(type);
             Util.writeStreamable(data, out);
-            Util.writeString(clusterName, out);
+            Bits.writeString(clusterName, out);
         }
 
         @Override
         public void readFrom(DataInput in) throws Exception {
             type = in.readByte();
             data = (ProbeData) Util.readStreamable(ProbeData.class, in);
-            clusterName = Util.readString(in);
+            clusterName = Bits.readString(in);
         }
     }
 
@@ -786,7 +784,7 @@ public class NMC extends Protocol {
 
         @Override
         public int size() {
-            return super.size() + Global.INT_SIZE + Util.size(timeSent);
+            return super.size() + Global.INT_SIZE + Bits.size(timeSent);
         }
     }
 

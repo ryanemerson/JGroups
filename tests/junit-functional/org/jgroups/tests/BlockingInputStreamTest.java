@@ -5,8 +5,8 @@ import org.jgroups.util.BlockingInputStream;
 import org.jgroups.util.Util;
 import org.testng.annotations.Test;
 
-import java.io.IOException;
-import java.io.InputStream;
+import java.io.*;
+import java.util.*;
 import java.util.concurrent.CountDownLatch;
 
 /**
@@ -98,13 +98,26 @@ public class BlockingInputStreamTest {
             sb.append("Hello world " + i);
         byte[] buffer=sb.toString().getBytes();
         new Writer(in, buffer).start();
-
         Util.sleep(500);
-        int size=in.available();
+
         byte[] buf=new byte[200];
         int num=in.read(buf);
-        assert num == size;
+        assert num == buffer.length;
     }
+
+    public void testWriteCloseRead3() throws IOException {
+        final BlockingInputStream in=new BlockingInputStream(300);
+        StringBuilder sb=new StringBuilder();
+        for(int i=1; i <=10; i++)
+            sb.append("Hello world " + i);
+        byte[] buffer=sb.toString().getBytes();
+        new Writer(in, buffer).execute(); // don't use a separate thread
+
+        byte[] buf=new byte[200];
+        int num=in.read(buf);
+        assert num == buffer.length;
+    }
+
 
     
     public void testSimpleTransfer() throws IOException {
@@ -134,9 +147,10 @@ public class BlockingInputStreamTest {
 
 
     public void testLargeTransfer() throws IOException {
-        final BlockingInputStream in=new BlockingInputStream(2048);
-        final byte[] buffer=generateBuffer(100000);
+        final BlockingInputStream in=new BlockingInputStream(8192);
+        final byte[] buffer=generateBuffer(1000000);
         new Writer(in, buffer).start();
+
         byte[] tmp=new byte[buffer.length];
         int offset=0;
         while(true) {
@@ -147,6 +161,22 @@ public class BlockingInputStreamTest {
         }
         System.out.println("read " + offset + " bytes");
         assert offset == buffer.length : "offset is " + offset + " but expected " + buffer.length;
+        System.out.print("Verifying that the buffers are the same: ");
+        for(int i=0; i < tmp.length; i++)
+            assert buffer[i] == tmp[i];
+        System.out.println("OK");
+    }
+
+    public void testLargeTransfer2() throws IOException {
+        final BlockingInputStream in=new BlockingInputStream(8192);
+        final byte[] buffer=generateBuffer(1000000);
+        new Writer(in, buffer).start();
+
+        byte[] tmp=new byte[buffer.length];
+        int bytes=in.read(tmp); // reads 1 million bytes in one go
+
+        System.out.println("read " + bytes + " bytes");
+        assert bytes == buffer.length : "read " + bytes + " bytes but expected " + buffer.length;
         System.out.print("Verifying that the buffers are the same: ");
         for(int i=0; i < tmp.length; i++)
             assert buffer[i] == tmp[i];
@@ -249,6 +279,81 @@ public class BlockingInputStreamTest {
     }
 
 
+    public void testWritingBeyondLength() throws IOException {
+        final BlockingInputStream in=new BlockingInputStream(800);
+
+        new Thread() {
+            public void run() {
+                byte[] buf=new byte[800+600];
+                try {
+                    in.write(buf);
+                }
+                catch(IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        }.start();
+
+        byte[] buf=new byte[1000];
+        int read=in.read(buf);
+        assert read == buf.length;
+    }
+
+
+    public void testSimpleWrite() throws Exception {
+        final BlockingInputStream input=new BlockingInputStream(8192);
+        byte[] in={'B', 'e', 'l', 'a'};
+        input.write(in);
+
+        byte[] buf=new byte[5];
+        for(int i=0; i < in.length; i++) {
+            int read=input.read(buf, i, 1);
+            assert read == 1;
+        }
+        for(int i=0; i < in.length; i++)
+            assert in[i] == buf[i];
+    }
+
+
+    public void testObjectStreaming() throws Exception {
+        final BlockingInputStream input=new BlockingInputStream(8192);
+
+        Map<String,List<Long>> map=new HashMap<String,List<Long>>(4);
+        for(String key: Arrays.asList("A", "B", "C", "D")) {
+            List<Long> list=new ArrayList<Long>(1000);
+            map.put(key, list);
+            for(int i=1; i <= 1000; i++)
+                list.add((long)i);
+        }
+
+        ByteArrayOutputStream output=new ByteArrayOutputStream(8192);
+        OutputStream out=new BufferedOutputStream(output);
+        Util.objectToStream(map, new DataOutputStream(out));
+        out.flush();
+        final byte[] buffer=output.toByteArray();
+
+        Thread writer=new Thread() {
+            public void run() {
+                try {
+                    input.write(buffer);
+                }
+                catch(IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        };
+        writer.start();
+
+        Map<String,List<Long>> tmp=(Map<String,List<Long>>)Util.objectFromStream(new DataInputStream(input));
+        assert tmp.size() == 4;
+        for(String key: Arrays.asList("A", "B", "C", "D")) {
+            List<Long> list=map.get(key);
+            assert list.size() == 1000;
+            assert list.iterator().next() == 1;
+        }
+    }
+
+
     protected byte[] generateBuffer(int size) {
         byte[] buf=new byte[size];
         for(int i=0; i < buf.length; i++)
@@ -298,6 +403,10 @@ public class BlockingInputStreamTest {
         }
 
         public void run() {
+           execute();
+        }
+
+        public void execute() {
             try {
                 for(int i=0; i < num_times; i++) {
                     in.write(buffer, 0, buffer.length);

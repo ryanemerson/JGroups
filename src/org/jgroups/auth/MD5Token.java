@@ -2,6 +2,7 @@ package org.jgroups.auth;
 
 import org.jgroups.Message;
 import org.jgroups.annotations.Property;
+import org.jgroups.util.Bits;
 import org.jgroups.util.Util;
 
 import java.io.DataInput;
@@ -84,9 +85,7 @@ public class MD5Token extends AuthToken {
 
         if (hashedToken == null) {
             // failed to encrypt
-            if (log.isWarnEnabled()) {
-                log.warn("Failed to hash token - sending in clear text");
-            }
+            log.warn("Failed to hash token - sending in clear text");
             return token;
         }
         return hashedToken;
@@ -98,39 +97,20 @@ public class MD5Token extends AuthToken {
             // Found a valid Token to authenticate against
             MD5Token serverToken = (MD5Token) token;
 
-            if ((this.auth_value != null) && (serverToken.auth_value != null)
-                            && (this.auth_value.equalsIgnoreCase(serverToken.auth_value))) {
-                // validated
-                if (log.isDebugEnabled()) {
-                    log.debug("MD5Token match");
-                }
-                return true;
-            } else {
-                // if(log.isWarnEnabled()){
-                // log.warn("Authentication failed on MD5Token");
-                // }
-                return false;
-            }
+            return (this.auth_value != null) && (serverToken.auth_value != null)
+              && (this.auth_value.equalsIgnoreCase(serverToken.auth_value));
         }
 
-        if (log.isWarnEnabled()) {
-            log.warn("Invalid AuthToken instance - wrong type or null");
-        }
+        log.warn("Invalid AuthToken instance - wrong type or null");
         return false;
     }
 
     public void writeTo(DataOutput out) throws Exception {
-        if (log.isDebugEnabled()) {
-            log.debug("MD5Token writeTo()");
-        }
-        Util.writeString(this.auth_value, out);
+        Bits.writeString(this.auth_value,out);
     }
 
     public void readFrom(DataInput in) throws Exception {
-        if (log.isDebugEnabled()) {
-            log.debug("MD5Token readFrom()");
-        }
-        this.auth_value = Util.readString(in);
+        this.auth_value = Bits.readString(in);
     }
 
     public int size() {

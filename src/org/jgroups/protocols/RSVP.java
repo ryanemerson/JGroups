@@ -8,6 +8,7 @@ import org.jgroups.stack.Protocol;
 import org.jgroups.util.AckCollector;
 import org.jgroups.util.MessageBatch;
 import org.jgroups.util.TimeScheduler;
+import org.jgroups.util.Util;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -64,8 +65,7 @@ public class RSVP extends Protocol {
         super.init();
         timer=getTransport().getTimer();
         if(timeout > 0 && resend_interval > 0 && resend_interval >= timeout) {
-            log.warn("resend_interval (" + resend_interval + ") is >= timeout (" + timeout + "); setting " +
-                       "resend_interval to timeout / 3");
+            log.warn(Util.getMessage("RSVP_Misconfig"), resend_interval, timeout);
             resend_interval=timeout / 3;
         }
     }
@@ -120,7 +120,7 @@ public class RSVP extends Protocol {
                     if(throw_exception_on_timeout)
                         throw e;
                     else if(log.isWarnEnabled())
-                        log.warn("message ran into a timeout, missing acks: " + entry);
+                        log.warn(Util.getMessage("RSVP_Timeout"), entry);
                 }
                 finally {
                     synchronized(ids) {
@@ -257,7 +257,7 @@ public class RSVP extends Protocol {
     protected void sendResponse(Address dest, short id) {
         try {
             RsvpHeader hdr=new RsvpHeader(RsvpHeader.RSP,id);
-            Message msg=new Message(dest).setFlag(Message.Flag.RSVP, Message.Flag.INTERNAL, Message.Flag.DONT_BUNDLE)
+            Message msg=new Message(dest).setFlag(Message.Flag.RSVP, Message.Flag.INTERNAL, Message.Flag.DONT_BUNDLE, Message.Flag.OOB)
               .putHeader(this.id, hdr);
             if(log.isTraceEnabled())
                 log.trace(local_addr + ": " + hdr.typeToString() + " --> " + dest);

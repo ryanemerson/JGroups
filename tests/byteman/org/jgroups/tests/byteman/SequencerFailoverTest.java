@@ -20,7 +20,7 @@ import java.util.*;
  * (see individual tests for more detailed descriptions).
  * @author Bela Ban
  */
-@Test(groups=Global.BYTEMAN,sequential=true)
+@Test(groups=Global.BYTEMAN,singleThreaded=true)
 public class SequencerFailoverTest extends BMNGRunner {
     JChannel a, b, c; // A is the coordinator
     static final String GROUP="SequencerFailoverTest";
@@ -228,7 +228,7 @@ public class SequencerFailoverTest extends BMNGRunner {
         final Address sender=channel.getAddress();
         for(int i=1; i <= NUM_MSGS; i++) {
             Util.sleep(300);
-            channel.send(new Message(null, null, new Integer(i)));
+            channel.send(new Message(null, null,i));
             System.out.print("[" + sender + "] -- messages sent: " + i + "/" + NUM_MSGS + "\r");
         }
         System.out.println("");

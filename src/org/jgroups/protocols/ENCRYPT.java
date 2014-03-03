@@ -6,12 +6,11 @@ import org.jgroups.annotations.GuardedBy;
 import org.jgroups.annotations.MBean;
 import org.jgroups.annotations.Property;
 import org.jgroups.stack.Protocol;
-import org.jgroups.util.MessageBatch;
-import org.jgroups.util.QueueClosedException;
-import org.jgroups.util.Util;
+import org.jgroups.util.*;
 
 import javax.crypto.*;
 import javax.crypto.spec.SecretKeySpec;
+
 import java.io.*;
 import java.security.*;
 import java.security.cert.CertificateException;
@@ -143,6 +142,9 @@ public class ENCRYPT extends Protocol {
 
     @Property(name="sym_init", description="Initial key length for matching symmetric algorithm. Default is 128")
     int symInit=128;
+
+    @Property(name="change_keys", description="Generate new symmetric keys on every view change. Default is false")
+    boolean changeKeysOnViewChange=false;
 
     // properties for functioning in supplied key mode
     private boolean suppliedKey=false;
@@ -524,6 +526,10 @@ public class ENCRYPT extends Protocol {
 
     private synchronized void handleViewChange(View view, boolean makeServer) {
 
+    	if ( makeServer) {
+    		initializeNewSymmetricKey();
+    	}
+    	
         // if view is a bit broken set me as keyserver
         List<Address> members = view.getMembers();
         if (members == null || members.isEmpty() || members.get(0) == null) { 
@@ -533,20 +539,35 @@ public class ENCRYPT extends Protocol {
         // otherwise get keyserver from view controller
         Address tmpKeyServer=view.getMembers().get(0);
 
-        //I am new keyserver - either first member of group or old key server is no more and
+        //I am  keyserver - either first member of group or old key server is no more and
         // I have been voted new controller
-        if(makeServer || (tmpKeyServer.equals(local_addr) && (keyServerAddr == null || (!tmpKeyServer.equals(keyServerAddr))))) {
+        if(makeServer || (tmpKeyServer.equals(local_addr))) {
             becomeKeyServer(tmpKeyServer, makeServer);
-            // a new keyserver has been set and it is not me
-        }
-        else if(keyServerAddr == null || (!tmpKeyServer.equals(keyServerAddr)) || (keyServer && !tmpKeyServer.equals(local_addr))) {
-            handleNewKeyServer(tmpKeyServer);
         }
         else {
-            if(log.isDebugEnabled())
-                log.debug("Membership has changed but I do not care");
+            handleNewKeyServer(tmpKeyServer);
         }
     }
+
+	private void initializeNewSymmetricKey() {
+		try {
+			if ( changeKeysOnViewChange || !keyServer) {
+				if ( log.isDebugEnabled()) {
+					log.debug("Initalizing new ciphers");
+				}
+				initSymKey();
+				initSymCiphers(getSymAlgorithm(), getSecretKey());
+			}
+
+		} catch (Exception e) {
+			log.error("Could not initialize new ciphers: %s", e.getMessage());
+			if ( e instanceof RuntimeException) {
+				throw (RuntimeException)e;
+			} else {
+				throw new IllegalStateException(e);
+			}
+		}
+	}
 
     /**
      * Handles becoming server - resetting queue settings and setting keyserver
@@ -571,19 +592,27 @@ public class ENCRYPT extends Protocol {
      * @param newKeyServer
      */
     private void handleNewKeyServer(Address newKeyServer) {
-        // start queueing until we have new key
-        // to make sure we are not sending with old key
-        queue_up=true;
-        queue_down=true;
-        // set new keyserver address
-        keyServerAddr=newKeyServer;
-        keyServer=false;
-        if(log.isDebugEnabled())
-            log.debug("[" + local_addr + "] " + keyServerAddr + " has become the new key server, sending key request to it");
+    	
+    	if ( changeKeysOnViewChange || keyServerChanged(newKeyServer)) {
+            // start queueing until we have new key
+            // to make sure we are not sending with old key
+            queue_up=true;
+            queue_down=true;
+            // set new keyserver address
+            keyServerAddr=newKeyServer;
+            keyServer=false;
+            if(log.isDebugEnabled())
+                log.debug("[" + local_addr + "] " + keyServerAddr + " has become the new key server, sending key request to it");
 
-        // create a key request message
-        sendKeyRequest();
+            // create a key request message
+            sendKeyRequest();
+    		
+    	}
     }
+
+	private boolean keyServerChanged(Address newKeyServer) {
+		return keyServerAddr == null || !keyServerAddr.equals(newKeyServer);
+	}
 
 
     private void handleUpMessage(Event evt) throws Exception {
@@ -1224,13 +1253,13 @@ public class ENCRYPT extends Protocol {
 
         public void writeTo(DataOutput out) throws Exception {
             out.writeShort(type);
-            Util.writeString(version, out);
+            Bits.writeString(version,out);
             out.writeBoolean(encrypt_entire_msg);
         }
 
         public void readFrom(DataInput in) throws Exception {
             type=in.readShort();
-            version=Util.readString(in);
+            version=Bits.readString(in);
             encrypt_entire_msg=in.readBoolean();
         }
 

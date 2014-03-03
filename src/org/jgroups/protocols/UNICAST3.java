@@ -12,6 +12,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.util.*;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -26,7 +27,7 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 @MBean(description="Reliable unicast layer")
 public class UNICAST3 extends Protocol implements AgeOutCache.Handler<Address> {
-    public static final long DEFAULT_FIRST_SEQNO=Global.DEFAULT_FIRST_UNICAST_SEQNO;
+    protected static final long DEFAULT_FIRST_SEQNO=Global.DEFAULT_FIRST_UNICAST_SEQNO;
 
 
     /* ------------------------------------------ Properties  ------------------------------------------ */
@@ -72,13 +73,13 @@ public class UNICAST3 extends Protocol implements AgeOutCache.Handler<Address> {
 
     @Property(description="Send an ack immediately when a batch of ack_threshold (or more) messages is received. " +
       "Otherwise send delayed acks. If 1, ack single messages (similar to UNICAST)")
-    protected int ack_threshold=5;
+    protected int     ack_threshold=5;
 
     /* --------------------------------------------- JMX  ---------------------------------------------- */
 
 
-    protected long   num_msgs_sent=0, num_msgs_received=0;
-    protected long   num_acks_sent=0, num_acks_received=0, num_xmits=0;
+    protected long    num_msgs_sent=0, num_msgs_received=0;
+    protected long    num_acks_sent=0, num_acks_received=0, num_xmits=0;
 
     @ManagedAttribute(description="Number of retransmit requests received")
     protected final AtomicLong xmit_reqs_received=new AtomicLong(0);
@@ -95,27 +96,33 @@ public class UNICAST3 extends Protocol implements AgeOutCache.Handler<Address> {
     protected final ConcurrentMap<Address, SenderEntry>   send_table=Util.createConcurrentMap();
     protected final ConcurrentMap<Address, ReceiverEntry> recv_table=Util.createConcurrentMap();
 
-    protected final ReentrantLock      recv_table_lock=new ReentrantLock();
+    protected final ReentrantLock          recv_table_lock=new ReentrantLock();
 
     /** Used by the retransmit task to keep the last retransmitted seqno per sender (https://issues.jboss.org/browse/JGRP-1539) */
-    protected final Map<Address,Long>  xmit_task_map=new HashMap<Address,Long>();
+    protected final Map<Address,Long>      xmit_task_map=new HashMap<Address,Long>();
 
     /** RetransmitTask running every xmit_interval ms */
-    protected Future<?>                xmit_task;
+    protected Future<?>                    xmit_task;
 
-    protected volatile List<Address>   members=new ArrayList<Address>(11);
+    protected volatile List<Address>       members=new ArrayList<Address>(11);
 
-    protected Address                  local_addr;
+    protected Address                      local_addr;
 
-    protected TimeScheduler            timer; // used for retransmissions (passed to AckSenderWindow)
+    protected TimeScheduler                timer; // used for retransmissions
 
-    protected volatile boolean         running=false;
+    protected volatile boolean             running=false;
 
-    protected short                    last_conn_id;
+    protected short                        last_conn_id;
 
-    protected AgeOutCache<Address>     cache;
+    protected AgeOutCache<Address>         cache;
 
+    protected TimeService                  time_service;
 
+    protected static final Message         DUMMY_OOB_MSG=new Message(false).setFlag(Message.Flag.OOB);
+
+    protected static final Filter<Message> drop_oob_msgs_filter=new Filter<Message>() {
+        public boolean accept(Message msg) {return msg != null && msg.hashCode() != DUMMY_OOB_MSG.hashCode();}
+    };
 
 
     public void setMaxMessageBatchSize(int size) {
@@ -346,6 +353,12 @@ public class UNICAST3 extends Protocol implements AgeOutCache.Handler<Address> {
     }
 
 
+    public void init() throws Exception {
+        super.init();
+        time_service=getTransport().getTimeService();
+        if(time_service == null)
+            throw new IllegalStateException("time service from transport is null");
+    }
 
     public void start() throws Exception {
         timer=getTransport().getTimer();
@@ -358,6 +371,7 @@ public class UNICAST3 extends Protocol implements AgeOutCache.Handler<Address> {
     }
 
     public void stop() {
+        sendPendingAcks();
         running=false;
         stopRetransmitTask();
         xmit_task_map.clear();
@@ -404,17 +418,15 @@ public class UNICAST3 extends Protocol implements AgeOutCache.Handler<Address> {
                 handleXmitRequest(sender, (SeqnoList)msg.getObject());
                 break;
             case Header.CLOSE:
-                if(log.isTraceEnabled())
-                    log.trace(local_addr + " <-- CLOSE(" + sender + ": conn-id=" + hdr.conn_id + ")");
+                log.trace(local_addr + "%s <-- CLOSE(%s: conn-id=%s)", local_addr, sender, hdr.conn_id);
                 ReceiverEntry entry=recv_table.get(sender);
                 if(entry != null && entry.connId() == hdr.conn_id) {
                     recv_table.remove(sender, entry);
-                    if(log.isTraceEnabled())
-                        log.trace(local_addr + ": removed receive connection for " + sender);
+                    log.trace("%s: removed receive connection for %s", local_addr, sender);
                 }
                 break;
             default:
-                log.error("UnicastHeader type " + hdr.type + " not known !");
+                log.error(Util.getMessage("TypeNotKnown"), local_addr, hdr.type);
                 break;
         }
     }
@@ -443,7 +455,7 @@ public class UNICAST3 extends Protocol implements AgeOutCache.Handler<Address> {
                     handleUpEvent(msg.getSrc(), msg, hdr);
                 }
                 catch(Throwable t) { // we cannot let an exception terminate the processing of this batch
-                    log.error(local_addr + ": failed handling event", t);
+                    log.error(Util.getMessage("FailedHandlingEvent"), local_addr, t);
                 }
                 continue;
             }
@@ -487,8 +499,7 @@ public class UNICAST3 extends Protocol implements AgeOutCache.Handler<Address> {
                     break;
 
                 if(!running) {
-                    if(log.isTraceEnabled())
-                        log.trace(local_addr + ": discarded message as start() has not yet been called, message: " + msg);
+                    log.trace("%s: discarded message as start() has not yet been called, message: %s", local_addr, msg);
                     return null;
                 }
 
@@ -501,8 +512,7 @@ public class UNICAST3 extends Protocol implements AgeOutCache.Handler<Address> {
                     if(existing != null)
                         entry=existing;
                     else {
-                        if(log.isTraceEnabled())
-                            log.trace(local_addr + ": created sender window for " + dst + " (conn-id=" + entry.connId() + ")");
+                        log.trace("%s: created sender window for %s (conn-id=%s)", local_addr, dst, entry.connId());
                         if(cache != null && !members.contains(dst))
                             cache.add(dst);
                     }
@@ -554,8 +564,7 @@ public class UNICAST3 extends Protocol implements AgeOutCache.Handler<Address> {
                     cache.removeAll(new_members);
 
                 if(!non_members.isEmpty()) {
-                    if(log.isTraceEnabled())
-                        log.trace(local_addr + ": removing non members " + non_members);
+                    log.trace("%s: removing non members %s", local_addr, non_members);
                     for(Address non_mbr: non_members)
                         closeConnection(non_mbr);
                 }
@@ -569,7 +578,7 @@ public class UNICAST3 extends Protocol implements AgeOutCache.Handler<Address> {
                             e.state(State.OPEN);
                     }
                 }
-                xmit_task_map.keySet().retainAll(view.getMembers());
+                xmit_task_map.keySet().retainAll(new_members);
                 break;
 
             case Event.SET_LOCAL_ADDRESS:
@@ -631,9 +640,9 @@ public class UNICAST3 extends Protocol implements AgeOutCache.Handler<Address> {
 
     /** Sends a retransmit request to the given sender */
     protected void retransmit(SeqnoList missing, Address sender) {
-        Message xmit_msg=new Message(sender, missing).setFlag(Message.Flag.OOB).putHeader(id, Header.createXmitReqHeader());
-        if(log.isTraceEnabled())
-            log.trace(local_addr + ": sending XMIT_REQ (" + missing + ") to " + sender);
+        Message xmit_msg=new Message(sender, missing).setFlag(Message.Flag.OOB, Message.Flag.INTERNAL)
+          .putHeader(id, Header.createXmitReqHeader());
+        log.trace("%s: sending XMIT_REQ (%s) to %s", local_addr, missing, sender);
         down_prot.down(new Event(Event.MSG, xmit_msg));
         xmit_reqs_sent.addAndGet(missing.size());
     }
@@ -644,7 +653,7 @@ public class UNICAST3 extends Protocol implements AgeOutCache.Handler<Address> {
         if(log.isTraceEnabled()) {
             Header hdr=(Header)msg.getHeader(id);
             long seqno=hdr != null? hdr.seqno : -1;
-            log.trace(local_addr + " --> XMIT(" + msg.getDest() + ": #" + seqno + ')');
+            log.trace("%s --> XMIT(%s: #%d)", local_addr, msg.getDest(), seqno);
         }
         down_prot.down(new Event(Event.MSG, msg));
         num_xmits++;
@@ -656,8 +665,7 @@ public class UNICAST3 extends Protocol implements AgeOutCache.Handler<Address> {
      */
     public void expired(Address key) {
         if(key != null) {
-            if(log.isDebugEnabled())
-                log.debug("removing connection to " + key + " because it expired");
+            log.debug("%s: removing connection to %s because it expired", local_addr, key);
             closeConnection(key);
         }
     }
@@ -668,15 +676,9 @@ public class UNICAST3 extends Protocol implements AgeOutCache.Handler<Address> {
      * e.received_msgs is null and <code>first</code> is true: create a new AckReceiverWindow(seqno) and
      * add message. Set e.received_msgs to the new window. Else just add the message.
      */
-    protected void handleDataReceived(Address sender, long seqno, short conn_id,  boolean first, Message msg, Event evt) {
-        if(log.isTraceEnabled()) {
-            StringBuilder sb=new StringBuilder();
-            sb.append(local_addr).append(" <-- DATA(").append(sender).append(": #").append(seqno);
-            if(conn_id != 0) sb.append(", conn_id=").append(conn_id);
-            if(first) sb.append(", first");
-            sb.append(')');
-            log.trace(sb);
-        }
+    protected void handleDataReceived(final Address sender, long seqno, short conn_id,  boolean first, final Message msg, Event evt) {
+        if(log.isTraceEnabled())
+            log.trace("%s <-- DATA(%s: #%d, conn_id=%d%s)", local_addr, sender, seqno, conn_id, first? ", first" : "");
 
         ReceiverEntry entry=getReceiverEntry(sender, seqno, first, conn_id);
         if(entry == null)
@@ -685,8 +687,9 @@ public class UNICAST3 extends Protocol implements AgeOutCache.Handler<Address> {
             entry.update();
         if(entry.state() == State.CLOSING)
             entry.state(State.OPEN);
-        Table<Message> win=entry.received_msgs;
-        boolean added=win.add(seqno, msg); // win is guaranteed to be non-null if we get here
+        boolean oob=msg.isFlagSet(Message.Flag.OOB);
+        final Table<Message> win=entry.received_msgs;
+        boolean added=win.add(seqno, oob? DUMMY_OOB_MSG : msg); // adding the same dummy OOB msg saves space (we won't remove it)
         num_msgs_received++;
 
         if(ack_threshold <= 1)
@@ -696,18 +699,24 @@ public class UNICAST3 extends Protocol implements AgeOutCache.Handler<Address> {
 
         // An OOB message is passed up immediately. Later, when remove() is called, we discard it. This affects ordering !
         // http://jira.jboss.com/jira/browse/JGRP-377
-        if(msg.isFlagSet(Message.Flag.OOB) && added) {
-            if(msg.setTransientFlagIfAbsent(Message.TransientFlag.OOB_DELIVERED)) {
-                if(log.isTraceEnabled())
-                    log.trace(new StringBuilder().append(local_addr).append(": delivering ")
-                                .append(sender).append('#').append(seqno));
-                try {
-                    up_prot.up(evt);
-                }
-                catch(Throwable t) {
-                    log.error("failed to deliver OOB message " + msg, t);
-                }
+        if(oob && added)
+            deliverMessage(evt, sender, seqno);
+
+        // we don't steal work if the message is internal (https://issues.jboss.org/browse/JGRP-1733)
+        // we also don't care if the message was added successfully or not
+        if(oob && msg.isFlagSet(Message.Flag.INTERNAL)) {
+            // If there are other msgs, tell the regular thread pool to handle them (https://issues.jboss.org/browse/JGRP-1732)
+            final AtomicBoolean processing=win.getProcessing();
+            if(!win.isEmpty() && !processing.get() && seqno < win.getHighestReceived()) {
+                Executor pool=getTransport().getDefaultThreadPool();
+                pool.execute(new Runnable() {
+                    public void run() {
+                        if(processing.compareAndSet(false, true))
+                            removeAndDeliver(processing, win, sender);
+                    }
+                });
             }
+            return;
         }
 
         final AtomicBoolean processing=win.getProcessing();
@@ -718,16 +727,15 @@ public class UNICAST3 extends Protocol implements AgeOutCache.Handler<Address> {
 
 
     protected void handleBatchReceived(final ReceiverEntry entry, Address sender, List<Tuple<Long,Message>> msgs, boolean oob) {
-        if(log.isTraceEnabled()) {
-            StringBuilder sb=new StringBuilder();
-            sb.append(local_addr).append(" <-- DATA(").append(sender).append(": " + printMessageList(msgs)).append(')');
-            log.trace(sb);
-        }
+        if(log.isTraceEnabled())
+            log.trace("%s <-- DATA(%s: %s)", local_addr, sender, printMessageList(msgs));
 
         int batch_size=msgs.size();
         Table<Message> win=entry.received_msgs;
         num_msgs_received+=batch_size;
-        boolean added=oob ? win.add(msgs, true) : win.add(msgs);
+
+        // adds all messages to the table, removing messages from 'msgs' which could not be added (already present)
+        boolean added=win.add(msgs, oob, oob? DUMMY_OOB_MSG : null);
 
         if(conn_expiry_timeout > 0)
             entry.update();
@@ -741,21 +749,11 @@ public class UNICAST3 extends Protocol implements AgeOutCache.Handler<Address> {
 
         // OOB msg is passed up. When removed, we discard it. Affects ordering: http://jira.jboss.com/jira/browse/JGRP-379
         if(added && oob) {
-            for(Tuple<Long,Message> tuple: msgs) {
-                long    seq=tuple.getVal1();
-                Message msg=tuple.getVal2();
-                if(msg.isFlagSet(Message.Flag.OOB) && msg.setTransientFlagIfAbsent(Message.TransientFlag.OOB_DELIVERED)) {
-                    if(log.isTraceEnabled())
-                        log.trace(new StringBuilder().append(local_addr).append(": delivering ")
-                                    .append(sender).append('#').append(seq));
-                    try {
-                        up_prot.up(new Event(Event.MSG, msg));
-                    }
-                    catch(Throwable t) {
-                        log.error("failed to deliver OOB message " + msg, t);
-                    }
-                }
-            }
+            MessageBatch oob_batch=new MessageBatch(local_addr, sender, null, false, MessageBatch.Mode.OOB, msgs.size());
+            for(Tuple<Long,Message> tuple: msgs)
+                oob_batch.add(tuple.getVal2());
+
+            deliverBatch(oob_batch);
         }
 
         final AtomicBoolean processing=win.getProcessing();
@@ -773,47 +771,22 @@ public class UNICAST3 extends Protocol implements AgeOutCache.Handler<Address> {
      * delivery of P1, Q1, Q2, P2: FIFO (implemented by UNICAST) says messages need to be delivered in the
      * order in which they were sent
      */
-    protected int removeAndDeliver(final AtomicBoolean processing, Table<Message> win, Address sender) {
-        int retval=0;
+    protected void removeAndDeliver(final AtomicBoolean processing, Table<Message> win, Address sender) {
         boolean released_processing=false;
         try {
             while(true) {
-                List<Message> list=win.removeMany(processing, true, max_msg_batch_size);
-                if(list == null) {
+                List<Message> list=win.removeMany(processing, true, max_msg_batch_size, drop_oob_msgs_filter);
+                if(list != null) // list is guaranteed to NOT contain any OOB messages as the drop_oob_msgs_filter removed them
+                    deliverBatch(new MessageBatch(local_addr, sender, null, false, list));
+                else {
                     released_processing=true;
-                    return retval;
-                }
-
-                MessageBatch batch=new MessageBatch(local_addr, sender, null, false, list);
-                for(Message msg_to_deliver: batch) {
-                    // discard OOB msg: it has already been delivered (http://jira.jboss.com/jira/browse/JGRP-377)
-                    if(msg_to_deliver.isFlagSet(Message.Flag.OOB) && !msg_to_deliver.setTransientFlagIfAbsent(Message.TransientFlag.OOB_DELIVERED))
-                        batch.remove(msg_to_deliver);
-                }
-                if(batch.isEmpty())
-                    continue;
-
-                try {
-                    if(log.isTraceEnabled()) {
-                        Message first=batch.first(), last=batch.last();
-                        StringBuilder sb=new StringBuilder(local_addr + ": delivering");
-                        if(first != null && last != null) {
-                            Header hdr1=(Header)first.getHeader(id), hdr2=(Header)last.getHeader(id);
-                            sb.append(" #").append(hdr1.seqno).append(" - #").append(hdr2.seqno);
-                        }
-                        sb.append(" (" + batch.size()).append(" messages)");
-                        log.trace(sb);
-                    }
-                    up_prot.up(batch);
-                }
-                catch(Throwable t) {
-                    log.error("failed to deliver batch " + batch, t);
+                    return;
                 }
             }
         }
         finally {
             // processing is always set in win.remove(processing) above and never here ! This code is just a
-            // 2nd line of defense should there be an exception before win.remove(processing) sets processing
+            // 2nd line of defense should there be an exception before win.removeMany(processing) sets processing
             if(!released_processing)
                 processing.set(false);
         }
@@ -852,9 +825,7 @@ public class UNICAST3 extends Protocol implements AgeOutCache.Handler<Address> {
                 }
                 else {  // entry != null && win != null
                     if(conn_id != entry.connId()) {
-                        if(log.isTraceEnabled())
-                            log.trace(local_addr + ": conn_id=" + conn_id + " != " + entry.connId() + "; resetting receiver window");
-
+                        log.trace("%s: conn_id=%d != %d; resetting receiver window", local_addr, conn_id, entry.connId());
                         recv_table.remove(sender);
                         entry=createReceiverEntry(sender,seqno,conn_id);
                     }
@@ -883,22 +854,18 @@ public class UNICAST3 extends Protocol implements AgeOutCache.Handler<Address> {
         ReceiverEntry entry2=recv_table.putIfAbsent(sender, entry);
         if(entry2 != null)
             return entry2;
-        if(log.isTraceEnabled())
-            log.trace(local_addr + ": created receiver window for " + sender + " at seqno=#" + seqno + " for conn-id=" + conn_id);
+        log.trace("%s: created receiver window for %s at seqno=#%d for conn-id=%d", local_addr, sender, seqno, conn_id);
         return entry;
     }
 
     /** Add the ACK to hashtable.sender.sent_msgs */
     protected void handleAckReceived(Address sender, long seqno, short conn_id) {
         if(log.isTraceEnabled())
-            log.trace(new StringBuilder().append(local_addr).append(" <-- ACK(").append(sender).
-              append(": #").append(seqno).append(", conn-id=").append(conn_id).append(')'));
+            log.trace("%s <-- ACK(%s: #%d, conn-id=%d)", local_addr, sender, seqno, conn_id);
         SenderEntry entry=send_table.get(sender);
 
         if(entry != null && entry.connId() != conn_id) {
-            if(log.isTraceEnabled())
-                log.trace(local_addr + ": my conn_id (" + entry.connId() +
-                            ") != received conn_id (" + conn_id + "); discarding ACK");
+            log.trace("%s: my conn_id (%d) != received conn_id (%d); discarding ACK", local_addr, entry.connId(), conn_id);
             return;
         }
 
@@ -916,13 +883,11 @@ public class UNICAST3 extends Protocol implements AgeOutCache.Handler<Address> {
      * @param sender
      */
     protected void handleResendingOfFirstMessage(Address sender) {
-        if(log.isTraceEnabled())
-            log.trace(local_addr + " <-- SEND_FIRST_SEQNO(" + sender + ")");
+        log.trace("%s <-- SEND_FIRST_SEQNO(%s)", local_addr, sender);
         SenderEntry entry=send_table.get(sender);
         Table<Message> win=entry != null? entry.sent_msgs : null;
         if(win == null) {
-            if(log.isWarnEnabled())
-                log.warn(local_addr + ": sender window for " + sender + " not found");
+            log.warn(Util.getMessage("SenderNotFound"), local_addr, sender);
             return;
         }
 
@@ -942,9 +907,7 @@ public class UNICAST3 extends Protocol implements AgeOutCache.Handler<Address> {
 
 
     protected void handleXmitRequest(Address sender, SeqnoList missing) {
-        if(log.isTraceEnabled())
-            log.trace(new StringBuilder().append(local_addr).append(" <-- XMIT(").append(sender).
-              append(": #").append(missing).append(')'));
+        log.trace("%s <-- XMIT(%s: #%s)", local_addr, sender, missing);
 
         SenderEntry entry=send_table.get(sender);
         xmit_reqs_received.addAndGet(missing.size());
@@ -953,13 +916,8 @@ public class UNICAST3 extends Protocol implements AgeOutCache.Handler<Address> {
             for(long seqno: missing) {
                 Message msg=win.get(seqno);
                 if(msg == null) {
-                    if(log.isWarnEnabled() && log_not_found_msgs && !local_addr.equals(sender) && seqno > win.getLow()) {
-                        StringBuilder sb=new StringBuilder();
-                        sb.append(local_addr +  ": (requester=").append(sender).append(") message ").append(sender)
-                          .append("::").append(seqno).append(" not found in retransmission table of ").append(sender)
-                          .append(":\n").append(win);
-                        log.warn(sb.toString());
-                    }
+                    if(log.isWarnEnabled() && log_not_found_msgs && !local_addr.equals(sender) && seqno > win.getLow())
+                        log.warn(Util.getMessage("MessageNotFound"), local_addr, sender, seqno);
                     continue;
                 }
 
@@ -969,7 +927,44 @@ public class UNICAST3 extends Protocol implements AgeOutCache.Handler<Address> {
         }
     }
 
+    protected void deliverMessage(final Event evt, final Address sender, final long seqno) {
+        if(log.isTraceEnabled())
+            log.trace("%s: delivering %s#%s", local_addr, sender, seqno);
+        try {
+            up_prot.up(evt);
+        }
+        catch(Throwable t) {
+            Message msg=(Message)evt.getArg();
+            log.error(Util.getMessage("FailedToDeliverMsg"), local_addr, msg.isFlagSet(Message.Flag.OOB) ?
+              "OOB message" : "message", msg, t);
+        }
+    }
 
+    protected void deliverBatch(MessageBatch batch) {
+        try {
+            if(batch.isEmpty())
+                return;
+            if(log.isTraceEnabled()) {
+                Message first=batch.first(), last=batch.last();
+                StringBuilder sb=new StringBuilder(local_addr + ": delivering");
+                if(first != null && last != null) {
+                    Header hdr1=(Header)first.getHeader(id), hdr2=(Header)last.getHeader(id);
+                    sb.append(" #").append(hdr1.seqno).append(" - #").append(hdr2.seqno);
+                }
+                sb.append(" (" + batch.size()).append(" messages)");
+                log.trace(sb);
+            }
+            up_prot.up(batch);
+        }
+        catch(Throwable t) {
+            log.error(Util.getMessage("FailedToDeliverMsg"), local_addr, "batch", batch, t);
+        }
+    }
+
+
+    protected long getTimestamp() {
+        return time_service.timestamp();
+    }
 
     protected void startRetransmitTask() {
         if(xmit_task == null || xmit_task.isDone())
@@ -990,14 +985,13 @@ public class UNICAST3 extends Protocol implements AgeOutCache.Handler<Address> {
             return;
         Message ack=new Message(dst).setFlag(Message.Flag.INTERNAL).putHeader(this.id, Header.createAckHeader(seqno, conn_id));
         if(log.isTraceEnabled())
-            log.trace(new StringBuilder().append(local_addr).append(" --> ACK(").append(dst).
-              append(": #").append(seqno).append(')'));
+            log.trace("%s --> ACK(%s: #%d)", local_addr, dst, seqno);
         try {
             down_prot.down(new Event(Event.MSG, ack));
             num_acks_sent++;
         }
         catch(Throwable t) {
-            log.error("failed sending ACK(" + seqno + ") to " + dst, t);
+            log.error(Util.getMessage("FailedSendingAck"), local_addr, seqno, dst, t);
         }
     }
 
@@ -1014,15 +1008,13 @@ public class UNICAST3 extends Protocol implements AgeOutCache.Handler<Address> {
 
     protected void sendRequestForFirstSeqno(Address dest) {
         Message msg=new Message(dest).setFlag(Message.Flag.OOB).putHeader(this.id, Header.createSendFirstSeqnoHeader());
-        if(log.isTraceEnabled())
-            log.trace(local_addr + " --> SEND_FIRST_SEQNO(" + dest + ")");
+        log.trace("%s --> SEND_FIRST_SEQNO(%s)", local_addr, dest);
         down_prot.down(new Event(Event.MSG, msg));
     }
 
     public void sendClose(Address dest, short conn_id) {
         Message msg=new Message(dest).setFlag(Message.Flag.INTERNAL).putHeader(id, Header.createCloseHeader(conn_id));
-        if(log.isTraceEnabled())
-            log.trace(local_addr + " --> CLOSE(" + dest + ", conn-id=" + conn_id + ")");
+        log.trace("%s --> CLOSE(%s, conn-id=%d)", local_addr, dest, conn_id);
         down_prot.down(new Event(Event.MSG, msg));
     }
 
@@ -1035,9 +1027,8 @@ public class UNICAST3 extends Protocol implements AgeOutCache.Handler<Address> {
                 continue;
             long age=val.age();
             if(age >= conn_expiry_timeout) {
-                if(log.isDebugEnabled())
-                    log.debug(local_addr + ": closing expired connection for " + entry.getKey() +
-                                " (" + age + " ms old) in send_table");
+                log.debug("%s: closing expired connection for %s (%d ms old) in send_table",
+                          local_addr, entry.getKey(), age);
                 closeSendConnection(entry.getKey());
             }
         }
@@ -1049,9 +1040,8 @@ public class UNICAST3 extends Protocol implements AgeOutCache.Handler<Address> {
                 continue;
             long age=val.age();
             if(age >= conn_expiry_timeout) {
-                if(log.isDebugEnabled())
-                    log.debug(local_addr + ": closing expired connection for " + entry.getKey() +
-                                " (" + age + " ms old) in recv_table");
+                log.debug("%s: closing expired connection for %s (%d ms old) in recv_table",
+                          local_addr, entry.getKey(), age);
                 closeReceiveConnection(entry.getKey());
             }
         }
@@ -1067,9 +1057,8 @@ public class UNICAST3 extends Protocol implements AgeOutCache.Handler<Address> {
                 continue;
             long age=val.age();
             if(age >= conn_close_timeout) {
-                if(log.isDebugEnabled())
-                    log.debug(local_addr + ": removing expired connection for " + entry.getKey() +
-                                " (" + age + " ms old) from send_table");
+                log.debug("%s: removing expired connection for %s (%d ms old) from send_table",
+                          local_addr, entry.getKey(), age);
                 removeSendConnection(entry.getKey());
             }
         }
@@ -1081,9 +1070,8 @@ public class UNICAST3 extends Protocol implements AgeOutCache.Handler<Address> {
                 continue;
             long age=val.age();
             if(age >= conn_close_timeout) {
-                if(log.isDebugEnabled())
-                    log.debug(local_addr + ": removing expired connection for " + entry.getKey() +
-                                " (" + age + " ms old) from recv_table");
+                log.debug("%s: removing expired connection for %s (%d ms old) from recv_table",
+                          local_addr, entry.getKey(), age);
                 removeReceiveConnection(entry.getKey());
             }
         }
@@ -1179,12 +1167,12 @@ public class UNICAST3 extends Protocol implements AgeOutCache.Handler<Address> {
             int retval=Global.BYTE_SIZE;     // type
             switch(type) {
                 case DATA:
-                    retval+=Util.size(seqno) // seqno
+                    retval+=Bits.size(seqno) // seqno
                       + Global.SHORT_SIZE    // conn_id
                       + Global.BYTE_SIZE;    // first
                     break;
                 case ACK:
-                    retval+=Util.size(seqno) + Global.SHORT_SIZE; // conn_id
+                    retval+=Bits.size(seqno) + Global.SHORT_SIZE; // conn_id
                     break;
                 case SEND_FIRST_SEQNO:
                 case XMIT_REQ:
@@ -1205,12 +1193,12 @@ public class UNICAST3 extends Protocol implements AgeOutCache.Handler<Address> {
             out.writeByte(type);
             switch(type) {
                 case DATA:
-                    Util.writeLong(seqno, out);
+                    Bits.writeLong(seqno, out);
                     out.writeShort(conn_id);
                     out.writeBoolean(first);
                     break;
                 case ACK:
-                    Util.writeLong(seqno, out);
+                    Bits.writeLong(seqno, out);
                     out.writeShort(conn_id);
                     break;
                 case SEND_FIRST_SEQNO:
@@ -1226,12 +1214,12 @@ public class UNICAST3 extends Protocol implements AgeOutCache.Handler<Address> {
             type=in.readByte();
             switch(type) {
                 case DATA:
-                    seqno=Util.readLong(in);
+                    seqno=Bits.readLong(in);
                     conn_id=in.readShort();
                     first=in.readBoolean();
                     break;
                 case ACK:
-                    seqno=Util.readLong(in);
+                    seqno=Bits.readLong(in);
                     conn_id=in.readShort();
                     break;
                 case SEND_FIRST_SEQNO:
@@ -1255,8 +1243,8 @@ public class UNICAST3 extends Protocol implements AgeOutCache.Handler<Address> {
         }
 
         short       connId()              {return conn_id;}
-        void        update()              {timestamp.set(System.currentTimeMillis());}
-        long        age()                 {return System.currentTimeMillis() - timestamp.longValue();}
+        void        update()              {timestamp.set(getTimestamp());}
+        long        age()                 {return getTimestamp() - timestamp.longValue();}
         State       state()               {return state;}
         Entry       state(State state)    {this.state=state; return this;}
     }
@@ -1279,7 +1267,7 @@ public class UNICAST3 extends Protocol implements AgeOutCache.Handler<Address> {
             StringBuilder sb=new StringBuilder();
             if(sent_msgs != null)
                 sb.append(sent_msgs).append(", ");
-            sb.append("send_conn_id=" + conn_id).append(" (" + age() + " ms old) - " + state);
+            sb.append("send_conn_id=" + conn_id).append(" (" + age()/1000 + " secs old) - " + state);
             return sb.toString();
         }
     }
@@ -1302,7 +1290,7 @@ public class UNICAST3 extends Protocol implements AgeOutCache.Handler<Address> {
             if(received_msgs != null)
                 sb.append(received_msgs).append(", ");
             sb.append("recv_conn_id=" + conn_id);
-            sb.append(" (" + age() + " ms old) - " + state);
+            sb.append(" (" + age()/1000 + " secs old) - " + state);
             if(send_ack)
                 sb.append(" [ack pending]");
             return sb.toString();
@@ -1388,6 +1376,19 @@ public class UNICAST3 extends Protocol implements AgeOutCache.Handler<Address> {
 
         if(conn_close_timeout > 0)
             removeExpiredConnections();
+    }
+
+    /** Sends ACKs immediately for entries which are marked as pending (ACK hasn't been sent yet) */
+    protected void sendPendingAcks() {
+        for(Map.Entry<Address,ReceiverEntry> entry: recv_table.entrySet()) {
+            Address        target=entry.getKey(); // target to send retransmit requests to
+            ReceiverEntry  val=entry.getValue();
+            Table<Message> win=val != null? val.received_msgs : null;
+
+            // receiver: send ack for received messages if needed
+            if(win != null && val.sendAck())// sendAck() resets send_ack to false
+                sendAck(target, win.getHighestDeliverable(), val.connId());
+        }
     }
 
 

@@ -5,10 +5,7 @@ import org.jgroups.Version;
 import org.jgroups.logging.Log;
 import org.jgroups.logging.LogFactory;
 import org.jgroups.stack.IpAddress;
-import org.jgroups.util.DefaultSocketFactory;
-import org.jgroups.util.SocketFactory;
-import org.jgroups.util.ThreadFactory;
-import org.jgroups.util.Util;
+import org.jgroups.util.*;
 
 import java.io.*;
 import java.net.*;
@@ -18,7 +15,6 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
@@ -39,15 +35,16 @@ public class TCPConnectionMap {
     protected Log                 log=LogFactory.getLog(getClass());
     protected int                 recv_buf_size=120000;
     protected int                 send_buf_size=60000;
-    protected int                 send_queue_size=0;
+    protected int                 send_queue_size=2000;
     protected int                 sock_conn_timeout=1000;      // max time in millis to wait for Socket.connect() to return
     protected int                 peer_addr_read_timeout=2000; // max time in milliseconds to block on reading peer address
     protected boolean             tcp_nodelay=false;
     protected int                 linger=-1;
     protected final Thread        acceptor;
     protected final AtomicBoolean running=new AtomicBoolean(false);
-    protected volatile boolean    use_send_queues=false;
+    protected volatile boolean    use_send_queues=true;
     protected SocketFactory       socket_factory=new DefaultSocketFactory();
+    protected TimeService         time_service;
 
 
     public TCPConnectionMap(String service_name,
@@ -110,7 +107,7 @@ public class TCPConnectionMap {
 
         acceptor=f.newThread(new Acceptor(),"ConnectionMap.Acceptor [" + local_addr + "]");
     }
-    
+
     public Address          getLocalAddress()                       {return local_addr;}
     public Receiver         getReceiver()                           {return recvr;}
     public void             setReceiver(Receiver receiver)          {this.recvr=receiver;}
@@ -125,6 +122,7 @@ public class TCPConnectionMap {
     public void             setReceiveBufferSize(int recv_buf_size) {this.recv_buf_size = recv_buf_size;}
     public void             setSocketConnectionTimeout(int timeout) {this.sock_conn_timeout = timeout;}
     public TCPConnectionMap peerAddressReadTimeout(int timeout)     {this.peer_addr_read_timeout=timeout; return this;}
+    public TCPConnectionMap timeService(TimeService ts)             {this.time_service=ts; return this;}
     public void             setSendBufferSize(int send_buf_size)    {this.send_buf_size = send_buf_size;}
     public void             setLinger(int linger)                   {this.linger = linger;}
     public void             setTcpNodelay(boolean tcp_nodelay)      {this.tcp_nodelay = tcp_nodelay;}
@@ -208,6 +206,13 @@ public class TCPConnectionMap {
         }
     }
 
+    /** Flushes the TCPConnection associated with destination */
+    public void flush(Address destination) throws Exception {
+        TCPConnection conn=mapper.getConnection(destination);
+        if(conn != null)
+            conn.flush();
+    }
+
     public void start() throws Exception {        
         if(running.compareAndSet(false, true)) {
             acceptor.start();
@@ -250,8 +255,7 @@ public class TCPConnectionMap {
             client_sock.setReceiveBufferSize(recv_buf_size);
         }
         catch(IllegalArgumentException ex) {
-            if(log.isErrorEnabled())
-                log.error(local_addr + ": exception setting receive buffer size to " + send_buf_size + " bytes", ex);
+            log.error(local_addr + ": exception setting receive buffer size to " + send_buf_size + " bytes", ex);
         }
 
         client_sock.setKeepAlive(true);
@@ -350,12 +354,12 @@ public class TCPConnectionMap {
     
     public class TCPConnection implements Connection {
         protected final Socket           sock; // socket to/from peer (result of srv_sock.accept() or new Socket())
-        protected final Lock             send_lock=new ReentrantLock(); // serialize send()
+        protected final ReentrantLock    send_lock=new ReentrantLock(); // serialize send()
         protected final byte[]           cookie= { 'b', 'e', 'l', 'a' };
         protected DataOutputStream       out;
         protected DataInputStream        in;
         protected Address                peer_addr; // address of the 'other end' of the connection
-        protected long                   last_access=System.currentTimeMillis(); // last time a message was sent or received
+        protected long                   last_access=getTimestamp(); // last time a message was sent or received
         protected Sender                 sender;
         protected Receiver               receiver;
 
@@ -374,10 +378,14 @@ public class TCPConnectionMap {
             setSocketParameters(s);
             this.out=new DataOutputStream(new BufferedOutputStream(s.getOutputStream()));
             this.in=new DataInputStream(new BufferedInputStream(s.getInputStream()));
-            this.peer_addr=readPeerAddress(s);            
+            this.peer_addr=readPeerAddress(s);
             this.sock=s;
-        }  
-        
+        }
+
+        protected long getTimestamp() {
+            return time_service != null? time_service.timestamp() : System.currentTimeMillis();
+        }
+
         protected Address getPeerAddress() {
             return peer_addr;
         }
@@ -396,7 +404,8 @@ public class TCPConnectionMap {
         }
 
         protected void updateLastAccessed() {
-            last_access=System.currentTimeMillis();
+            if(conn_expire_time > 0)
+                last_access=getTimestamp();
         }
 
         /** Called after {@link TCPConnection#TCPConnection(org.jgroups.Address)} */
@@ -447,7 +456,7 @@ public class TCPConnectionMap {
                 sender.addToQueue(tmp);
             }
             else
-                _send(data, offset, length, true);
+                _send(data, offset, length, true, true);
         }
 
         /**
@@ -459,11 +468,11 @@ public class TCPConnectionMap {
          * @param acquire_lock
          * @throws Exception 
          */
-        protected void _send(byte[] data, int offset, int length, boolean acquire_lock) throws Exception {
+        protected void _send(byte[] data, int offset, int length, boolean acquire_lock, boolean flush) throws Exception {
             if(acquire_lock)
                 send_lock.lock();
             try {
-                doSend(data, offset, length);
+                doSend(data, offset, length, acquire_lock, flush);
                 updateLastAccessed();
             }
             catch(InterruptedException iex) {
@@ -475,10 +484,17 @@ public class TCPConnectionMap {
             }
         }
 
-        protected void doSend(byte[] data, int offset, int length) throws Exception {
+        protected void doSend(byte[] data, int offset, int length, boolean acquire_lock, boolean flush) throws Exception {
             out.writeInt(length); // write the length of the data buffer first
             out.write(data,offset,length);
-            out.flush(); // may not be very efficient (but safe)           
+            if(!flush || (acquire_lock && send_lock.hasQueuedThreads()))
+                return; // don't flush as some of the waiting threads will do the flush, or flush is false
+            out.flush(); // may not be very efficient (but safe)
+        }
+
+        protected void flush() throws Exception {
+            if(out != null)
+                out.flush();
         }
 
         /**
@@ -504,7 +520,6 @@ public class TCPConnectionMap {
                                             ") from ours (" + Version.printVersion() + "); discarding it");
                 Address client_peer_addr=new IpAddress();
                 client_peer_addr.readFrom(in);
-
                 updateLastAccessed();
                 return client_peer_addr;
             }
@@ -644,7 +659,7 @@ public class TCPConnectionMap {
     
                         if(data != null) {                        
                             try {
-                                _send(data, 0, data.length, false);
+                                _send(data, 0, data.length, false, send_queue.isEmpty());
                             }
                             catch(Throwable ignored) {
                             }
@@ -680,7 +695,7 @@ public class TCPConnectionMap {
                            + ':'
                            + tmp_sock.getPort()
                            + "> ("
-                           + ((System.currentTimeMillis() - last_access) / 1000)
+                           + ((getTimestamp() - last_access) / 1000)
                            + " secs old) [" + (isOpen()? "open]" : "closed]"));
             }
             tmp_sock=null;

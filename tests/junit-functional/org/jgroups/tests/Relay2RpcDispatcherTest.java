@@ -30,7 +30,7 @@ import java.util.List;
  * @author Bela Ban
  * @since 3.2
  */
-@Test(groups=Global.FUNCTIONAL,sequential=true)
+@Test(groups=Global.FUNCTIONAL,singleThreaded=true)
 public class Relay2RpcDispatcherTest {
     protected JChannel a, b;  			// members in site "lon"
     protected JChannel x, y;  			// members in site "sfo
@@ -136,7 +136,7 @@ public class Relay2RpcDispatcherTest {
         
         
         System.out.println("B: call foo method on SFO master site");
-        rsp = rpcb.callRemoteMethod(sm_sfo, call, new RequestOptions(ResponseMode.GET_ALL,5000));
+        rsp = rpcb.callRemoteMethod(sm_sfo, call, new RequestOptions(ResponseMode.GET_ALL,15000));
         System.out.println("RSP is: " + rsp );
         
         System.out.println("B: call foo method on all members dest = null");
@@ -224,7 +224,7 @@ public class Relay2RpcDispatcherTest {
     /** Creates a singleton view for each channel listed and injects it */
     protected static void createPartition(JChannel ... channels) {
         for(JChannel ch: channels) {
-            View view=Util.createView(ch.getAddress(), 5, ch.getAddress());
+            View view=View.create(ch.getAddress(), 5, ch.getAddress());
             GMS gms=(GMS)ch.getProtocolStack().findProtocol(GMS.class);
             gms.installView(view);
         }

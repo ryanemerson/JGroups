@@ -21,15 +21,11 @@ import org.testng.annotations.Test;
  * @author Bela Ban
  * @since 3.2
  */
-@Test(groups=Global.BYTEMAN,sequential=true)
+@Test(groups=Global.BYTEMAN,singleThreaded=true)
 public class BecomeServerTest extends BMNGRunner {
-    JChannel          a, b;
+    protected JChannel          a, b;
 
-    @AfterMethod
-    protected void cleanup() {
-        Util.close(b,a);
-    }
-
+    @AfterMethod protected void cleanup() {Util.close(b,a);}
 
     /**
      * When we flush the server queue and one or more of the delivered messages triggers a response (in the same thread),
@@ -77,9 +73,7 @@ public class BecomeServerTest extends BMNGRunner {
 
     protected void sendMessage(JChannel ch, String message) {
         try {
-            Message msg=new Message(null, message);
-            msg.setFlag(Message.Flag.OOB);
-            ch.send(msg);
+            ch.send(new Message(null, message).setFlag(Message.Flag.OOB));
         }
         catch(Exception e) {
             e.printStackTrace(System.err);

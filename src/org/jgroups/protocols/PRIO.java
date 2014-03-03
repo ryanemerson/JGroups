@@ -1,5 +1,6 @@
 package org.jgroups.protocols;
 
+import org.jgroups.Address;
 import org.jgroups.Event;
 import org.jgroups.Message;
 import org.jgroups.annotations.Experimental;
@@ -34,8 +35,8 @@ import java.util.concurrent.PriorityBlockingQueue;
 public class PRIO extends Protocol {
 	private PriorityBlockingQueue<PriorityMessage> downMessageQueue;
 	private PriorityBlockingQueue<PriorityMessage> upMessageQueue;
-    private DownMessageThread downMessageThread;
-    private UpMessageThread upMessageThread;
+    private DownMessageThread                      downMessageThread;
+    private UpMessageThread                        upMessageThread;
 
 	@Property(description="The number of miliseconds to sleep before after an error occurs before sending the next message")
 	private int message_failure_sleep_time = 120000; // two seconds (bela: 2 minutes, is that what you wanted ?)
@@ -45,6 +46,8 @@ public class PRIO extends Protocol {
 
 	@Property(description="true to prioritize incoming messages")
 	private boolean prioritize_up = true;
+
+    private Address local_addr;
 
     /**
      * This method is called on a {@link org.jgroups.Channel#connect(String)}. Starts work.
@@ -77,9 +80,11 @@ public class PRIO extends Protocol {
      */
     public void stop() {
 		if (downMessageThread != null) {
+            downMessageThread.setRunning(false);
 			downMessageThread.interrupt();
 		}
 		if (upMessageThread != null) {
+            upMessageThread.setRunning(false);
 			upMessageThread.interrupt();
 		}
     }
@@ -103,7 +108,7 @@ public class PRIO extends Protocol {
 				else {
 					PrioHeader hdr=(PrioHeader)message.getHeader(id);
 					if(hdr != null) {
-						log.trace( "Adding priority message " + hdr.getPriority() + " to UP queue" );
+						log.trace("%s: adding priority message %d to UP queue", local_addr, hdr.getPriority());
 						upMessageQueue.add( new PriorityMessage( evt, hdr.getPriority() ) );
 						// send with hdr.prio
 						return null;
@@ -122,7 +127,7 @@ public class PRIO extends Protocol {
                 continue;
             PrioHeader hdr=(PrioHeader)msg.getHeader(id);
             if(hdr != null) {
-                log.trace( "Adding priority message " + hdr.getPriority() + " to UP queue" );
+                log.trace("%s: adding priority message %d to UP queue", local_addr, hdr.getPriority());
                 upMessageQueue.add( new PriorityMessage( new Event(Event.MSG, msg), hdr.getPriority() ) );
                 batch.remove(msg); // sent up by UpMessageThread; we don't need to send it up, too
             }
@@ -144,19 +149,19 @@ public class PRIO extends Protocol {
 		switch(evt.getType()) {
             case Event.MSG:
 				Message message = (Message)evt.getArg();
-				if ( message.isFlagSet( Message.Flag.OOB ) ) {
-					return down_prot.down(evt);
-				}
-				else {
-					PrioHeader hdr=(PrioHeader)message.getHeader(id);
-					if(hdr != null) {
-						log.trace( "Adding priority message " + hdr.getPriority() + " to DOWN queue" );
-						downMessageQueue.add( new PriorityMessage( evt, hdr.getPriority()  ) );
-						// send with hdr.prio
-						return null;
-					}
-					return down_prot.down(evt);
+                if ( message.isFlagSet( Message.Flag.OOB ) )
+                    return down_prot.down(evt);
+                PrioHeader hdr=(PrioHeader)message.getHeader(id);
+                if(hdr != null) {
+                    log.trace("%s: adding priority message %d to DOWN queue", local_addr, hdr.getPriority());
+                    downMessageQueue.add( new PriorityMessage( evt, hdr.getPriority()  ) );
+                    // send with hdr.prio
+                    return null;
                 }
+                return down_prot.down(evt);
+            case Event.SET_LOCAL_ADDRESS:
+                local_addr=(Address)evt.getArg();
+                return down_prot.down(evt);
             default:
                 return down_prot.down(evt);
         }
@@ -166,12 +171,12 @@ public class PRIO extends Protocol {
      * This class is a simple wrapper to contain the Event, timestamp and priority of the message.
      * Instances of this class are added to the message queue
      */
-    private class PriorityMessage {
+    protected static class PriorityMessage {
 		Event event;
         long timestamp;
         byte priority;
 
-        private PriorityMessage( Event event, byte priority ) {
+        protected PriorityMessage( Event event, byte priority ) {
             this.event = event;
             this.timestamp = System.currentTimeMillis();
 			this.priority = priority;
@@ -189,7 +194,7 @@ public class PRIO extends Protocol {
 		}
 
 		protected void handleMessage( PriorityMessage message ) {
-			log.trace( "Sending priority " + message.priority + " message" );
+			log.trace("%s: sending priority %d message", local_addr, message.priority);
 			down_prot.down( message.event );
 		}
 	}
@@ -205,7 +210,7 @@ public class PRIO extends Protocol {
 		}
 
 		protected void handleMessage( PriorityMessage message ) {
-			log.trace( "receiving priority " + message.priority + " message" );
+			log.trace("%s: delivering priority %d message", local_addr, message.priority);
 			up_prot.up( message.event );
 		}
 	}
@@ -218,6 +223,7 @@ public class PRIO extends Protocol {
     {
 		private PRIO prio;
 		private PriorityBlockingQueue<PriorityMessage> messageQueue;
+        private volatile boolean running=true;
 
         private MessageThread( PRIO prio, PriorityBlockingQueue<PriorityMessage> messageQueue  ) {
 			this.prio = prio;
@@ -229,7 +235,7 @@ public class PRIO extends Protocol {
 
         @Override
         public void run() {
-            while (true) {
+            while (running) {
                 PriorityMessage priorityMessage = null;
                 try {
                 	priorityMessage = messageQueue.take();
@@ -255,12 +261,16 @@ public class PRIO extends Protocol {
                 }
             }
         }
+
+        public void setRunning(boolean flag) {
+            running=flag;
+        }
     }
 
     /**
      * Comparator for PriorityMessage's
      */
-    private class PriorityCompare implements Comparator<PriorityMessage> {
+    private static class PriorityCompare implements Comparator<PriorityMessage> {
         /**
          * Compare two messages based on priority and time stamp in that order
          * @param msg1 - first message

@@ -172,17 +172,26 @@ abstract public class Executing extends Protocol {
         switch(evt.getType()) {
             case ExecutorEvent.TASK_SUBMIT:
                 Runnable runnable = (Runnable)evt.getArg();
-                _awaitingConsumer.add(runnable);
                 // We are limited to a number of concurrent request id's
                 // equal to 2^63-1.  This is quite large and if it 
                 // overflows it will still be positive
                 long requestId = Math.abs(counter.getAndIncrement());
                 if(requestId == Long.MIN_VALUE) {
+                    // TODO: need to fix this it isn't safe for concurrent
+                    // modifications
                     counter.set(0);
                     requestId = Math.abs(counter.getAndIncrement());
                 }
 
+                // Need to make sure to put the requestId in our map before
+                // adding the runnable to awaiting consumer in case if
+                // coordinator sent a consumer found and their original task
+                // is no longer around
+                // see https://issues.jboss.org/browse/JGRP-1744
                 _requestId.put(runnable, requestId);
+
+                _awaitingConsumer.add(runnable);
+
                 sendToCoordinator(Type.RUN_REQUEST, requestId, local_addr);
                 break;
             case ExecutorEvent.CONSUMER_READY:
@@ -562,17 +571,21 @@ abstract public class Executing extends Protocol {
                 }
             }
             
-            for (Entry<Owner, Runnable> entry :_awaitingReturn.entrySet()) {
-                // The person currently servicing our request has gone down
-                // without completing so we have to keep our request alive by
-                // sending ours back to the coordinator
-                Owner owner = entry.getKey();
-                if (!members.contains(owner.getAddress())) {
-                    sendToCoordinator(Type.RUN_REQUEST, owner.getRequestId(), 
-                        owner.getAddress());
-                    Runnable runnable = entry.getValue();
-                    _requestId.put(runnable, owner.getRequestId());
-                    _awaitingConsumer.add(runnable);
+            synchronized (_awaitingReturn) {
+                for (Entry<Owner, Runnable> entry : _awaitingReturn.entrySet()) {
+                    // The person currently servicing our request has gone down
+                    // without completing so we have to keep our request alive by
+                    // sending ours back to the coordinator
+                    Owner owner = entry.getKey();
+                    if (!members.contains(owner.getAddress())) {
+                        Runnable runnable = entry.getValue();
+                        // We need to register the request id before sending the request back to the coordinator
+                        // in case if our task gets picked up since another was removed
+                        _requestId.put(runnable, owner.getRequestId());
+                        _awaitingConsumer.add(runnable);
+                        sendToCoordinator(Type.RUN_REQUEST, owner.getRequestId(), 
+                                local_addr);
+                    }
                 }
             }
         }
@@ -666,6 +679,11 @@ abstract public class Executing extends Protocol {
         }
         else {
             final Long requestId = _requestId.get(runnable);
+            if (requestId == null) {
+                // requestId is not available - this means the result has been 
+                // returned already or it has been interrupted
+            	return;
+            }
             owner = new Owner(address, requestId);
             _awaitingReturn.put(owner, runnable);
             // If local we pass along without serializing
@@ -808,9 +826,7 @@ abstract public class Executing extends Protocol {
             // All we can do is log the error since their is no
             // way to return this to the user since they don't
             // have a future object.
-            log.error("Runtime Error encountered from "
-                    + "Cluster execute(Runnable) method",
-                    throwable);
+            log.error("Runtime Error encountered from cluster execute(Runnable) method", throwable);
         }
     }
 

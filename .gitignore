@@ -4,6 +4,7 @@
 *.iml
 .project
 .classpath
+.factorypath
 .settings/
 .idea/
 .idea
@@ -19,5 +20,7 @@ doc/manual/target
 doc/tutorial/target
 conf/MANIFEST.MF
 target/
+lib/
+
 out/
 

@@ -2,8 +2,7 @@
 package org.jgroups.tests;
 
 import org.jgroups.*;
-import org.jgroups.util.Buffer;
-import org.jgroups.util.Util;
+import org.jgroups.util.*;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -25,32 +24,32 @@ public class UtilTest {
         System.setProperty("name2", "Nicole");
         String retval;
 
-        retval=Util.getProperty(new String[]{"name", "name2"}, props, "name", false, "Jeannette");
-        Assert.assertEquals("Michelle", retval);
+        retval=Util.getProperty(new String[]{"name", "name2"}, props, "name", "Jeannette");
+        Assert.assertEquals("Bela", retval);
         props.setProperty("name", "Bela"); props.setProperty("key", "val");
 
-        retval=Util.getProperty(new String[]{"name2", "name"}, props, "name", false, "Jeannette");
+        retval=Util.getProperty(new String[]{"name2", "name"}, props, "name", "Jeannette");
+        Assert.assertEquals("Bela", retval);
+        props.setProperty("name", "Bela"); props.setProperty("key", "val");
+
+        retval=Util.getProperty(new String[]{"name3", "name"}, props, "name", "Jeannette");
+        Assert.assertEquals("Bela", retval);
+        props.setProperty("name", "Bela"); props.setProperty("key", "val");
+
+        retval=Util.getProperty(new String[]{"name3", "name4"}, props, "name", "Jeannette");
+        Assert.assertEquals("Bela", retval);
+        props.setProperty("name", "Bela"); props.setProperty("key", "val");
+
+        retval=Util.getProperty(new String[]{"name2", "name"}, props, "name", "Jeannette");
+        Assert.assertEquals("Bela", retval);
+        props.setProperty("name", "Bela"); props.setProperty("key", "val");
+
+        retval=Util.getProperty(new String[]{"name2", "name"}, props, "name2", "Jeannette");
         Assert.assertEquals("Nicole", retval);
         props.setProperty("name", "Bela"); props.setProperty("key", "val");
 
-        retval=Util.getProperty(new String[]{"name3", "name"}, props, "name", false, "Jeannette");
-        Assert.assertEquals("Michelle", retval);
-        props.setProperty("name", "Bela"); props.setProperty("key", "val");
-
-        retval=Util.getProperty(new String[]{"name3", "name4"}, props, "name", false, "Jeannette");
-        Assert.assertEquals("Bela", retval);
-        props.setProperty("name", "Bela"); props.setProperty("key", "val");
-
-        retval=Util.getProperty(new String[]{"name2", "name"}, props, "name", true, "Jeannette");
-        Assert.assertEquals("Bela", retval);
-        props.setProperty("name", "Bela"); props.setProperty("key", "val");
-
-        retval=Util.getProperty(new String[]{"name2", "name"}, props, "name2", true, "Jeannette");
-        Assert.assertEquals("Jeannette", retval);
-        props.setProperty("name", "Bela"); props.setProperty("key", "val");
-
-        retval=Util.getProperty(new String[]{"name2", "name"}, props, "name2", true, null);
-        assert retval == null;
+        retval=Util.getProperty(new String[]{"name2", "name"}, props, "name2", null);
+        Assert.assertEquals("Nicole", retval);
         props.setProperty("name", "Bela"); props.setProperty("key", "val");
     }
 
@@ -116,38 +115,26 @@ public class UtilTest {
         assert Util.isFlagSet(flags, SEVEN);
     }
 
+    public void testGetNextHigher() {
+        int[][] numbers={
+          {0, 1},
+          {1,1},
+          {2,2},
+          {3,4},
+          {4,4},
+          {5,8},
+          {10,16},
+          {8000, 8192}
+        };
 
-    public static void testIgnoreBindAddress() {
-        boolean retval;
-
-        retval=Util.isBindAddressPropertyIgnored();
-        assert !(retval);
-
-        System.setProperty(Global.IGNORE_BIND_ADDRESS_PROPERTY, "true");
-        retval=Util.isBindAddressPropertyIgnored();
-        assert retval;
-
-        System.setProperty(Global.IGNORE_BIND_ADDRESS_PROPERTY, "true2");
-        retval=Util.isBindAddressPropertyIgnored();
-        assert !(retval);
-
-        System.setProperty(Global.IGNORE_BIND_ADDRESS_PROPERTY, "false");
-        retval=Util.isBindAddressPropertyIgnored();
-        assert !(retval);
-
-        System.getProperties().remove(Global.IGNORE_BIND_ADDRESS_PROPERTY);
-        retval=Util.isBindAddressPropertyIgnored();
-        assert !retval;
-
-        System.getProperties().remove(Global.IGNORE_BIND_ADDRESS_PROPERTY);
-        retval=Util.isBindAddressPropertyIgnored();
-        assert !retval;
-
-
-        System.setProperty(Global.IGNORE_BIND_ADDRESS_PROPERTY, "true");
-        retval=Util.isBindAddressPropertyIgnored();
-        assert retval;
+        for(int[] pair: numbers) {
+            int input=pair[0];
+            int expected=pair[1];
+            int actual=Util.getNextHigherPowerOfTwo(input);
+            assert expected == actual : "expected " + expected + " but got " + actual + " (input=" + input + ")";
+        }
     }
+
 
 
     public static void testPrintBytes() {
@@ -340,16 +327,24 @@ public class UtilTest {
         Assert.assertEquals(msg.getLength(), msg2.getLength());
     }
 
+    public static void testStringMarshalling() throws Exception {
+        byte[] tmp={'B', 'e', 'l', 'a'};
+        String str=new String(tmp);
+        byte[] buf=Util.objectToByteBuffer(str);
+        String str2=(String)Util.objectFromByteBuffer(buf);
+        assert str.equals(str2);
+        tmp[1]='a';
+        str2=(String)Util.objectFromByteBuffer(buf);
+        assert str.equals(str2);
+    }
 
     public static void testObjectToByteArrayWithLargeString() throws Exception {
         marshalString(Short.MAX_VALUE );
     }
 
-
-     public static void testObjectToByteArrayWithLargeString2() throws Exception {
+    public static void testObjectToByteArrayWithLargeString2() throws Exception {
         marshalString(Short.MAX_VALUE - 100);
     }
-
 
     public static void testObjectToByteArrayWithLargeString3() throws Exception {
         marshalString(Short.MAX_VALUE + 1);
@@ -436,14 +431,14 @@ public class UtilTest {
         String s1="Bela Ban", s2="Michelle Ban";
         ByteArrayOutputStream outstream=new ByteArrayOutputStream();
         DataOutputStream dos=new DataOutputStream(outstream);
-        Util.writeString(s1, dos);
-        Util.writeString(s2, dos);
+        Bits.writeString(s1,dos);
+        Bits.writeString(s2,dos);
         dos.close();
         byte[] buf=outstream.toByteArray();
         ByteArrayInputStream instream=new ByteArrayInputStream(buf);
         DataInputStream dis=new DataInputStream(instream);
-        String s3=Util.readString(dis);
-        String s4=Util.readString(dis);
+        String s3=Bits.readString(dis);
+        String s4=Bits.readString(dis);
         Assert.assertEquals(s1, s3);
         Assert.assertEquals(s2, s4);
     }
@@ -498,85 +493,6 @@ public class UtilTest {
     }
 
 
-    public static void testEncodeAndDecode() {
-        long[] numbers={0, 1, 50, 127, 128, 254, 255, 256,
-          Short.MAX_VALUE, Short.MAX_VALUE +1, Short.MAX_VALUE *2, Short.MAX_VALUE *2 +1,
-          100000, 500000, 100000,
-          Integer.MAX_VALUE, (long)Integer.MAX_VALUE +1, (long)Integer.MAX_VALUE *2, (long)Integer.MAX_VALUE +10,
-          Long.MAX_VALUE /10, Long.MAX_VALUE -1, Long.MAX_VALUE};
-
-        for(long num: numbers) {
-            byte[] buf=Util.encode(num);
-            long result=Util.decode(buf);
-            System.out.println(num + " encoded to " + printBuffer(buf) + " (" + buf.length + " bytes), decoded to " + result);
-            assert num == result;
-        }
-    }
-
-    public static void testEncodeLength() {
-        byte lengths=Util.encodeLength((byte)8, (byte)8);
-        byte[] lens=Util.decodeLength(lengths);
-
-        assert 8 == lens[0];
-        assert 8 == lens[1];
-    }
-
-    public static void testEncodeLength2() {
-        int combinations=0;
-        for(byte i=1; i <= 8; i++) {
-            for(byte j=1; j <= 8; j++) {
-                byte lengths=Util.encodeLength(i, j);
-                byte[] lens=Util.decodeLength(lengths);
-                assert lens[0] == i && lens[1] == j : "lens[0]=" + lens[0] + ", lens[1]=" +lens[1] + ", i=" + i + ", j=" + j;
-                combinations++;
-            }
-        }
-        System.out.println("all " + combinations + " combinations were encoded / decoded successfully");
-    }
-
-    public static void testSize() {
-        int[] shifts={0, 1, 7, 8, 15, 16, 17, 23, 24, 25, 31, 32, 33, 39, 40, 41, 47, 48, 49, 55, 56};
-
-        assert Util.size(0) == 1;
-
-        for(int shift: shifts) {
-            long num=((long)1) << shift;
-            byte size=Util.size(num);
-            System.out.println(num + " needs " + size + " bytes");
-            int num_bytes_required=(shift / 8) +2;
-            assert size == num_bytes_required;
-        }
-
-    }
-
-
-    public static void testEncodeAndDecodeLongSequence() {
-        long[] numbers={0, 1, 50, 127, 128, 254, 255, 256,
-          Short.MAX_VALUE, Short.MAX_VALUE +1, Short.MAX_VALUE *2, Short.MAX_VALUE *2 +1,
-          100000, 500000, 100000,
-          Integer.MAX_VALUE, (long)Integer.MAX_VALUE +1, (long)Integer.MAX_VALUE *2, (long)Integer.MAX_VALUE +10,
-          Long.MAX_VALUE /10, Long.MAX_VALUE -1, Long.MAX_VALUE};
-
-        for(long num: numbers) {
-            byte[] buf=Util.encodeLongSequence(num, num);
-            long[] result=Util.decodeLongSequence(buf);
-            System.out.println(num + " | " + num + " encoded to " + buf.length +
-                                 " bytes, decoded to " + result[0] + " | " + result[1]);
-            assert num == result[0] && num == result[1];
-        }
-    }
-
-
-    static String printBuffer(byte[] buf) {
-        StringBuilder sb=new StringBuilder();
-        if(buf != null) {
-            for(byte b: buf)
-                sb.append(b).append(" ");
-        }
-        return sb.toString();
-    }
-
-
     public static void testMatch() {
         long[] a={1,2,3};
         long[] b={2,3,4};
@@ -614,6 +530,26 @@ public class UtilTest {
     }
 
 
+    public static void testAllEqual() {
+        Address[] mbrs=Util.createRandomAddresses(5);
+        View[] views={View.create(mbrs[0], 1, mbrs), View.create(mbrs[0], 1, mbrs), View.create(mbrs[0], 1, mbrs)};
+
+        boolean same=Util.allEqual(Arrays.asList(views));
+        System.out.println("views=" + Arrays.toString(views) + ", same = " + same);
+        assert same;
+
+        views=new View[]{View.create(mbrs[0], 1, mbrs), View.create(mbrs[0], 2, mbrs), View.create(mbrs[0], 1, mbrs)};
+        same=Util.allEqual(Arrays.asList(views));
+        System.out.println("views=" + Arrays.toString(views) + ", same = " + same);
+        assert !same;
+
+        views=new View[]{View.create(mbrs[1], 1, mbrs), View.create(mbrs[0], 1, mbrs), View.create(mbrs[0], 1, mbrs)};
+        same=Util.allEqual(Arrays.asList(views));
+        System.out.println("views=" + Arrays.toString(views) + ", same = " + same);
+        assert !same;
+    }
+
+
     public static void testLeftMembers() {
         final Address a=Util.createRandomAddress(), b=Util.createRandomAddress(), c=Util.createRandomAddress(), d=Util.createRandomAddress();
 
@@ -629,7 +565,7 @@ public class UtilTest {
 
         View one=new View(new ViewId(a, 1), v1),
                 two=new View(new ViewId(b,2), v2);
-        List<Address> left=Util.leftMembers(one, two);
+        List<Address> left=View.leftMembers(one, two);
         System.out.println("left = " + left);
         assert left != null;
         assert left.size() == 2;
@@ -654,7 +590,7 @@ public class UtilTest {
 
         View one=new View(new ViewId(a, 1), v1),
                 two=new View(new ViewId(b,2), v2);
-        List<Address> left=Util.leftMembers(one, two);
+        List<Address> left=View.leftMembers(one, two);
         System.out.println("left = " + left);
         assert left != null;
         assert left.isEmpty();
@@ -687,13 +623,13 @@ public class UtilTest {
     public static void testPickRandomElement() {
         List<Integer> v=new ArrayList<Integer>();
         for(int i=0; i < 10; i++) {
-            v.add(new Integer(i));
+            v.add(i);
         }
 
         Integer el;
         for(int i=0; i < 10000; i++) {
-            el=(Integer)Util.pickRandomElement(v);
-            assert el.intValue() >= 0 && el.intValue() < 10;
+            el=Util.pickRandomElement(v);
+            assert el >= 0 && el < 10;
         }
     }
 
@@ -838,9 +774,9 @@ public class UtilTest {
         org.jgroups.util.UUID.add(b, "B");
         org.jgroups.util.UUID.add(c, "C");
 
-        View v1=Util.createView(b, 1, b, a, c);
-        View v2=Util.createView(b, 2, b, c);
-        View v3=Util.createView(b, 2, b, c);
+        View v1=View.create(b, 1, b, a, c);
+        View v2=View.create(b, 2, b, c);
+        View v3=View.create(b, 2, b, c);
 
         Map<Address,View> map=new HashMap<Address,View>();
         map.put(a, v1); map.put(b, v2); map.put(c, v3);
@@ -868,10 +804,10 @@ public class UtilTest {
         org.jgroups.util.UUID.add(c, "C");
         org.jgroups.util.UUID.add(d, "D");
 
-        View v1=Util.createView(a, 1, a, b);
-        View v2=Util.createView(a, 1, a, b);
-        View v3=Util.createView(c, 2, c, d);
-        View v4=Util.createView(c, 2, c, d);
+        View v1=View.create(a, 1, a, b);
+        View v2=View.create(a, 1, a, b);
+        View v3=View.create(c, 2, c, d);
+        View v4=View.create(c, 2, c, d);
 
         Map<Address,View> map=new HashMap<Address,View>();
         map.put(a, v1); map.put(b, v2); map.put(c, v3); map.put(d, v4);
@@ -900,10 +836,10 @@ public class UtilTest {
         org.jgroups.util.UUID.add(c, "C");
         org.jgroups.util.UUID.add(d, "D");
 
-        View v1=Util.createView(a, 1, a, b, c, d);
-        View v2=Util.createView(a, 1, a, b, c, d);
-        View v3=Util.createView(a, 2, a, b, c, d);
-        View v4=Util.createView(a, 3, a, b, c, d);
+        View v1=View.create(a, 1, a, b, c, d);
+        View v2=View.create(a, 1, a, b, c, d);
+        View v3=View.create(a, 2, a, b, c, d);
+        View v4=View.create(a, 3, a, b, c, d);
 
         Map<Address,View> map=new HashMap<Address,View>();
         map.put(a, v1); map.put(b, v2); map.put(c, v3); map.put(d, v4);
@@ -931,8 +867,8 @@ public class UtilTest {
         org.jgroups.util.UUID.add(c, "C");
         org.jgroups.util.UUID.add(d, "D");
 
-        View v1=Util.createView(a, 1, a, b);
-        View v2=Util.createView(c, 1, c, d);
+        View v1=View.create(a, 1, a, b);
+        View v2=View.create(c, 1, c, d);
 
         Map<Address,View> map=new HashMap<Address,View>();
         map.put(a, v1); map.put(b, v1); map.put(d, v2);

@@ -32,7 +32,7 @@ public class IpAddress implements PhysicalAddress {
         /* Trying to get value of resolve_dns. PropertyPermission not granted if
         * running in an untrusted environment  with JNLP */
         try {
-            String tmp=Util.getProperty(new String[]{Global.RESOLVE_DNS, "resolve.dns"}, null, null, false, "false"); 
+            String tmp=Util.getProperty(new String[]{Global.RESOLVE_DNS, "resolve.dns"}, null, null, "false");
             resolve_dns=Boolean.valueOf(tmp);
         }
         catch (SecurityException ex){
@@ -65,13 +65,14 @@ public class IpAddress implements PhysicalAddress {
             ip_addr=InetAddress.getLocalHost();  // get first NIC found (on multi-homed systems)
         }
         catch(Exception e) {
+            ip_addr=null;
         }
         if(ip_addr == null) {
             try {
                 ip_addr=InetAddress.getByName(null);
             }
             catch(UnknownHostException e) {
-                if(log.isWarnEnabled()) log.warn("exception: " + e);
+                log.error("exception: " + e);
             }
         }
     }

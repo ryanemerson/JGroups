@@ -33,7 +33,6 @@ public class Global {
     public static final String TCP_CLIENT_BIND_ADDR="jgroups.tcp.client_bind_addr";
 
     public static final String BIND_INTERFACE="jgroups.bind_interface";
-    public static final String IGNORE_BIND_ADDRESS_PROPERTY="jgroups.ignore.bind_addr";
 
     public static final String TCPPING_INITIAL_HOSTS="jgroups.tcpping.initial_hosts";
 
@@ -91,6 +90,7 @@ public class Global {
     public static final String GOSSIP_ROUTER="gossip-router";
     public static final String FLUSH="flush";
     public static final String BYTEMAN="byteman";
+    public static final String EAP_EXCLUDED="eap-excluded"; // tests not supported by EAP
 
     public static final String INITIAL_MCAST_ADDR="INITIAL_MCAST_ADDR";
     public static final String INITIAL_MCAST_PORT="INITIAL_MCAST_PORT";
@@ -100,6 +100,7 @@ public class Global {
     public static final String CCHM_LOAD_FACTOR="cchm.load_factor";
     public static final String CCHM_CONCURRENCY_LEVEL="cchm.concurrency_level";
     public static final String MAX_LIST_PRINT_SIZE="max.list.print_size";
+    public static final String SUPPRESS_VIEW_SIZE="suppress.view_size";
 
     public static final int IPV4_SIZE=4;
     public static final int IPV6_SIZE=16;

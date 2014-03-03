@@ -146,13 +146,14 @@ public class HiTabBundler extends Protocol {
     }
 
     private void sendBundle(long bundleSize, Address destination, List<Message> messageBundle) {
-        ExposedByteArrayOutputStream outStream = new ExposedByteArrayOutputStream((int)(bundleSize + 50));
-        ExposedDataOutputStream dataOutStream = new ExposedDataOutputStream(outStream);
+        ByteArrayDataOutputStream dataOutStream = new ByteArrayDataOutputStream((int)(bundleSize + 50));
+//        ByteBufferOutputStream dataOutStream = new ByteBufferOutputStream(outStream);
+//        ExposedDataOutputStream dataOutStream = new ExposedDataOutputStream(outStream);
 
         // TODO update these values so multicast is dynamic etc
         try {
-            TP.writeMessageList(destination, localAddress, "", messageBundle, dataOutStream, true, id);
-            Buffer buffer = new Buffer(outStream.getRawBuffer(), 0, outStream.size());
+            TP.writeMessageList(destination, localAddress, null, messageBundle, dataOutStream, true, id);
+            Buffer buffer = dataOutStream.getBuffer();
             Message bundleMessage = new Message(destination, buffer);
             bundleMessage.putHeader(id, new HiTabBundlerHeader());
             Event sendBundle = new Event(Event.MSG, bundleMessage);

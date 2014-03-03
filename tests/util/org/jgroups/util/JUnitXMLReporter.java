@@ -101,7 +101,7 @@ public class JUnitXMLReporter implements ITestListener, IConfigurationListener2 
     }
 
     public void onConfigurationSuccess(ITestResult tr) {
-
+        closeStreams();
     }
 
     public void onConfigurationFailure(ITestResult tr) {
@@ -110,6 +110,7 @@ public class JUnitXMLReporter implements ITestListener, IConfigurationListener2 
     }
 
     public void onConfigurationSkip(ITestResult tr) {
+        closeStreams();
     }
 
 
@@ -497,10 +498,18 @@ public class JUnitXMLReporter implements ITestListener, IConfigurationListener2 
     }
 
     protected static class MyOutput extends PrintStream {
+        private static final String TMPFILE_NAME;
+        static {
+            if (Util.checkForWindows()) {
+                TMPFILE_NAME = System.getProperty("java.io.tmpdir") + "\\" + "tmp.txt";
+            } else {
+                TMPFILE_NAME = System.getProperty("java.io.tmpdir") + "/" + "tmp.txt";
+            }
+        }
         final int type;
 
         public MyOutput(int type) throws FileNotFoundException {
-            super("/tmp/tmp.txt"); // dummy name
+            super(TMPFILE_NAME); // dummy name
             this.type=type;
             if(type != 1 && type != 2)
                 throw new IllegalArgumentException("index has to be 1 or 2");
@@ -518,6 +527,10 @@ public class JUnitXMLReporter implements ITestListener, IConfigurationListener2 
 
         public void write(final int b) {
             append(String.valueOf(b), false) ;
+        }
+
+        public void flush() {
+            append("", true);
         }
 
         public void println(String s) {
@@ -612,24 +625,24 @@ public class JUnitXMLReporter implements ITestListener, IConfigurationListener2 
 
         public void writeTo(DataOutput out) throws Exception {
             out.writeInt(status);
-            Util.writeString(classname,out);
-            Util.writeString(name, out);
+            Bits.writeString(classname,out);
+            Bits.writeString(name,out);
             out.writeLong(start_time);
             out.writeLong(stop_time);
-            Util.writeString(failure_type, out);
-            Util.writeString(failure_msg, out);
-            Util.writeString(stack_trace, out);
+            Bits.writeString(failure_type,out);
+            Bits.writeString(failure_msg,out);
+            Bits.writeString(stack_trace,out);
         }
 
         public void readFrom(DataInput in) throws Exception {
             status=in.readInt();
-            classname=Util.readString(in);
-            name=Util.readString(in);
+            classname=Bits.readString(in);
+            name=Bits.readString(in);
             start_time=in.readLong();
             stop_time=in.readLong();
-            failure_type=Util.readString(in);
-            failure_msg=Util.readString(in);
-            stack_trace=Util.readString(in);
+            failure_type=Bits.readString(in);
+            failure_msg=Bits.readString(in);
+            stack_trace=Bits.readString(in);
         }
     }
 

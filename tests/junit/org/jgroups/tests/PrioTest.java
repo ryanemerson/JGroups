@@ -21,7 +21,7 @@ import java.util.concurrent.CyclicBarrier;
 /**
  * @author Bela Ban
  */
-@Test(groups=Global.STACK_DEPENDENT,sequential=false)
+@Test(groups={Global.STACK_DEPENDENT,Global.EAP_EXCLUDED},singleThreaded=true)
 public class PrioTest extends ChannelTestBase {
     protected JChannel c1, c2;
     protected PrioReceiver r1, r2;
@@ -32,11 +32,9 @@ public class PrioTest extends ChannelTestBase {
         c1.getProtocolStack().insertProtocol(new PRIO(), ProtocolStack.ABOVE, NAKACK2.class);
         c2=createChannel(c1, "B");
         c1.connect("PrioTest");
-        r1=new PrioReceiver();
-        c1.setReceiver(r1);
+        c1.setReceiver(r1=new PrioReceiver());
         c2.connect("PrioTest");
-        r2=new PrioReceiver();
-        c2.setReceiver(r2);
+        c2.setReceiver(r2=new PrioReceiver());
         assert c2.getView().size() == 2;
     }
 

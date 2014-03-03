@@ -1,6 +1,7 @@
 package org.jgroups.protocols.HiTab;
 
 import org.jgroups.Address;
+import org.jgroups.util.Bits;
 import org.jgroups.util.SizeStreamable;
 import org.jgroups.util.Util;
 
@@ -48,21 +49,21 @@ public class MessageId implements SizeStreamable {
 
     @Override
     public int size() {
-        return Util.size(timestamp) + Util.size(originator) + Util.size(sequence);
+        return Bits.size(timestamp) + Util.size(originator) + Bits.size(sequence);
     }
 
     @Override
     public void writeTo(DataOutput out) throws Exception {
-        out.writeLong(timestamp);
+        Bits.writeLong(timestamp, out);
         Util.writeAddress(originator, out);
-        out.writeLong(sequence);
+        Bits.writeLong(sequence, out);
     }
 
     @Override
     public void readFrom(DataInput in) throws Exception {
-        timestamp = in.readLong();
+        timestamp = Bits.readLong(in);
         originator = Util.readAddress(in);
-        sequence = in.readLong();
+        sequence = Bits.readLong(in);
     }
 
     @Override

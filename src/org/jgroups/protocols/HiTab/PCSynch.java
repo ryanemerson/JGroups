@@ -3,6 +3,7 @@ package org.jgroups.protocols.HiTab;
 import org.jgroups.*;
 import org.jgroups.annotations.Property;
 import org.jgroups.stack.Protocol;
+import org.jgroups.util.Bits;
 import org.jgroups.util.SizeStreamable;
 import org.jgroups.util.TimeScheduler;
 import org.jgroups.util.Util;
@@ -248,14 +249,14 @@ public class PCSynch extends Protocol {
         public void writeTo(DataOutput out) throws Exception {
             out.writeByte(type);
             Util.writeStreamable(data, out);
-            Util.writeString(clusterName, out);
+            Bits.writeString(clusterName, out);
         }
 
         @Override
         public void readFrom(DataInput in) throws Exception {
             type = in.readByte();
             data = (PCSynchData) Util.readStreamable(PCSynchData.class, in);
-            clusterName = Util.readString(in);
+            clusterName = Bits.readString(in);
         }
 
         @Override
@@ -305,7 +306,7 @@ public class PCSynch extends Protocol {
 
         @Override
         public int size() {
-            return Util.size(slave) + Util.size(master) + Util.size(requestTime) + Util.size(responseTime);
+            return Util.size(slave) + Util.size(master) + Bits.size(requestTime) + Bits.size(responseTime);
         }
 
         @Override

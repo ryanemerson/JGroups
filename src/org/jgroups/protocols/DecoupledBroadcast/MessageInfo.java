@@ -1,6 +1,7 @@
 package org.jgroups.protocols.DecoupledBroadcast;
 
 import org.jgroups.ViewId;
+import org.jgroups.util.Bits;
 import org.jgroups.util.SizeStreamable;
 import org.jgroups.util.Util;
 
@@ -77,13 +78,13 @@ public class MessageInfo implements Comparable<MessageInfo>, SizeStreamable {
 
     @Override
     public int size() {
-        return id.size() + Util.size(ordering) + longArraySize(lastOrderSequence) + viewId.serializedSize() + Util.size(destinations);
+        return id.size() + Bits.size(ordering) + longArraySize(lastOrderSequence) + viewId.serializedSize() + Util.size(destinations);
     }
 
     @Override
     public void writeTo(DataOutput out) throws Exception {
         writeMessageId(id, out);
-        Util.writeLong(ordering, out);
+        Bits.writeLong(ordering, out);
         writeLongArray(lastOrderSequence, out);
         Util.writeViewId(viewId, out);
         Util.writeByteBuffer(destinations, out);
@@ -92,7 +93,7 @@ public class MessageInfo implements Comparable<MessageInfo>, SizeStreamable {
     @Override
     public void readFrom(DataInput in) throws Exception {
         id = readMessageId(in);
-        ordering = Util.readLong(in);
+        ordering = Bits.readLong(in);
         lastOrderSequence = readLongArray(in);
         viewId = Util.readViewId(in);
         destinations = Util.readByteBuffer(in);
@@ -167,18 +168,16 @@ public class MessageInfo implements Comparable<MessageInfo>, SizeStreamable {
 
     private int longArraySize(long[] array) {
         int total = 0;
-        for (long l : array) {
-            total += Util.size(l);
-        }
+        for (long l : array)
+            total += Bits.size(l);
         return total;
     }
 
     private void writeLongArray(long[] array, DataOutput out) throws Exception {
         if(array != null) {
             out.writeShort(array.length);
-            for (long l : array) {
-                Util.writeLong(l, out);
-            }
+            for (long l : array)
+                Bits.writeLong(l, out);
         } else {
             out.writeShort(-1);
         }
@@ -190,9 +189,8 @@ public class MessageInfo implements Comparable<MessageInfo>, SizeStreamable {
             return null;
         } else {
             long[] array = new long[length];
-            for (int i = 0; i < length; i++) {
-                array[i] = Util.readLong(in);
-            }
+            for (int i = 0; i < length; i++)
+                array[i] = Bits.readLong(in);
             return array;
         }
     }

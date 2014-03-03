@@ -25,22 +25,17 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Tests the GMS protocol for merging functionality
  * @author Bela Ban
  */
-@Test(groups=Global.FUNCTIONAL,sequential=true)
+@Test(groups=Global.FUNCTIONAL,singleThreaded=true)
 public class GMS_MergeTest {
 
     static final short GMS_ID=ClassConfigurator.getProtocolId(GMS.class);
 
     protected static Protocol[] getProps() {
-        Protocol[] retval=Util.getTestStack();
-        return modify(retval);
+        return modify(Util.getTestStack());
     }
 
     protected static Protocol[] getFlushProps() {
-        Protocol[] tmp=Util.getTestStack();
-        Protocol[] retval=new Protocol[tmp.length +1];
-        System.arraycopy(tmp, 0, retval, 0, tmp.length);
-        retval[retval.length-1]=new FLUSH();
-        return modify(retval);
+        return modify(Util.getTestStack(new FLUSH()));
     }
 
     protected static Protocol[] modify(Protocol[] retval) {
@@ -113,14 +108,11 @@ public class GMS_MergeTest {
      * message, the MergeCanceller has to null merge_id after a timeout
      */
     static void _testMergeRequestTimeout(boolean use_flush_props, String cluster_name) throws Exception {
-        JChannel c1=new JChannel(use_flush_props? getFlushProps() : getProps());
+        JChannel c1=new JChannel(use_flush_props? getFlushProps() : getProps()).name("A");
         try {
             c1.connect(cluster_name);
-            Message merge_request=new Message();
-            GMS.GmsHeader hdr=new GMS.GmsHeader(GMS.GmsHeader.MERGE_REQ);
-            MergeId new_merge_id=MergeId.create(c1.getAddress());
-            hdr.setMergeId(new_merge_id);
-            merge_request.putHeader(GMS_ID, hdr);
+            Message merge_request=new Message()
+              .putHeader(GMS_ID, new GMS.GmsHeader(GMS.GmsHeader.MERGE_REQ).mergeId(MergeId.create(c1.getAddress())));
             GMS gms=(GMS)c1.getProtocolStack().findProtocol(GMS.class);
             gms.setMergeTimeout(2000);
             MergeId merge_id=gms._getMergeId();
@@ -357,8 +349,8 @@ public class GMS_MergeTest {
 //             c.getProtocolStack().findProtocol(STABLE.class).setLevel("trace");
 
              for(int i=0; i < 3; i++) {
-                 ((STABLE)b.getProtocolStack().findProtocol(STABLE.class)).runMessageGarbageCollection();
-                 ((STABLE)c.getProtocolStack().findProtocol(STABLE.class)).runMessageGarbageCollection();
+                 ((STABLE)b.getProtocolStack().findProtocol(STABLE.class)).gc();
+                 ((STABLE)c.getProtocolStack().findProtocol(STABLE.class)).gc();
                  Util.sleep(300);
              }
 
@@ -673,7 +665,7 @@ public class GMS_MergeTest {
         for(JChannel ch: channels) {
             NAKACK2 nak=(NAKACK2)ch.getProtocolStack().findProtocol(NAKACK2.class);
             Digest digest=nak.getDigest();
-            System.out.println(ch.getName() + ": " + digest.toStringSorted());
+            System.out.println(ch.getName() + ": " + digest.toString());
         }
     }
 

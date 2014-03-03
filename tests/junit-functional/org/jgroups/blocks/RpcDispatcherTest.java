@@ -38,7 +38,7 @@ import java.util.concurrent.TimeoutException;
  * 
  * @author Bela Ban
  */
-@Test(groups=Global.FUNCTIONAL,sequential=true)
+@Test(groups=Global.FUNCTIONAL,singleThreaded=true)
 public class RpcDispatcherTest {
     protected RpcDispatcher       disp1, disp2, disp3;
     protected JChannel            a, b, c;
@@ -57,20 +57,24 @@ public class RpcDispatcherTest {
         b=createChannel("B");
         disp2=new RpcDispatcher(b, new ServerObject(2));
         b.connect(GROUP);
+        Util.waitUntilAllChannelsHaveSameSize(10000, 1000,a,b);
 
         c=createChannel("C");
         disp3=new RpcDispatcher(c, new ServerObject(3));
         c.connect(GROUP);
 
-        Util.waitUntilAllChannelsHaveSameSize(30000, 1000,a,b,c);
+        Util.waitUntilAllChannelsHaveSameSize(10000, 1000,a,b,c);
         System.out.println("A=" + a.getView() + "\nB=" + b.getView() + "\nC=" + c.getView());
     }
 
     @AfterMethod
     protected void tearDown() throws Exception {
-        disp3.stop();
-        disp2.stop();
-        disp1.stop();
+        if(disp3 != null)
+            disp3.stop();
+        if(disp2 != null)
+            disp2.stop();
+        if(disp1 != null)
+            disp1.stop();
         Util.close(c,b,a);
     }
 
@@ -268,7 +272,7 @@ public class RpcDispatcherTest {
 
 
     public void testFuture() throws Exception {
-        MethodCall sleep=new MethodCall("sleep", new Object[]{1000L}, new Class[]{long.class});
+        MethodCall sleep=new MethodCall("sleep", new Object[]{5000L}, new Class[]{long.class});
         Future<RspList<Object>> future=disp1.callRemoteMethodsWithFuture(null, sleep, new RequestOptions(ResponseMode.GET_ALL, 5000L, false, null));
         assert !future.isDone();
         assert !future.isCancelled();
@@ -282,7 +286,7 @@ public class RpcDispatcherTest {
         
         assert !future.isDone();
 
-        RspList result=future.get(6000L, TimeUnit.MILLISECONDS);
+        RspList result=future.get(10000L, TimeUnit.MILLISECONDS);
         System.out.println("result:\n" + result);
         assert result != null;
         assert result.size() == 3;
@@ -521,8 +525,7 @@ public class RpcDispatcherTest {
     }
 
     protected JChannel createChannel(String name) throws Exception {
-        return new JChannel(Util.getTestStack())
-          .name(name);
+        return new JChannel(Util.getTestStack()).name(name);
     }
 
 

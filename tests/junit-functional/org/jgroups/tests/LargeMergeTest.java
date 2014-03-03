@@ -31,17 +31,15 @@ import java.util.concurrent.TimeUnit;
  * Tests merging with a large number of members
  * @author Bela Ban
  */
-@Test(groups=Global.FUNCTIONAL,sequential=true)
+@Test(groups=Global.FUNCTIONAL,singleThreaded=true)
 public class LargeMergeTest {
     static final int NUM=50; // number of members
     static final int MAX_PARTICIPANTS_IN_MERGE=NUM / 3;
 
-    protected final JChannel[] channels=new JChannel[NUM];
-
+    protected final JChannel[]     channels=new JChannel[NUM];
     protected MyDiagnosticsHandler handler;
-
-    protected ThreadPoolExecutor oob_thread_pool;
-    protected ThreadPoolExecutor thread_pool;
+    protected ThreadPoolExecutor   oob_thread_pool;
+    protected ThreadPoolExecutor   thread_pool;
 
 
 

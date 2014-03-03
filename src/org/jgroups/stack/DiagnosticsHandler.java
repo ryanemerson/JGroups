@@ -31,7 +31,7 @@ public class DiagnosticsHandler implements Runnable {
     protected final Log               log;
     protected final SocketFactory     socket_factory;
     protected final ThreadFactory     thread_factory;
-    protected final String    passcode;
+    protected final String            passcode;
 
 
     public DiagnosticsHandler(InetAddress diagnostics_addr, int diagnostics_port,
@@ -96,7 +96,6 @@ public class DiagnosticsHandler implements Runnable {
     public void stop() {
         if(diag_sock != null)
             socket_factory.close(diag_sock);
-        handlers.clear();
         if(thread != null){
             try{
                 thread.join(Global.THREAD_SHUTDOWN_WAIT_TIME);
@@ -107,11 +106,13 @@ public class DiagnosticsHandler implements Runnable {
         }
     }
 
+    public boolean isRunning() {return thread != null && thread.isAlive() && diag_sock != null && !diag_sock.isClosed();}
+
     public void run() {
         byte[] buf;
         DatagramPacket packet;
-        while(!diag_sock.isClosed() && Thread.currentThread().equals(thread)) {
-            buf=new byte[1500]; // requests are small (responses might be bigger)
+        while(Thread.currentThread().equals(thread)) {
+            buf=new byte[10000]; // requests are small (responses might be bigger)
             packet=new DatagramPacket(buf, 0, buf.length);
             try {
                 diag_sock.receive(packet);
@@ -125,8 +126,7 @@ public class DiagnosticsHandler implements Runnable {
             catch(IOException socket_ex) {
             }
             catch(Throwable e) {
-                if(log.isErrorEnabled())
-                    log.error("failure handling diagnostics request", e);
+                log.error("failure handling diagnostics request", e);
             }
         }
     }
@@ -146,23 +146,27 @@ public class DiagnosticsHandler implements Runnable {
             tokens[i]=list.get(i);
 
         for(ProbeHandler handler: handlers) {
-            Map<String, String> map=handler.handleProbe(tokens);
+            Map<String, String> map=null;
+            try {
+                map=handler.handleProbe(tokens);
+            }
+            catch(IllegalArgumentException ex) {
+                log.warn(ex.getMessage());
+                return;
+            }
             if(map == null || map.isEmpty())
                 continue;
             StringBuilder info=new StringBuilder();
-            for(Map.Entry<String,String> entry: map.entrySet()) {
+            for(Map.Entry<String,String> entry: map.entrySet())
                 info.append(entry.getKey()).append("=").append(entry.getValue()).append("\r\n");
-            }
 
             byte[] diag_rsp=info.toString().getBytes();
-            if(log.isDebugEnabled())
-                log.debug("sending diag response to " + sender);
+            log.debug("sending diag response to %s", sender);
             try {
                 sendResponse(sock, sender, diag_rsp);
             }
             catch(Throwable t) {
-                if(log.isErrorEnabled())
-                    log.error("failed sending diag rsp to " + sender, t);
+                log.error("failed sending diag rsp to " + sender, t);
             }
         }
     }

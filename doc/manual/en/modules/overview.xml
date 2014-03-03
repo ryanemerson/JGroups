@@ -1,3 +1,4 @@
+<?xml version='1.0' encoding='UTF-8'?>
 <chapter><title>Overview</title>
 
     <para>
@@ -24,7 +25,7 @@
     </para>
     <figure id="ArchitectureFig">
         <title>The architecture of JGroups</title>
-        <graphic fileref="images/Architecture.png" format="PNG" align="center" scale="75" />
+        <imagedata fileref="images/Architecture.png" format="PNG" align="left" valign="top" />
     </figure>
 
     <para>

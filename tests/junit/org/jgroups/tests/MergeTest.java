@@ -22,7 +22,7 @@ import java.util.Map;
  * 
  * @author vlada
  */
-@Test(groups=Global.STACK_DEPENDENT,sequential=true)
+@Test(groups=Global.STACK_DEPENDENT,singleThreaded=true)
 public class MergeTest extends ChannelTestBase {
     protected JChannel[] channels=null;
 
@@ -115,7 +115,7 @@ public class MergeTest extends ChannelTestBase {
         }
 
         for(JChannel ch: channels) {
-            View view=Util.createView(ch.getAddress(), 10, ch.getAddress());
+            View view=View.create(ch.getAddress(), 10, ch.getAddress());
             GMS gms=(GMS)ch.getProtocolStack().findProtocol(GMS.class);
             gms.installView(view);
         }

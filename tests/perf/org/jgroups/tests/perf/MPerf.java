@@ -6,10 +6,8 @@ import org.jgroups.jmx.JmxConfigurator;
 import org.jgroups.logging.Log;
 import org.jgroups.logging.LogFactory;
 import org.jgroups.stack.ProtocolStack;
-import org.jgroups.util.AckCollector;
-import org.jgroups.util.ResponseCollector;
-import org.jgroups.util.Streamable;
-import org.jgroups.util.Util;
+import org.jgroups.util.*;
+import org.jgroups.util.Bits;
 
 import java.io.*;
 import java.lang.reflect.Field;
@@ -613,12 +611,12 @@ public class MPerf extends ReceiverAdapter {
         }
 
         public void writeTo(DataOutput out) throws Exception {
-            Util.writeString(attr_name, out);
+            Bits.writeString(attr_name,out);
             Util.writeByteBuffer(attr_value, out);
         }
 
         public void readFrom(DataInput in) throws Exception {
-            attr_name=Util.readString(in);
+            attr_name=Bits.readString(in);
             attr_value=Util.readByteBuffer(in);
         }
     }
@@ -707,17 +705,17 @@ public class MPerf extends ReceiverAdapter {
         }
 
         public int size() {
-            return Util.size(time) + Util.size(msgs);
+            return Bits.size(time) + Bits.size(msgs);
         }
 
         public void writeTo(DataOutput out) throws Exception {
-            Util.writeLong(time, out);
-            Util.writeLong(msgs, out);
+            Bits.writeLong(time,out);
+            Bits.writeLong(msgs,out);
         }
 
         public void readFrom(DataInput in) throws Exception {
-            time=Util.readLong(in);
-            msgs=Util.readLong(in);
+            time=Bits.readLong(in);
+            msgs=Bits.readLong(in);
         }
 
         public String toString() {
@@ -748,20 +746,41 @@ public class MPerf extends ReceiverAdapter {
         public int size() {
             int retval=Global.BYTE_SIZE;
             if(type == DATA)
-                retval+=Util.size(seqno);
+                retval+=Bits.size(seqno);
             return retval;
         }
 
         public void writeTo(DataOutput out) throws Exception {
             out.writeByte(type);
             if(type == DATA)
-                Util.writeLong(seqno, out);
+                Bits.writeLong(seqno, out);
         }
 
         public void readFrom(DataInput in) throws Exception {
             type=in.readByte();
             if(type == DATA)
-                seqno=Util.readLong(in);
+                seqno=Bits.readLong(in);
+        }
+
+        public String toString() {
+            return typeToString(type) + (seqno > 0? seqno : "");
+        }
+
+        protected static String typeToString(byte type) {
+            switch(type) {
+                case DATA:          return "DATA";
+                case START_SENDING: return "START_SENDING";
+                case SENDING_DONE:  return "SENDING_DONE";
+                case RESULT:        return "RESULT";
+                case CLEAR_RESULTS: return "CLEAR_RESULTS";
+                case CONFIG_CHANGE: return "CONFIG_CHANGE";
+                case CONFIG_REQ:    return "CONFIG_REQ";
+                case CONFIG_RSP:    return "CONFIG_RSP";
+                case EXIT:          return "EXIT";
+                case NEW_CONFIG:    return "NEW_CONFIG";
+                case ACK:           return "ACK";
+                default:            return "n/a";
+            }
         }
     }
 

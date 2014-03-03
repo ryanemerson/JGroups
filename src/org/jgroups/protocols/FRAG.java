@@ -11,8 +11,7 @@ import org.jgroups.annotations.Property;
 import org.jgroups.stack.Protocol;
 import org.jgroups.util.*;
 
-import java.io.ByteArrayInputStream;
-import java.io.DataInputStream;
+import java.io.DataInput;
 import java.util.*;
 import java.util.Map.Entry;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -83,7 +82,6 @@ public class FRAG extends Protocol {
         super.init();
         Map<String,Object> info=new HashMap<String,Object>(1);
         info.put("frag_size", frag_size);
-        up_prot.up(new Event(Event.CONFIG, info));
         down_prot.down(new Event(Event.CONFIG, info));
     }
 
@@ -118,12 +116,6 @@ public class FRAG extends Protocol {
             case Event.VIEW_CHANGE:
                 handleViewChange((View)evt.getArg());
                 break;
-
-            case Event.CONFIG:
-                Object ret=down_prot.down(evt);
-                if(log.isDebugEnabled()) log.debug("received CONFIG event: " + evt.getArg());
-                handleConfigEvent((Map<String,Object>)evt.getArg());
-                return ret;
         }
 
         return down_prot.down(evt);  // Pass on to the layer below us
@@ -152,12 +144,6 @@ public class FRAG extends Protocol {
             case Event.VIEW_CHANGE:
                 handleViewChange((View)evt.getArg());
                 break;
-
-            case Event.CONFIG:
-                Object ret=up_prot.up(evt);
-                if(log.isDebugEnabled()) log.debug("received CONFIG event: " + evt.getArg());
-                handleConfigEvent((Map<String,Object>)evt.getArg());
-                return ret;
         }
 
         return up_prot.up(evt); // Pass up to the layer above us by default
@@ -215,11 +201,10 @@ public class FRAG extends Protocol {
 
         try {
             // write message into a byte buffer and fragment it
-            ExposedByteArrayOutputStream out_stream=new ExposedByteArrayOutputStream((int)(size + 50));
-            ExposedDataOutputStream dos=new ExposedDataOutputStream(out_stream);
+            ByteArrayDataOutputStream dos=new ByteArrayDataOutputStream((int)(size + 50));
             msg.writeTo(dos);
-            byte[] buffer=out_stream.getRawBuffer();
-            byte[][] fragments=Util.fragmentBuffer(buffer, frag_size, dos.size());
+            byte[] buffer=dos.buffer();
+            byte[][] fragments=Util.fragmentBuffer(buffer, frag_size, dos.position());
             num_frags=fragments.length;
             num_sent_frags+=num_frags;
 
@@ -269,10 +254,8 @@ public class FRAG extends Protocol {
         if(buf == null)
             return null;
 
-        DataInputStream in=null;
         try {
-            ByteArrayInputStream bis=new ExposedByteArrayInputStream(buf);
-            in=new DataInputStream(bis);
+            DataInput in=new ByteArrayDataInputStream(buf);
             Message assembled_msg=new Message(false);
             assembled_msg.readFrom(in);
             assembled_msg.setSrc(sender); // needed ? YES, because fragments have a null src !!
@@ -283,18 +266,6 @@ public class FRAG extends Protocol {
         catch(Exception e) {
             log.error("failed unfragmenting a message", e);
             return null;
-        }
-        finally {
-            Util.close(in);
-        }
-    }
-
-
-    void handleConfigEvent(Map<String,Object> map) {
-        if(map == null) return;
-        if(map.containsKey("frag_size")) {
-            frag_size=(Integer)map.get("frag_size");
-            if(log.isDebugEnabled()) log.debug("setting frag_size=" + frag_size);
         }
     }
 

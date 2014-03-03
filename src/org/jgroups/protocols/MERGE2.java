@@ -1,7 +1,10 @@
 package org.jgroups.protocols;
 
 
-import org.jgroups.*;
+import org.jgroups.Address;
+import org.jgroups.Event;
+import org.jgroups.Message;
+import org.jgroups.View;
 import org.jgroups.annotations.*;
 import org.jgroups.stack.Protocol;
 import org.jgroups.util.MessageBatch;
@@ -123,7 +126,7 @@ public class MERGE2 extends Protocol {
 
     protected boolean isMergeRunning() {
         Object retval=up_prot.up(new Event(Event.IS_MERGE_IN_PROGRESS));
-        return retval instanceof Boolean && ((Boolean)retval).booleanValue();
+        return retval instanceof Boolean && (Boolean)retval;
     }
 
     public List<Integer> requiredDownServices() {
@@ -284,7 +287,7 @@ public class MERGE2 extends Protocol {
 
             if(log.isTraceEnabled()) {
                 StringBuilder sb=new StringBuilder();
-                sb.append("Discovery results:\n");
+                sb.append(local_addr + ": discovery results:\n");
                 for(PingData data: discovery_rsps)
                     sb.append("[" + data.getAddress() + "]: " + data.printViewId()).append("\n");
                 log.trace(sb);

@@ -24,7 +24,7 @@ import java.util.List;
  * Tests FIFO ordering of {@link FORWARD_TO_COORD} with message sending while the coordinator crashes
  * @author Bela Ban
  */
-@Test(groups=Global.BYTEMAN,sequential=true)
+@Test(groups={Global.BYTEMAN,Global.EAP_EXCLUDED},singleThreaded=true)
 public class ForwardToCoordFailoverTest extends BMNGRunner {
     JChannel a, b, c; // A is the coordinator
     static final String CLUSTER="ForwardToCoordFailoverTest";
@@ -75,7 +75,7 @@ public class ForwardToCoordFailoverTest extends BMNGRunner {
         }
 
         // now inject view B={B,C} into B and C
-        View view=Util.createView(b.getAddress(), 5, b.getAddress(), c.getAddress());
+        View view=View.create(b.getAddress(), 5, b.getAddress(), c.getAddress());
         System.out.println("Injecting view " + view + " into B and C");
         for(JChannel ch: Arrays.asList(c,b)) {
             GMS gms=(GMS)ch.getProtocolStack().findProtocol(GMS.class);
