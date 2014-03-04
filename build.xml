@@ -37,7 +37,7 @@
     <property name="maven.executable" value="mvn"/>
     <property name="ivy.version"      value="2.3.0" />
 
-	<!-- 5 minutes per test suite timeout -->
+    <!-- 5 minutes per test suite timeout -->
     <property name="unittest.timeout" value="1800000"/>
     <property name="test.verbose" value="0"/>
 
@@ -72,11 +72,11 @@
 
     <!-- properties to determine IP version used -->
     <condition property="java.net.preferIPv4Stack" value="true" else="false">
-      <isfalse value="${jgroups.useIPv6}"/>
+        <isfalse value="${jgroups.useIPv6}"/>
     </condition>
 
     <condition property="java.net.preferIPv6Addresses" value="true" else="false">
-      <istrue value="${jgroups.useIPv6}"/>
+        <istrue value="${jgroups.useIPv6}"/>
     </condition>
 
 
@@ -139,7 +139,7 @@
     <target name="prepare" depends="retrieve">
         <property environment="env"/>
         <mkdir dir="${compile.dir}"/>
-    	<copy file="${build.properties.file}.template" tofile="${build.properties.file}" overwrite="false"/>
+        <copy file="${build.properties.file}.template" tofile="${build.properties.file}" overwrite="false"/>
     </target>
 
 
@@ -210,42 +210,6 @@
 
     </target>
 
-    <target name="dist" depends="compile, mPerf">
-        <mkdir dir="jar"/>
-        <jar destfile="jar/jgroups.jar" basedir="classes/">
-            <zipgroupfileset dir="lib" includes="*.jar"/>
-            <fileset dir="conf">
-            </fileset>
-            <manifest>
-                <attribute name="Main-Class" value="org.jgroups.tests.DecoupledBoxMember"/>
-            </manifest>
-        </jar>
-    </target>
-
-    <target name="scpDeploy" depends="dist">
-        <scp file="jar/jgroups.jar"
-             todir="a7109534@csvm0065.ncl.ac.uk:workspace"
-             keyfile="${user.home}/.ssh/id_rsa"
-             trust="true"/>
-        <scp file="jar/mperf.jar"
-             todir="a7109534@csvm0065.ncl.ac.uk:workspace"
-             keyfile="${user.home}/.ssh/id_rsa"
-             trust="true"/>
-    </target>
-
-    <target name="mPerf" depends="compile">
-        <mkdir dir="jar"/>
-        <jar destfile="jar/mperf.jar" basedir="classes/">
-            <zipgroupfileset dir="lib" includes="*.jar"/>
-            <fileset dir="conf">
-            </fileset>
-            <manifest>
-                <!--attribute name="Main-Class" value="org.jgroups.protocols.RMSysIntegratedNMC.Test" /-->
-                <attribute name="Main-Class" value="org.jgroups.tests.perf.UPerfBox"/>
-            </manifest>
-        </jar>
-    </target>
-
     <target name="jgroups.jar"
             description="Creates the jgroups.jar (includes everything)"
             depends="clean,compile-no-unittests,compile-essential-unittests,create-schema">
@@ -289,11 +253,11 @@
         <property name="-output" value="${conf.dir}"/>
         <taskdef resource="aQute/bnd/ant/taskdef.properties" classpathref="jg.classpath"/>
         <bnd
-              classpath=""
-              eclipse="false"
-              failok="false"
-              exceptions="true"
-              files="${conf.dir}/jgroups.bnd" />
+                classpath=""
+                eclipse="false"
+                failok="false"
+                exceptions="true"
+                files="${conf.dir}/jgroups.bnd" />
         <jar jarfile="${dist.dir}/jgroups-sources.jar"
              basedir="${src.dir}"
              manifest="${conf.dir}/MANIFEST.MF"
@@ -307,7 +271,7 @@
     <target name="javadoc"
             depends="prepare,check-javadoc" unless="javadoc.exists"
             description="Creates Javadoc documentation in ./dist/javadoc">
-         <mkdir dir="${javadoc.dir}"/>
+        <mkdir dir="${javadoc.dir}"/>
         <javadoc packagenames="${javadoc.packages}"
                  sourcepath="${src.dir}"
                  destdir="${javadoc.dir}"
@@ -336,7 +300,7 @@
         <echo message="Building manual from docbook ..."/>
         <prot-properties-to-doc input="${protocols.xml}"/>
         <run-maven dir="${manual.dir}"/>
-    	<!--<delete file="${protocols.xml}.tmp"/>-->
+        <!--<delete file="${protocols.xml}.tmp"/>-->
         <touch file="${manual.dir}/target/timestamp"/>
     </target>
 
@@ -365,13 +329,13 @@
     </target>
 
 
-	<target name="create-schema" description="Creates XML schema for this version of JGroups">
-		<delete dir="${compile.dir}/schema" failonerror="false"/>
-		<mkdir dir="${compile.dir}/schema"/>
-		<java classname="org.jgroups.util.XMLSchemaGenerator" classpathref="jg.classpath">
-			<arg line="-o ${compile.dir}/schema"/>
-		</java>
-	</target>
+    <target name="create-schema" description="Creates XML schema for this version of JGroups">
+        <delete dir="${compile.dir}/schema" failonerror="false"/>
+        <mkdir dir="${compile.dir}/schema"/>
+        <java classname="org.jgroups.util.XMLSchemaGenerator" classpathref="jg.classpath">
+            <arg line="-o ${compile.dir}/schema"/>
+        </java>
+    </target>
 
 
     <target name="clean"
@@ -389,13 +353,10 @@
                 <include name="**/*~"/>
             </fileset>
         </delete>
-    	<!-- clean the docs directory if docs have been processed -->
+        <!-- clean the docs directory if docs have been processed -->
         <delete dir="${manual.dir}/target"/>
         <delete dir="${tutorial.dir}/target"/>
         <delete dir="${root.dir}/schema" failonerror="false"/>
-
-        <!-- My deletions -->
-        <delete dir="jar" />
     </target>
 
     <target name="clean-all" depends="clean" description="Also removes lib">
@@ -429,17 +390,17 @@
         </java>
     </target>
 
-	<target name="keyStoreGenerated">
-	    <condition property="isKeyStoreGenerated">
-	        <and>
-	            <available filepath="${keystore.dir}" file="defaultStore.keystore"/>
-	    		<available filepath="${keystore.dir}" file="defaultStore2.keystore"/>
-	        </and>
-	    </condition>
-	</target>
+    <target name="keyStoreGenerated">
+        <condition property="isKeyStoreGenerated">
+            <and>
+                <available filepath="${keystore.dir}" file="defaultStore.keystore"/>
+                <available filepath="${keystore.dir}" file="defaultStore2.keystore"/>
+            </and>
+        </condition>
+    </target>
 
-	<target name="postcompile" depends="makeKeystore">
-	</target>
+    <target name="postcompile" depends="makeKeystore">
+    </target>
 
     <!--
 =============================== TestNG ======================================== -->
@@ -451,7 +412,7 @@
 
     <target name="all-tests" description="Runs all tests">
         <sequential>
-        	<antcall target="functional"/>
+            <antcall target="functional"/>
             <antcall target="udp"/>
             <antcall target="tcp"/>
             <antcall target="stack-independent"/>
@@ -509,11 +470,11 @@
 
 
     <target name="tcp" depends="postcompile,define-testng-task" description="Runs TCP tests">
-    	<!-- Needed to force reading of properties. Otherwise tcp tests will fail -->
-    	<property name="build.properties.file" value="build.properties"/>
-    	<property file="${build.properties.file}"/>
+        <!-- Needed to force reading of properties. Otherwise tcp tests will fail -->
+        <property name="build.properties.file" value="build.properties"/>
+        <property file="${build.properties.file}"/>
 
-    	<mkdir dir="${tmp.dir}/test-results/xml/tcp"/>
+        <mkdir dir="${tmp.dir}/test-results/xml/tcp"/>
         <runtest suitename="tcp"
                  groups="base,stack-dependent"
                  excludedgroups="stack-independent,flush,broken"
@@ -646,5 +607,70 @@
             </exec>
         </sequential>
     </macrodef>
+
+    <!-- CUSTOM DISTRIBUTIONS FOR TESTING PURPOSES ONLY - TODO REMOVE -->
+    <target name="dist"
+            description="Creates a jgroups.jar with a custom main class)"
+            depends="clean,compile-no-unittests,compile-essential-unittests,create-schema">
+        <mkdir dir="jar"/>
+        <jar destfile="jar/jgroups.jar"
+             basedir="${compile.dir}"
+             includes="org/jgroups/**">
+            <fileset dir="${conf.dir}" includes="*.dtd, *.xml, jg-messages*.properties" excludes="*-service.xml"/>
+            <fileset dir="${compile.dir}/schema">
+                <include name="*.xsd"/>
+            </fileset>
+            <fileset dir="${root.dir}">
+                <include name="INSTALL.html"/>
+                <include name="LICENSE"/>
+                <include name="README"/>
+            </fileset>
+            <fileset dir="${lib.dir}">
+                <include name="licenses/thirdparty*"/>
+            </fileset>
+            <manifest>
+                <attribute name="Main-Class" value="org.jgroups.tests.DecoupledBoxMember"/>
+            </manifest>
+        </jar>
+    </target>
+
+    <target name="mperf"
+            description="Creates a mperf.jar with a custom main class)"
+            depends="clean,compile-no-unittests,compile-essential-unittests,create-schema">
+        <mkdir dir="jar"/>
+        <jar destfile="jar/mperf.jar"
+             basedir="${compile.dir}"
+             includes="org/jgroups/**">
+            <fileset dir="${conf.dir}" includes="*.dtd, *.xml, jg-messages*.properties" excludes="*-service.xml"/>
+            <fileset dir="${compile.dir}/schema">
+                <include name="*.xsd"/>
+            </fileset>
+            <fileset dir="${root.dir}">
+                <include name="INSTALL.html"/>
+                <include name="LICENSE"/>
+                <include name="README"/>
+            </fileset>
+            <fileset dir="${lib.dir}">
+                <include name="licenses/thirdparty*"/>
+            </fileset>
+            <manifest>
+                <!--attribute name="Main-Class" value="org.jgroups.protocols.RMSysIntegratedNMC.Test" /-->
+                <attribute name="Main-Class" value="org.jgroups.tests.perf.UPerfBox"/>
+            </manifest>
+        </jar>
+    </target>
+
+    <target name="scpDeploy" depends="dist,mperf">
+        <scp file="jar/jgroups.jar"
+             todir="a7109534@csvm0065.ncl.ac.uk:workspace"
+             keyfile="${user.home}/.ssh/id_rsa"
+             trust="true"/>
+        <scp file="jar/mperf.jar"
+             todir="a7109534@csvm0065.ncl.ac.uk:workspace"
+             keyfile="${user.home}/.ssh/id_rsa"
+             trust="true"/>
+    </target>
+
+    <!-- END OF TESTING METHODS THAT NEED TO BE REMOVED -->
 
 </project>
