@@ -81,7 +81,7 @@ public class Test extends ReceiverAdapter {
 
     public void receive(Message msg) {
         synchronized (deliveredMessages) {
-            short protocolId = (short) (PROPERTIES_FILE.equals("RMsysIntegrated.xml") ? 1008 : 58);
+            short protocolId = (short) (PROPERTIES_FILE.equalsIgnoreCase("RMSysIntegrated.xml") ? 1008 : 58);
             Header header = msg.getHeader(protocolId);
             deliveredMessages.add(header);
 
@@ -118,9 +118,9 @@ public class Test extends ReceiverAdapter {
     private void writeHeadersToFile(List<Header> headers) {
         PrintWriter out = getPrintWriter(localAddress, count);
         for (Header header : headers)
-            if (PROPERTIES_FILE.equals("RMsysIntegrated.xml"))
+            if (PROPERTIES_FILE.equalsIgnoreCase("RMSysIntegrated.xml"))
                 out.println(((RMCastHeader) header).getId());
-            else if (PROPERTIES_FILE.equals("toa.xml"))
+            else if (PROPERTIES_FILE.equalsIgnoreCase("toa.xml"))
                 out.println(((ToaHeader)header).getMessageID());
         count++;
     }
