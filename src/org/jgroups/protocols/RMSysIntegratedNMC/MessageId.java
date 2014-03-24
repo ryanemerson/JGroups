@@ -72,11 +72,6 @@ public class MessageId implements SizeStreamable, Comparable<MessageId> {
         if (originator.equals(other.originator))
             if (timestamp == other.timestamp && timestamp == -1)
                 return Long.signum(sequence - other.sequence);
-            else
-                return Long.signum(timestamp - other.timestamp);
-
-        if (originator.equals(other.originator) && sequence == other.sequence)
-            return Long.signum(timestamp - other.timestamp);
 
         if (timestamp < other.timestamp)
             return -1;

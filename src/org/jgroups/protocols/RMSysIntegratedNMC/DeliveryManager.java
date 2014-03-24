@@ -7,6 +7,8 @@ import org.jgroups.logging.Log;
 import org.jgroups.logging.LogFactory;
 
 import java.util.*;
+import java.util.concurrent.DelayQueue;
+import java.util.concurrent.Delayed;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
@@ -19,13 +21,13 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 public class DeliveryManager {
     private final Comparator<MessageRecord> COMPARATOR = new MessageRecordComparator();
-    // Stores message records before they are processed
     private final Map<MessageId, MessageRecord> messageRecords = new HashMap<MessageId, MessageRecord>();
-    private final SortedSet<MessageRecord> deliverySet = new TreeSet<MessageRecord>(COMPARATOR);
+    private final TreeSet<MessageRecord> deliverySet = new TreeSet<MessageRecord>(COMPARATOR);
     // Synchronised because it is used for a single operation outside of a synchonised block (hasMessageExpired())
     private final Map<Address, MessageId> deliveredMsgRecord = Collections.synchronizedMap(new HashMap<Address, MessageId>());
     // Sequences that have been received but not yet delivered
     private final Map<Address, Set<Long>> receivedSeqRecord = new HashMap<Address, Set<Long>>();
+    private final DelayQueue<MessageRecord> timedOutQueue = new DelayQueue<MessageRecord>();
     private final Log log = LogFactory.getLog(RMSys.class);
     private final RMSys rmSys;
     private final Profiler profiler;
@@ -33,7 +35,8 @@ public class DeliveryManager {
     private final ReentrantLock lock = new ReentrantLock(true);
     private final Condition messageReceived = lock.newCondition();
 
-    private volatile MessageId lastDelivered;
+    private volatile MessageRecord lastDelivered;
+    private volatile MessageRecord lastTimeout;
 
     public DeliveryManager(RMSys rmSys, Profiler profiler) {
         this.rmSys = rmSys;
@@ -52,8 +55,8 @@ public class DeliveryManager {
             // before all of it's copies have been broadcast, this is because the msg destination is set to a single destination in deliver()
             message = message.copy();
             MessageRecord record = new MessageRecord(message);
-            calculateDeliveryTime(record);
             addRecordToDeliverySet(record);
+            calculateDeliveryTime(record);
 
             if (deliverySet.first().isDeliverable())
                 messageReceived.signal();
@@ -70,7 +73,6 @@ public class DeliveryManager {
     public void addMessage(Message message) {
         message = message.copy();
         MessageRecord record = new MessageRecord(message);
-        calculateDeliveryTime(record);
 
         lock.lock();
         try {
@@ -87,6 +89,8 @@ public class DeliveryManager {
             // Process vc & acks at the start, so that placeholders are always created before a message is added to the deliverySet
             processAcks(record);
             processVectorClock(record);
+            calculateDeliveryTime(record);
+
             handleNewMessageRecord(record);
             rmSys.handleAcks(record.getHeader());
 
@@ -104,24 +108,82 @@ public class DeliveryManager {
             if (deliverySet.isEmpty())
                 messageReceived.await(1, TimeUnit.MILLISECONDS);
 
-            MessageRecord record;
-            while (!deliverySet.isEmpty() && (record = deliverySet.first()).isDeliverable()) {
-                MessageId id = record.id;
-                deliverySet.remove(record);
-                messageRecords.remove(id);
-                deliverable.add(record.message);
-                deliveredMsgRecord.put(id.getOriginator(), id);
-                lastDelivered = id;
-                removeReceivedSeq(id);
-
-                int delay = (int) Math.ceil((rmSys.getClock().getTime() - record.id.getTimestamp()) / 1000000.0);
-                // Ensure that the stored delay is not negative (occurs due to clock skew) SHOULD be irrelevant
-                profiler.addDeliveryLatency(delay); // Store delivery latency in milliseconds
-            }
+            processDeliverySet(deliverable); // Deliver messages that can be delivered under normal conditions
+            List<MessageRecord> validPlaceholders = processTimeoutQueue(); // Make messages with an expired timeout deliverable and remove any blocking placeholders
+            processDeliverySet(deliverable); // Deliver expired messages
+            deliverySet.addAll(validPlaceholders); // Re-add the 'valid' placeholders
         } finally {
             lock.unlock();
         }
         return deliverable;
+    }
+
+    private void processDeliverySet(List<Message> deliverable) {
+        MessageRecord record;
+        while (!deliverySet.isEmpty() && (record = deliverySet.first()).isDeliverable()) {
+            MessageId id = record.id;
+            deliverySet.remove(record);
+            messageRecords.remove(id);
+            deliverable.add(record.message);
+            deliveredMsgRecord.put(id.getOriginator(), id);
+            lastDelivered = record;
+            removeReceivedSeq(id);
+            timedOutQueue.remove(record);
+
+            int delay = (int) Math.ceil((rmSys.getClock().getTime() - record.id.getTimestamp()) / 1000000.0);
+            // Ensure that the stored delay is not negative (occurs due to clock skew) SHOULD be irrelevant
+            profiler.addDeliveryLatency(delay); // Store delivery latency in milliseconds
+        }
+    }
+
+    private List<MessageRecord> processTimeoutQueue() {
+        List<MessageRecord> validPlaceholders = new ArrayList<MessageRecord>();
+//        Set all messages with an expired deliveryTime to be deliverable and remove any blocking placeholders
+        MessageRecord record;
+        while ((record = timedOutQueue.poll()) != null) {
+            // If a subsequent message has already timedout, then there is no need for this message to timeout
+            if (lastTimeout != null && COMPARATOR.compare(record, lastTimeout) <= 0)
+                continue;
+
+            record.timedOut = true;
+            record.actualDeliveryTime = rmSys.getClock().getTime();
+            lastTimeout = record;
+
+            if (log.isInfoEnabled())
+                log.info("Msg timedOut, mark ready to deliver | record := " + record);
+        }
+        if (lastTimeout != null)
+            validPlaceholders =  updateOlderMessages(lastTimeout);
+        return validPlaceholders;
+    }
+
+    private List<MessageRecord> updateOlderMessages(MessageRecord record) {
+        List<MessageRecord> validPlaceholders = new ArrayList<MessageRecord>();
+        Iterator<MessageRecord> i = deliverySet.iterator();
+        while(i.hasNext()) {
+            MessageRecord r = i.next();
+            if (r.equals(record))
+                return validPlaceholders;
+
+            if (r.isPlaceholder()) {
+                i.remove();
+
+                MessageId id = r.id;
+                MessageId lastReceivedMessage = null;
+                VectorClock vectorClock = record.getHeader().getVectorClock();
+                if (vectorClock != null && vectorClock.getMessagesReceived().get(id.getOriginator()) != null)
+                    lastReceivedMessage = record.getHeader().getVectorClock().getMessagesReceived().get(id.getOriginator());
+
+                if ((id.getOriginator().equals(record.id.getOriginator()) && id.getSequence() < record.id.getSequence())
+                        || (lastReceivedMessage != null && id.getSequence() <= lastReceivedMessage.getSequence())) {
+                    messageRecords.remove(id);
+                    removeReceivedSeq(id);
+                } else {
+                    validPlaceholders.add(r);
+                }
+            }
+        }
+        return validPlaceholders;
     }
 
     public void processEmptyAckMessage(RMCastHeader header) {
@@ -171,6 +233,7 @@ public class DeliveryManager {
                 log.trace("Message added to existing record | " + existingRecord);
 
             existingRecord.addMessage(record);
+            updateDeliveryTime(record);
         }
     }
 
@@ -178,6 +241,26 @@ public class DeliveryManager {
         deliverySet.add(record);
         messageRecords.put(record.id, record);
         getReceivedSeqRecord(record.id.getOriginator()).add(record.id.getSequence());
+        updateDeliveryTime(record);
+    }
+
+    private void updateDeliveryTime(MessageRecord record) {
+        NavigableSet<MessageRecord> olderRecords = deliverySet.headSet(record, false);
+        if (olderRecords.isEmpty()) {
+            // Do nothing if lastDelivered && previousRecord is null because the calculated dt will be used
+            if (lastDelivered != null && record.deliveryTime < lastDelivered.deliveryTime)
+                record.deliveryTime = lastDelivered.deliveryTime + 1;
+        } else {
+            Iterator<MessageRecord> i = olderRecords.descendingIterator();
+            while (i.hasNext()) {
+                MessageRecord previousRecord = i.next();
+                if (!previousRecord.isPlaceholder()) {
+                    if (record.deliveryTime < previousRecord.deliveryTime)
+                        record.deliveryTime = previousRecord.deliveryTime + 1;
+                    return;
+                }
+            }
+        }
     }
 
     private void processVectorClock(MessageRecord record) {
@@ -220,7 +303,7 @@ public class DeliveryManager {
 
     private void createPlaceholder(Address ackSource, MessageId id, boolean ack) {
         // If id is older than the last delivered message, from the originator node, than do not create a placeholder
-        if (id.compareTo(lastDelivered) <= 0 && id.compareTo(deliveredMsgRecord.get(id.getOriginator())) <= 0)
+        if ((lastDelivered!= null && id.compareTo(lastDelivered.id) <= 0) && id.compareTo(deliveredMsgRecord.get(id.getOriginator())) <= 0)
             return;
 
         if (getReceivedSeqRecord(id.getOriginator()).contains(id.getSequence())) {
@@ -246,7 +329,7 @@ public class DeliveryManager {
         long lastDeliveredSeq = -1;
         MessageId lastDelivered = deliveredMsgRecord.get(origin);
         if (lastDelivered != null)
-            lastDeliveredSeq =  deliveredMsgRecord.get(origin).getSequence();
+            lastDeliveredSeq =  lastDelivered.getSequence();
 
         if (sequence <= lastDeliveredSeq)
             return;
@@ -288,32 +371,30 @@ public class DeliveryManager {
         NMCData data = header.getNmcData();
 
         long startTime = header.getId().getTimestamp();
+        long ackWait = (2 * data.getEta()) + data.getOmega();
         long delay = TimeUnit.MILLISECONDS.toNanos(Math.max(data.getCapD(), data.getXMax() + data.getCapS()));
+        // Takes into consideration the broadcast time of an ack and the max possible delay before an ack is piggybacked or explicitly broadcast
+        delay = (2 * delay) + ackWait;
         delay = delay + rmSys.getClock().getMaximumError();
         record.deliveryTime = startTime + delay;
+
+        if (lastDelivered != null && record.deliveryTime < lastDelivered.deliveryTime)
+            record.deliveryTime = lastDelivered.deliveryTime + 1;
+
+        createMessageTimeout(record);
     }
 
-    @Override
-    public String toString() {
-        StringBuffer sb = new StringBuffer();
-        List<MessageRecord> records = new ArrayList<MessageRecord>(deliverySet);
-        int upperLimit = deliverySet.size() > 9 ? 10 : deliverySet.size();
-        for (int i = 0; i < upperLimit; i++) {
-            sb.append(records.get(i));
-            sb.append("\n\n");
-        }
-
-        return "DeliveryManager{" +
-                "deliverySet=" + sb +
-                '}';
+    private void createMessageTimeout(MessageRecord record) {
+        timedOutQueue.add(record);
     }
 
-    final class MessageRecord {
+    final class MessageRecord implements Delayed {
         final MessageId id;
         volatile Message message;
         volatile long deliveryTime;
         volatile boolean timedOut;
         volatile Map<Address, Boolean> ackRecord;
+        volatile long actualDeliveryTime;
 
         MessageRecord(Address origin, long sequence) {
             this.id = new MessageId(-1, origin, sequence);
@@ -388,6 +469,19 @@ public class DeliveryManager {
         }
 
         @Override
+        public int compareTo(Delayed delayed) {
+            if (this == delayed)
+                return 0;
+
+            return Long.signum(getDelay(TimeUnit.NANOSECONDS) - delayed.getDelay(TimeUnit.NANOSECONDS));
+        }
+
+        @Override
+        public long getDelay(TimeUnit timeUnit) {
+            return timeUnit.convert(deliveryTime - rmSys.getClock().getTime(), TimeUnit.NANOSECONDS);
+        }
+
+        @Override
         public boolean equals(Object o) {
             if (this == o) return true;
             if (o == null || getClass() != o.getClass()) return false;
@@ -409,6 +503,8 @@ public class DeliveryManager {
                     ", ackRecord=" + ackRecord +
                     ", isPlaceholder()=" + isPlaceholder() +
                     ", isDeliverable()=" + isDeliverable() +
+                    ", delay()=" + getDelay(TimeUnit.MILLISECONDS) + "ms" +
+                    ", timedOut=" + timedOut +
                     (deliveredMsgRecord.get(id.getOriginator()) == null ? "" : ", lastDeliveredThisNode=" + deliveredMsgRecord.get(id.getOriginator()).getSequence()) +
                     (getHeader() == null ? "" : ", vectorClock=" + getHeader().getVectorClock()) +
                     '}';

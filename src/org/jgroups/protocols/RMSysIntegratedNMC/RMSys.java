@@ -32,9 +32,6 @@ final public class RMSys extends Protocol {
     @Property(name = "max_acks_per_message", description = "The maximum number of messages that can be acked in one message")
     private int numberOfAcks = 10;
 
-    @Property(name = "max_ack_wait", description = "The delay before an empty ack message is sent if no other broadcasts are made")
-    private int ackDelay = 20;
-
     private final Map<MessageId, MessageRecord> messageRecords = new ConcurrentHashMap<MessageId, MessageRecord>();
     private final Map<MessageId, Message> receivedMessages = new ConcurrentHashMap<MessageId, Message>();
     private final Map<MessageId, Future> responsiveTasks = new ConcurrentHashMap<MessageId, Future>();
@@ -83,7 +80,7 @@ final public class RMSys extends Protocol {
 
     @Override
     public void start() throws Exception {
-        log.setLevel("fatal");
+//        log.setLevel("fatal");
         if (activeMembers.size() > 0)
             nmc.setActiveNodes(activeMembers.size());
 
@@ -275,14 +272,15 @@ final public class RMSys extends Protocol {
         recordProbe(header); // Record probe latency
     }
 
-    // Schedule an emptyAckMessage to be sent after ackDelay period of time
+    // Schedule an emptyAckMessage to be sent after ackWait period of time
     // This should be called whenever a new message is received
     public void handleAcks(RMCastHeader header) {
         if (header.getId().getOriginator().equals(localAddress))
             return;
 
         senderManager.addMessageToAck(header.getId());
-
+        NMCData nmcData = header.getNmcData();
+        int ackWait = (2 * nmcData.getEta()) + nmcData.getOmega();
         // If a future is already in progress and hasn't completed, then do nothing as that future will execute sooner
         // and should send the acks that this message would have sent
         if (sendEmptyAckFuture == null || sendEmptyAckFuture.isDone()) {
@@ -291,7 +289,7 @@ final public class RMSys extends Protocol {
                 public void run() {
                     sendEmptyAckMessage();
                 }
-            }, ackDelay, TimeUnit.MILLISECONDS);
+            }, ackWait, TimeUnit.MILLISECONDS);
         }
     }
 

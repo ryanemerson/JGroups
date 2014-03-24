@@ -18,7 +18,7 @@ public class NMC {
     private int epochSize = 100; // The number of latencies received before NMC values are calculated
     private int recentPastSize = 1000; // The number of latencies that defines the recent past
     private double qThreshold = 1.05; // The threshold for calculating Q
-    private double etaProbability = 0.90;
+    private double etaProbability = 0.99;
     private double alpha = 0.9; // The value alpha that is used to update xMax
 
     private final PCSynch clock;
@@ -35,14 +35,6 @@ public class NMC {
     public NMC(PCSynch clock, Profiler profiler) {
         this.clock = clock;
         this.profiler = profiler;
-    }
-
-    public long getClockTime() {
-        return clock.getTime();
-    }
-
-    public long getMaxClockError() {
-        return clock.getMaximumError();
     }
 
     public NMCData getData() {
@@ -142,7 +134,7 @@ public class NMC {
                     break CLOOP;
 
                 processedLatencies += tempLatencies[yy];
-                if (processedLatencies >= numberOfLatencies * 0.64 && !dFlag) {
+                if (processedLatencies >= numberOfLatencies * 0.693 && !dFlag) {
                     d = latency;
                     dFlag = true;
                 }
@@ -156,6 +148,8 @@ public class NMC {
         double q = exceedQThreshold / numberOfLatencies;
         int rho = calculateRho(q);
         int eta = (int) Math.ceil(-1 * d * Math.log(1 - etaProbability)); // Calculate 1 - e - Np / d = 0.99
+//        int eta = xMax; // Eta as xMax, increases the deliveryDelay and responsiveness provisions
+        eta = Math.max(eta, xMax);
         int omega = eta - d;
         int capD = xMax + (rho * eta);
         int capS = xMax + ((rho + 2) * eta) + omega;
