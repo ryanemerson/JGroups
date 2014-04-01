@@ -55,8 +55,8 @@ public class DeliveryManager {
             // before all of it's copies have been broadcast, this is because the msg destination is set to a single destination in deliver()
             message = message.copy();
             MessageRecord record = new MessageRecord(message);
-            addRecordToDeliverySet(record);
             calculateDeliveryTime(record);
+            addRecordToDeliverySet(record);
 
             if (deliverySet.first().isDeliverable())
                 messageReceived.signal();
@@ -233,7 +233,7 @@ public class DeliveryManager {
                 log.trace("Message added to existing record | " + existingRecord);
 
             existingRecord.addMessage(record);
-            updateDeliveryTime(record);
+            updateDeliveryTimes(record);
         }
     }
 
@@ -241,26 +241,33 @@ public class DeliveryManager {
         deliverySet.add(record);
         messageRecords.put(record.id, record);
         getReceivedSeqRecord(record.id.getOriginator()).add(record.id.getSequence());
-        updateDeliveryTime(record);
+
+        if (!record.isPlaceholder())
+            updateDeliveryTimes(record);
     }
 
-    private void updateDeliveryTime(MessageRecord record) {
-        NavigableSet<MessageRecord> olderRecords = deliverySet.headSet(record, false);
-        if (olderRecords.isEmpty()) {
-            // Do nothing if lastDelivered && previousRecord is null because the calculated dt will be used
-            if (lastDelivered != null && record.deliveryTime < lastDelivered.deliveryTime)
-                record.deliveryTime = lastDelivered.deliveryTime + 1;
-        } else {
-            Iterator<MessageRecord> i = olderRecords.descendingIterator();
-            while (i.hasNext()) {
-                MessageRecord previousRecord = i.next();
-                if (!previousRecord.isPlaceholder()) {
-                    if (record.deliveryTime < previousRecord.deliveryTime)
-                        record.deliveryTime = previousRecord.deliveryTime + 1;
-                    return;
-                }
-            }
+    private void updateDeliveryTimes(MessageRecord record) {
+        MessageRecord previousRecord = deliverySet.lower(record);
+        if (previousRecord != null && previousRecord.deliveryTime > record.deliveryTime)
+            record.deliveryTime = previousRecord.deliveryTime + 1;
+
+        // PreviousRecord needs to be the record that has just been added
+        previousRecord = record;
+        for (MessageRecord nextRecord : deliverySet.tailSet(record)) {
+            // If the next record's delivery time is < than the previous than increase, otherwise exit
+            if (nextRecord.deliveryTime <= previousRecord.deliveryTime)
+                nextRecord.deliveryTime = previousRecord.deliveryTime + 1;
+            else
+                break;
         }
+        // Remove all elements from the queue and reinsert them so that the changes to the delivery times will effect
+        // the order of the queue.  Necessary because DelayQueues are ordered on insertion.
+        // TODO make so that only the effected records are removed and reinserted.
+        List<MessageRecord> records = new ArrayList<MessageRecord>();
+        if (!records.contains(record))
+            records.add(record); // Add the passed record to the timedOutQueue for the first time
+        timedOutQueue.drainTo(records);
+        timedOutQueue.add(record);
     }
 
     private void processVectorClock(MessageRecord record) {
@@ -380,12 +387,6 @@ public class DeliveryManager {
 
         if (lastDelivered != null && record.deliveryTime < lastDelivered.deliveryTime)
             record.deliveryTime = lastDelivered.deliveryTime + 1;
-
-        createMessageTimeout(record);
-    }
-
-    private void createMessageTimeout(MessageRecord record) {
-        timedOutQueue.add(record);
     }
 
     final class MessageRecord implements Delayed {
@@ -447,6 +448,9 @@ public class DeliveryManager {
         boolean isDeliverable() {
             if (id.getTimestamp() > rmSys.getClock().getTime())
                 return false;
+
+            if (timedOut)
+                return true;
 
             if (isPlaceholder())
                 return false;
