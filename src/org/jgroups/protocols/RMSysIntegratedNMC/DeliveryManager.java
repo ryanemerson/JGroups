@@ -27,6 +27,7 @@ public class DeliveryManager {
     private final Map<Address, MessageId> deliveredMsgRecord = Collections.synchronizedMap(new HashMap<Address, MessageId>());
     // Sequences that have been received but not yet delivered
     private final Map<Address, Set<Long>> receivedSeqRecord = new HashMap<Address, Set<Long>>();
+    private final Map<Address, VectorClock> receivedVectorClocks = new HashMap<Address, VectorClock>();
     private final DelayQueue<MessageRecord> timedOutQueue = new DelayQueue<MessageRecord>();
     private final Log log = LogFactory.getLog(RMSys.class);
     private final RMSys rmSys;
@@ -57,6 +58,7 @@ public class DeliveryManager {
             MessageRecord record = new MessageRecord(message);
             calculateDeliveryTime(record);
             addRecordToDeliverySet(record);
+            storeVectorClock(record);
 
             if (deliverySet.first().isDeliverable())
                 messageReceived.signal();
@@ -145,6 +147,9 @@ public class DeliveryManager {
             if (lastTimeout != null && COMPARATOR.compare(record, lastTimeout) <= 0)
                 continue;
 
+            if (nodeIsStillAlive(record))
+                break;
+
             record.timedOut = true;
             record.actualDeliveryTime = rmSys.getClock().getTime();
             lastTimeout = record;
@@ -155,6 +160,24 @@ public class DeliveryManager {
         if (lastTimeout != null)
             validPlaceholders =  updateOlderMessages(lastTimeout);
         return validPlaceholders;
+    }
+
+    private boolean nodeIsStillAlive(MessageRecord record) {
+        Address origin = record.id.getOriginator();
+        for (Map.Entry<Address, Boolean> ack : record.ackRecord.entrySet()) {
+            if (!ack.getValue()) {
+                VectorClock vc = receivedVectorClocks.get(ack.getKey());
+                if (vc == null)
+                    return false; // Node might be alive however we have yet to receive any msgs so we have to say no
+
+                MessageId lastReceived = vc.getMessagesReceived().get(origin);
+                // If an ack is missing from node x and the vc from x has not received a message > record.id
+                // Then the node is classed as being crashed
+                if (lastReceived == null || lastReceived.compareTo(record.id) <= 0)
+                    return false;
+            }
+        }
+        return true;
     }
 
     private List<MessageRecord> updateOlderMessages(MessageRecord record) {
@@ -181,6 +204,10 @@ public class DeliveryManager {
                 } else {
                     validPlaceholders.add(r);
                 }
+            } else if (!r.timedOut && r.getDelay(TimeUnit.MILLISECONDS) < 0) {
+                // Necessary hack to ensure that any messages whose delay has expired is set to timedOut
+                // Not sure why some messages are not timing out as expected, but this seems to solve the issue
+                r.timedOut = true;
             }
         }
         return validPlaceholders;
@@ -271,6 +298,7 @@ public class DeliveryManager {
     }
 
     private void processVectorClock(MessageRecord record) {
+        storeVectorClock(record);
         processVectorClock(record.getHeader().getVectorClock());
     }
 
@@ -281,6 +309,16 @@ public class DeliveryManager {
             // Without this, seq placeholders wont be made in situations where there are only two sending nodes
             checkForMissingSequences(vc.getLastBroadcast());
         }
+    }
+
+    private void storeVectorClock(MessageRecord record) {
+        Address origin = record.id.getOriginator();
+        VectorClock existingVC = receivedVectorClocks.get(origin);
+        VectorClock vectorClock = record.getHeader().getVectorClock();
+
+        if (existingVC == null || existingVC.getLastBroadcast() == null ||
+                existingVC.getLastBroadcast().compareTo(vectorClock.getLastBroadcast()) < 0)
+            receivedVectorClocks.put(origin, vectorClock);
     }
 
     private void processAcks(MessageRecord record) {
