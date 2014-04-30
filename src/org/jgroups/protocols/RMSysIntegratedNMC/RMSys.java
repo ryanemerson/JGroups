@@ -40,6 +40,7 @@ final public class RMSys extends Protocol {
     private NMC nmc = null;
     private DeliveryManager deliveryManager = null;
     private SenderManager senderManager = null;
+    private FlowControl flowControl = null;
     private Address localAddress = null;
     private TimeScheduler timer;
     private ExecutorService executor;
@@ -87,6 +88,7 @@ final public class RMSys extends Protocol {
         nmc = new NMC(clock, profiler);
         deliveryManager = new DeliveryManager(this, profiler);
         senderManager = new SenderManager(clock, numberOfAcks);
+        flowControl = new FlowControl(this, nmc);
 
         executor = Executors.newSingleThreadExecutor();
         executor.execute(new DeliverMessages());
@@ -151,7 +153,8 @@ final public class RMSys extends Protocol {
             case Event.MSG:
                 Message message = (Message) event.getArg();
                 if (message.getDest() instanceof AnycastAddress) {
-                    sendRMCast(message);
+                      flowControl.addMessage(message);
+//                    sendRMCast(message);
                     return null;
                 }
                 break; // If not an anycast address send down
@@ -190,7 +193,7 @@ final public class RMSys extends Protocol {
         up_prot.up(new Event(Event.MSG, message));
     }
 
-    private void sendRMCast(Message message) {
+    public void sendRMCast(Message message) {
         // Stop empty ack message from being sent, unless it has already started
         if (sendEmptyAckFuture != null)
             sendEmptyAckFuture.cancel(false);

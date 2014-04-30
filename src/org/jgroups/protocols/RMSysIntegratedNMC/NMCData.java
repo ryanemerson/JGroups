@@ -19,17 +19,23 @@ public class NMCData implements Streamable {
     private int capD; // Milliseconds
     private int capS; // Milliseconds
     private int xMax; // Milliseconds
+    private long timestamp = -1; // The time at which this object was created. Only used locally, not serialised
 
     public NMCData() {
     }
 
-    public NMCData(int eta, int messageCopies, int omega, int capD, int capS, int xMax) {
+    public NMCData(int eta, int messageCopies, int omega, int capD, int capS, int xMax, long timestamp) {
         this.eta = eta;
         this.messageCopies = messageCopies;
         this.omega = omega;
         this.capD = capD;
         this.capS = capS;
         this.xMax = xMax;
+        this.timestamp = timestamp;
+    }
+
+    public NMCData(int eta, int messageCopies, int omega, int capD, int capS, int xMax) {
+        this(eta, messageCopies, omega, capD, capS, xMax, -1);
     }
 
     public int getEta() {
@@ -54,6 +60,10 @@ public class NMCData implements Streamable {
 
     public int getXMax() {
         return xMax;
+    }
+
+    public long getTimestamp() {
+        return timestamp;
     }
 
     public int size() {
@@ -81,6 +91,36 @@ public class NMCData implements Streamable {
     }
 
     @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+
+        NMCData nmcData = (NMCData) o;
+
+        if (capD != nmcData.capD) return false;
+        if (capS != nmcData.capS) return false;
+        if (eta != nmcData.eta) return false;
+        if (messageCopies != nmcData.messageCopies) return false;
+        if (omega != nmcData.omega) return false;
+        if (timestamp != nmcData.timestamp) return false;
+        if (xMax != nmcData.xMax) return false;
+
+        return true;
+    }
+
+    @Override
+    public int hashCode() {
+        int result = eta;
+        result = 31 * result + messageCopies;
+        result = 31 * result + omega;
+        result = 31 * result + capD;
+        result = 31 * result + capS;
+        result = 31 * result + xMax;
+        result = 31 * result + (int) (timestamp ^ (timestamp >>> 32));
+        return result;
+    }
+
+    @Override
     public String toString() {
         return "NMCData{" +
                 "eta=" + eta +
@@ -89,6 +129,7 @@ public class NMCData implements Streamable {
                 ", capD=" + capD +
                 ", capS=" + capS +
                 ", xMax=" + xMax +
+                ", timestamp=" + timestamp +
                 '}';
     }
 }

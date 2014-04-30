@@ -72,6 +72,37 @@ public class NMC {
         }
     }
 
+    // Return XMax / xMax
+    public double calculateR() throws Exception {
+        ExceedsXrcResult exceeds = getLatenciesThatExceedXrc();
+        try {
+            return Collections.max(exceeds.latencies) / exceeds.xMax;
+        } catch (NoSuchElementException e) {
+            // Throw an exception if R can't be calculated
+            throw new Exception("No messages exceed the Xrc");
+        }
+    }
+
+    private ExceedsXrcResult getLatenciesThatExceedXrc() {
+        ExceedsXrcResult result;
+        List<Integer> cl;
+        lock.lock();
+        try {
+            result = new ExceedsXrcResult(xMax);
+            cl = new ArrayList<Integer>(currentLatencies);
+        } finally {
+            lock.unlock();
+        }
+
+        List<Integer> latencies = result.latencies;
+        double threshold = result.xMax + nmcData.getEta() / 2;
+        for (Integer latency : cl)
+            if (latency > threshold)
+                latencies.add(latency);
+
+        return result;
+    }
+
     private void addXMax(int maxLatency) {
         xMax = (int) Math.ceil(((1 - alpha) * xMax) + (alpha * maxLatency));
         profiler.addLocalXmax(xMax); // Store local xMax
@@ -153,7 +184,7 @@ public class NMC {
         int omega = eta - d;
         int capD = xMax + (rho * eta);
         int capS = xMax + ((rho + 2) * eta) + omega;
-        nmcData = new NMCData(eta, rho, omega, capD, capS, xMax);
+        nmcData = new NMCData(eta, rho, omega, capD, capS, xMax, clock.getTime()); // Create a timestamped NMCData
 
         if (log.isDebugEnabled())
             log.debug("NMCData recorded | " + nmcData);
@@ -193,5 +224,23 @@ public class NMC {
             rhoProbability1 = Math.pow(x, numberOfNodes - 1);
         }
         return Math.max(rhoS, rhoD);
+    }
+
+    private class ExceedsXrcResult {
+        private double xMax;
+        private List<Integer> latencies;
+
+        ExceedsXrcResult(int xMax) {
+            this.xMax = xMax;
+            this.latencies = new ArrayList<Integer>();
+        }
+
+        @Override
+        public String toString() {
+            return "ExceedsXrcResult{" +
+                    "xMax=" + xMax +
+                    ", latencies=" + latencies +
+                    '}';
+        }
     }
 }
