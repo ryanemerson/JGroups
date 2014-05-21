@@ -1,9 +1,10 @@
 package org.jgroups.protocols.RMSysIntegratedNMC;
 
 import org.jgroups.Message;
+import org.jgroups.util.Util;
 
-import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * // TODO: Document this
@@ -13,14 +14,12 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public class FlowControl {
 
-    private final int BUCKET_SIZE = 20;
-    private final double DELTA_REDUCTION = 10; // K variable, must be >= 1. A higher value increases the amount the cumulative delay is reduced
+    private final int BUCKET_SIZE = 1;
+    private final double DELTA_REDUCTION = 0.01; // K variable, must be >= 1. A higher value increases the amount the cumulative delay is reduced // In seconds e.g. 0.01 = 10ms
+    private final ReentrantLock lock = new ReentrantLock(true);
     private final AtomicInteger bucketId = new AtomicInteger();
     private final NMC nmc;
     private final RMSys rmSys;
-
-    private final BlockingQueue<Message> messageQueue = new LinkedBlockingQueue<Message>(500); // TODO Make capacity configurable
-    private final DelayQueue<MessageBucket> bucketDelayQueue = new DelayQueue<MessageBucket>();
 
     private BucketWrapper buckets = new BucketWrapper();
     private FCDataWrapper flowData = new FCDataWrapper();
@@ -29,51 +28,61 @@ public class FlowControl {
     public FlowControl(RMSys rmSys, NMC nmc) {
         this.rmSys = rmSys;
         this.nmc = nmc;
-
-        Executors.newSingleThreadExecutor().execute(new MessageHandler()); // TODO make so this can be destroyed when the RMSys protocol is removed
-    }
-    public void addMessage(Message message){
-        messageQueue.add(message);
     }
 
-    private class MessageHandler implements Runnable {
-        @Override
-        public void run() {
-            while (true) {
-                Message message;
-                while ((message = messageQueue.poll()) != null)
-                    buckets.current.addMessage(message);
+    public void addMessage(Message message) {
+        lock.lock();
+        try {
+            MessageBucket bucket = buckets.current; // Assign after the initial wait as the bucket will have changed
+            boolean bucketIsFull = bucket.addMessage(message);
+            if (bucketIsFull) {
+                long delay = bucket.getDelay();
 
-                MessageBucket bucket;
-                while ((bucket = bucketDelayQueue.poll()) != null)
-                    bucket.send();
+//                delay = delay < 1 ? 1 : delay;
+
+                System.out.println("Bucket {" + bucket.id + "} full, wait " + delay + " ms");
+                if (delay > 0) {
+                    Util.sleep(delay);
+                }
+                else {
+                    Util.sleep(0, 500 * BUCKET_SIZE);
+                }
+
+                bucket.send();
             }
+        } finally {
+            lock.unlock();
         }
     }
 
-    private class MessageBucket implements Delayed {
+    private class MessageBucket {
         final int id;
         final Message[] messages;
         volatile int messageIndex = 0;
-        volatile long fullBucketTime = -1;
         volatile long broadcastTime = -1;
+        volatile boolean sent = false;
+
 
         public MessageBucket() {
             id = bucketId.getAndIncrement();
             messages = new Message[BUCKET_SIZE];
         }
 
-        void addMessage(Message message) {
+        boolean addMessage(Message message) {
             messages[messageIndex++] = message;
 
-            if (messageIndex == BUCKET_SIZE) {
-                fullBucketTime = rmSys.getClock().getTime();
+            if (isFull()) {
                 calculateBroadcastRate();
                 calculateBroadcastTime();
 
-                bucketDelayQueue.add(this);
                 buckets.cycle();
+                return true;
             }
+            return false;
+        }
+
+        boolean isFull() {
+            return messageIndex == BUCKET_SIZE;
         }
 
         void calculateBroadcastRate() {
@@ -87,14 +96,17 @@ public class FlowControl {
             boolean newDelta = calculateDelta();
             double bucketDelay = newDelta ? flowData.delta * BUCKET_SIZE : flowData.bucketDelay;
             double delay = flowData.cumulativeDelay + bucketDelay;
-            delay = delay < 0 ? 0 : delay;
+//            delay = delay < 0 ? 0 : delay;
+            delay = delay < 0 ? 0 : (delay > 0.1 ? 0.1 : delay); // Limit the max delay
+//            delay = delay < 0 ? (flowData.cumulativeDelay > 0 ? flowData.cumulativeDelay : 0) : delay;
 
-            long delayInNanos = (long) Math.ceil(delay * 1e+9); // Convert to nanoseconds * 1e+9 so that the delay can be added to the fullBucketTime
-            broadcastTime = fullBucketTime + delayInNanos;
+            long delayInNanos = delay == 0 ? 0 : (long) Math.ceil(delay * 1e+9); // Convert to nanoseconds * 1e+9 so that the delay can be added to the currentTime
+            broadcastTime = rmSys.getClock().getTime() + delayInNanos;
 
             // This broadcast time can't be less than the previous bucket, therefore increase this broadcast time accordingly
-            if (buckets.previous != null && broadcastTime < buckets.previous.broadcastTime)
+            if (buckets.previous != null && broadcastTime < buckets.previous.broadcastTime) {
                 broadcastTime = buckets.previous.broadcastTime + 1;
+            }
 
             flowData.cumulativeDelay = delay;
             flowData.bucketDelay = bucketDelay;
@@ -109,7 +121,13 @@ public class FlowControl {
                     // that have exceeded xMax has increased (can't decrease because xMax would have changed)
                     double exponentialResult = getExponentialResult();
                     if (exponentialResult != flowData.exponentialResult) {
-                        flowData.delta = (1 / flowData.broadcastRate) * ((1 - exponentialResult) / exponentialResult);
+
+                        // Necessary for the first bucket, prevents delta == infinity
+                        if (flowData.broadcastRate == 0)
+                            flowData.delta = 0;
+                        else
+                            flowData.delta = (1 / flowData.broadcastRate) * ((1 - exponentialResult) / exponentialResult);
+
                         flowData.exponentialResult = exponentialResult;
                         return true;
                     }
@@ -135,19 +153,13 @@ public class FlowControl {
         void send() {
             for (Message message : messages)
                 rmSys.sendRMCast(message);
+
+            sent = true;
         }
 
-        @Override
-        public int compareTo(Delayed delayed) {
-            if (this == delayed)
-                return 0;
-
-            return Long.signum(getDelay(TimeUnit.NANOSECONDS) - delayed.getDelay(TimeUnit.NANOSECONDS));
-        }
-
-        @Override
-        public long getDelay(TimeUnit timeUnit) {
-            return timeUnit.convert(broadcastTime - rmSys.getClock().getTime(), TimeUnit.NANOSECONDS);
+        public long getDelay() {
+            long delay = broadcastTime - rmSys.getClock().getTime();
+            return delay < 0 ? 0 : (long) Math.ceil(delay / 1e+6); // Always round to the highest ms
         }
 
         @Override
@@ -155,7 +167,6 @@ public class FlowControl {
             return "MessageBucket{" +
                     "id=" + id +
                     ", messageIndex=" + messageIndex +
-                    ", fullBucketTime=" + fullBucketTime +
                     ", broadcastTime=" + broadcastTime +
                     '}';
         }
@@ -167,6 +178,17 @@ public class FlowControl {
         double broadcastRate = 0.0;
         double exponentialResult = 0.0;
         double bucketDelay = 0.0;
+
+        @Override
+        public String toString() {
+            return "FCDataWrapper{" +
+                    "cumulativeDelay=" + cumulativeDelay +
+                    ", delta=" + delta +
+                    ", broadcastRate=" + broadcastRate +
+                    ", exponentialResult=" + exponentialResult +
+                    ", bucketDelay=" + bucketDelay +
+                    '}';
+        }
     }
 
     private class BucketWrapper {
