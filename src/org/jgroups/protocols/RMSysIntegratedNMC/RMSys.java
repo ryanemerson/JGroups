@@ -152,7 +152,7 @@ final public class RMSys extends Protocol {
         switch (event.getType()) {
             case Event.MSG:
                 Message message = (Message) event.getArg();
-                if (message.getDest() instanceof AnycastAddress) {
+                if (message.getDest() instanceof AnycastAddress && !message.isFlagSet(Message.Flag.NO_TOTAL_ORDER)) {
                       flowControl.addMessage(message);
 //                    sendRMCast(message);
                     return null;
@@ -213,7 +213,7 @@ final public class RMSys extends Protocol {
         receivedMessages.put(header.getId(), message); // Store actual message, need for retransmission
 
         // schedule message broadcast
-        timer.execute(new MessageBroadcaster(message, 0, data.getMessageCopies(), data.getEta(), id));
+        new MessageBroadcaster(message, 0, data.getMessageCopies(), data.getEta(), id).run();
 
         if (log.isDebugEnabled())
             log.debug("Broadcast MSG := " + header);
