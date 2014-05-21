@@ -63,10 +63,10 @@ public class NMC {
         try {
             addLatency(probeLatencyMilli);
             NMCData data = header.getNmcData();
-            if (data != null) { // If data == null then there is no xMax to store (message must be an initial empty probe)
-                addXMax(data.getXMax());
-                profiler.addGlobalXmax(data.getXMax());
-            }
+
+            // If data == null then there is no xMax to store (message must be an initial empty probe)
+            if (data != null)
+                addGlobalXMax(data.getXMax());
         } finally {
             lock.unlock();
         }
@@ -76,7 +76,7 @@ public class NMC {
     public double calculateR() throws Exception {
         ExceedsXrcResult exceeds = getLatenciesThatExceedXrc();
         try {
-            return Collections.max(exceeds.latencies) / exceeds.xMax;
+            return Collections.max(exceeds.latencies) / exceeds.nmcData.getXMax();
         } catch (NoSuchElementException e) {
             // Throw an exception if R can't be calculated
             throw new Exception("No messages exceed the Xrc");
@@ -88,14 +88,14 @@ public class NMC {
         List<Integer> cl;
         lock.lock();
         try {
-            result = new ExceedsXrcResult(xMax);
+            result = new ExceedsXrcResult(nmcData);
             cl = new ArrayList<Integer>(currentLatencies);
         } finally {
             lock.unlock();
         }
 
         List<Integer> latencies = result.latencies;
-        double threshold = result.xMax + nmcData.getEta() / 2;
+        double threshold = result.nmcData.getXMax() + (result.nmcData.getEta() / 2);
         for (Integer latency : cl)
             if (latency > threshold)
                 latencies.add(latency);
@@ -106,6 +106,14 @@ public class NMC {
     private void addXMax(int maxLatency) {
         xMax = (int) Math.ceil(((1 - alpha) * xMax) + (alpha * maxLatency));
         profiler.addLocalXmax(xMax); // Store local xMax
+    }
+
+    private void addGlobalXMax(int maxLatency) {
+        xMax = (int) Math.ceil(((1 - alpha) * xMax) + (alpha * maxLatency));
+        if (nmcData != null)
+            nmcData = new NMCData(nmcData, xMax, clock.getTime());
+
+        profiler.addGlobalXmax(maxLatency);
     }
 
     private void addLatency(int latency) {
@@ -227,11 +235,11 @@ public class NMC {
     }
 
     private class ExceedsXrcResult {
-        private double xMax;
+        private NMCData nmcData;
         private List<Integer> latencies;
 
-        ExceedsXrcResult(int xMax) {
-            this.xMax = xMax;
+        ExceedsXrcResult(NMCData nmcData) {
+            this.nmcData = nmcData;
             this.latencies = new ArrayList<Integer>();
         }
 

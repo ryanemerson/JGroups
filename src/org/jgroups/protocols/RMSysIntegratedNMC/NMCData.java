@@ -24,6 +24,10 @@ public class NMCData implements Streamable {
     public NMCData() {
     }
 
+    public NMCData(NMCData data, int xMax, long timestamp) {
+        this(data.eta, data.messageCopies, data.omega, data.capD, data.capS, xMax, timestamp);
+    }
+
     public NMCData(int eta, int messageCopies, int omega, int capD, int capS, int xMax, long timestamp) {
         this.eta = eta;
         this.messageCopies = messageCopies;
