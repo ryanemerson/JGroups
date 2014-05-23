@@ -143,11 +143,7 @@ public class DeliveryManager {
 //        Set all messages with an expired deliveryTime to be deliverable and remove any blocking placeholders
         MessageRecord record;
         while ((record = timedOutQueue.poll()) != null) {
-            // If a subsequent message has already timedout, then there is no need for this message to timeout
-            if (lastTimeout != null && COMPARATOR.compare(record, lastTimeout) <= 0)
-                continue;
-
-            if (nodeIsStillAlive(record))
+            if (missingAckNodeIsStillAlive(record))
                 break;
 
             record.timedOut = true;
@@ -162,55 +158,61 @@ public class DeliveryManager {
         return validPlaceholders;
     }
 
-    private boolean nodeIsStillAlive(MessageRecord record) {
-        Address origin = record.id.getOriginator();
-        for (Map.Entry<Address, Boolean> ack : record.ackRecord.entrySet()) {
-            if (!ack.getValue()) {
-                VectorClock vc = receivedVectorClocks.get(ack.getKey());
-                if (vc == null)
-                    return false; // Node might be alive however we have yet to receive any msgs so we have to say no
-
-                MessageId lastReceived = vc.getMessagesReceived().get(origin);
-                // If an ack is missing from node x and the vc from x has not received a message > record.id
-                // Then the node is classed as being crashed
-                if (lastReceived == null || lastReceived.compareTo(record.id) <= 0)
-                    return false;
-            }
-        }
-        return true;
-    }
-
-    private List<MessageRecord> updateOlderMessages(MessageRecord record) {
+    private List<MessageRecord> updateOlderMessages(MessageRecord timedOutRecord) {
         List<MessageRecord> validPlaceholders = new ArrayList<MessageRecord>();
-        Iterator<MessageRecord> i = deliverySet.iterator();
+        Iterator<MessageRecord> i = deliverySet.headSet(timedOutRecord).iterator();
         while(i.hasNext()) {
-            MessageRecord r = i.next();
-            if (r.equals(record))
-                return validPlaceholders;
+            MessageRecord record = i.next();
+            // TODO insert provision for phs that are greater than timedOutRecord - To reduce blocking
 
-            if (r.isPlaceholder()) {
+            if (!nodeIsAlive(record, timedOutRecord)) {
                 i.remove();
-
-                MessageId id = r.id;
-                MessageId lastReceivedMessage = null;
-                VectorClock vectorClock = record.getHeader().getVectorClock();
-                if (vectorClock != null && vectorClock.getMessagesReceived().get(id.getOriginator()) != null)
-                    lastReceivedMessage = record.getHeader().getVectorClock().getMessagesReceived().get(id.getOriginator());
-
-                if ((id.getOriginator().equals(record.id.getOriginator()) && id.getSequence() < record.id.getSequence())
-                        || (lastReceivedMessage != null && id.getSequence() <= lastReceivedMessage.getSequence())) {
-                    messageRecords.remove(id);
-                    removeReceivedSeq(id);
-                } else {
-                    validPlaceholders.add(r);
-                }
-            } else if (!r.timedOut && r.getDelay(TimeUnit.MILLISECONDS) < 0) {
-                // Necessary hack to ensure that any messages whose delay has expired is set to timedOut
-                // Not sure why some messages are not timing out as expected, but this seems to solve the issue
-                r.timedOut = true;
+                messageRecords.remove(record.id);
+                removeReceivedSeq(record.id);
+                log.info("Ph removed for ever | " + record.id);
             }
         }
         return validPlaceholders;
+    }
+
+    private boolean nodeIsAlive(MessageRecord currentRecord, MessageRecord timedOutRecord) {
+        MessageId id = currentRecord.id;
+
+        // If cr is <= to timedOutRecord, then we know the origin is still alive (or that the missing msgs have been broadcast and are waiting to arrive)
+        if (id.getTimestamp() != -1 && id.compareTo(timedOutRecord.id) <= 0) // Handles normal ph and actual records
+            return true;
+
+        // If cr is a seq ph than compare seq values, return true if cr's seq <= timedOutRecord's seq
+        if (currentRecord.isPlaceholder() && id.getOriginator().equals(timedOutRecord.id.getOriginator()) &&
+                 id.getSequence() <= timedOutRecord.id.getSequence())
+            return true;
+
+        // Check if a newer message from the current records origin is known in the vector clocks
+        for (Address address : receivedVectorClocks.keySet())
+            if (newerMsgExists(currentRecord, address))
+                return true;
+
+        return false; // no evidence that the currentRecords origin is still alive
+    }
+
+    private boolean missingAckNodeIsStillAlive(MessageRecord record) {
+        for (Map.Entry<Address, Boolean> ack : record.ackRecord.entrySet())
+            if (!ack.getValue())
+                if (!newerMsgExists(record, ack.getKey()))
+                    return false;
+        return true;
+    }
+
+    private boolean newerMsgExists(MessageRecord record, Address host) {
+        Address origin = record.id.getOriginator();
+        VectorClock vc = receivedVectorClocks.get(host);
+        if (vc == null)
+            return false; // Node might be alive however we have yet to receive any msgs so we have to say no
+
+        // If an ack is missing from node x and the vc from x has not received a message > record.id
+        // Then the node is classed as being crashed
+        MessageId lastReceived = vc.getMessagesReceived().get(origin);
+        return lastReceived != null && lastReceived.compareTo(record.id) > 0;
     }
 
     public void processEmptyAckMessage(RMCastHeader header) {
@@ -222,7 +224,7 @@ public class DeliveryManager {
             processAcks(header.getId().getOriginator(), header.getAcks());
             processVectorClock(header.getVectorClock());
 
-            if (deliverySet.first().isDeliverable())
+            if (!deliverySet.isEmpty() && deliverySet.first().isDeliverable())
                 messageReceived.signal();
         } finally {
             lock.unlock();
@@ -235,8 +237,8 @@ public class DeliveryManager {
 
         boolean result = lastDeliveredId != null && lastDeliveredId.getSequence() >= messageId.getSequence();
         if (result && log.isDebugEnabled())
-            log.debug("MSG received that has a seq < the last message delivered from " + lastDeliveredId.getOriginator() +
-                    " therefore this message is ignored");
+            log.debug(header.getId() + " has a seq < the last delivered message " + lastDeliveredId +
+                    " therefore this message is ignored | header copy := " + header.getCopy());
 
         return result;
     }
@@ -487,11 +489,11 @@ public class DeliveryManager {
             if (id.getTimestamp() > rmSys.getClock().getTime())
                 return false;
 
-            if (timedOut)
-                return true;
-
             if (isPlaceholder())
                 return false;
+
+            if (timedOut)
+                return true;
 
             for (Map.Entry<Address, Boolean> entry : ackRecord.entrySet())
                 if (!entry.getValue())
@@ -539,7 +541,7 @@ public class DeliveryManager {
 
         @Override
         public String toString() {
-            return "MessageRecord{" +
+            return "\nMessageRecord{" +
                     "id=" + id +
                     ", deliveryTime=" + deliveryTime +
                     ", ackRecord=" + ackRecord +
@@ -549,7 +551,7 @@ public class DeliveryManager {
                     ", timedOut=" + timedOut +
                     (deliveredMsgRecord.get(id.getOriginator()) == null ? "" : ", lastDeliveredThisNode=" + deliveredMsgRecord.get(id.getOriginator()).getSequence()) +
                     (getHeader() == null ? "" : ", vectorClock=" + getHeader().getVectorClock()) +
-                    '}';
+                    "}";
         }
     }
 

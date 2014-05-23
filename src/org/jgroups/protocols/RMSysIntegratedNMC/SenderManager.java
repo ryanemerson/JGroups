@@ -65,9 +65,6 @@ public class SenderManager {
                 continue;
 
             for (MessageId receivedId : receivedMessages) {
-                if (!receivedId.getOriginator().equals(destination))
-                    continue;
-
                 MessageId oldId = vectorClock.getMessagesReceived().get(destination);
                 boolean oldTime = receivedId.getTimestamp() <= id.getTimestamp();
 
