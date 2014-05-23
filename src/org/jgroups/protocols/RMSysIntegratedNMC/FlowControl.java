@@ -36,18 +36,7 @@ public class FlowControl {
             MessageBucket bucket = buckets.current; // Assign after the initial wait as the bucket will have changed
             boolean bucketIsFull = bucket.addMessage(message);
             if (bucketIsFull) {
-                long delay = bucket.getDelay();
-
-//                delay = delay < 1 ? 1 : delay;
-
-                System.out.println("Bucket {" + bucket.id + "} full, wait " + delay + " ms");
-                if (delay > 0) {
-                    Util.sleep(delay);
-                }
-                else {
-                    Util.sleep(0, 500 * BUCKET_SIZE);
-                }
-
+                bucket.delay();
                 bucket.send();
             }
         } finally {
@@ -157,9 +146,20 @@ public class FlowControl {
             sent = true;
         }
 
+        public void delay() {
+            long delay = getDelay();
+
+            double delayInMilli = delay / 1e+6;
+            long milli = (long) delayInMilli;
+            int nano = (int) ((delayInMilli - milli) * 1e+6);
+
+            if (delay > 0)
+                Util.sleep(milli, nano);
+        }
+
         public long getDelay() {
             long delay = broadcastTime - rmSys.getClock().getTime();
-            return delay < 0 ? 0 : (long) Math.ceil(delay / 1e+6); // Always round to the highest ms
+            return delay < 0 ? 0 : delay;
         }
 
         @Override
