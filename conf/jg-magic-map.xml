@@ -71,22 +71,24 @@
     <class id="108" name="org.jgroups.protocols.FORK$ForkHeader"/>
     <class id="109" name="org.jgroups.protocols.PERF$PerfHeader"/>
     <class id="110" name="org.jgroups.blocks.MethodCall"/>
-
+    <class id="111" name="org.jgroups.util.ExtendedUUID"/>
+    <class id="112" name="org.jgroups.protocols.SaslHeader"/>
+    <class id="113" name="org.jgroups.protocols.SEQUENCER2$SequencerHeader"/>
 
     <!-- MY MAGIC NUMBERS -->
     <!-- HiTab -->
-    <class id="111" name="org.jgroups.protocols.HiTab.NMC$ProbeHeader"/>
-    <class id="112" name="org.jgroups.protocols.HiTab.PCSynch$PCSynchHeader"/>
-    <class id="113" name="org.jgroups.protocols.HiTab.RMCastHeader"/>
-    <class id="114" name="org.jgroups.protocols.HiTab.HiTabHeader"/>
-    <class id="115" name="org.jgroups.protocols.HiTab.HiTabBundler$HiTabBundlerHeader"/>
-    <class id="116"  name="org.jgroups.tests.perf.MPerfTransSim$MPerfHeader"/>
-    <class id="117" name="org.jgroups.protocols.HiTab.MessageRejectionHeader"/>
+    <class id="114" name="org.jgroups.protocols.HiTab.NMC$ProbeHeader"/>
+    <class id="115" name="org.jgroups.protocols.HiTab.PCSynch$PCSynchHeader"/>
+    <class id="116" name="org.jgroups.protocols.HiTab.RMCastHeader"/>
+    <class id="117" name="org.jgroups.protocols.HiTab.HiTabHeader"/>
+    <class id="118" name="org.jgroups.protocols.HiTab.HiTabBundler$HiTabBundlerHeader"/>
+    <class id="119"  name="org.jgroups.tests.perf.MPerfTransSim$MPerfHeader"/>
+    <class id="120" name="org.jgroups.protocols.HiTab.MessageRejectionHeader"/>
 
     <!-- DECOUPLED -->
-    <class id="118" name="org.jgroups.protocols.DecoupledBroadcast.DecoupledHeader"/>
+    <class id="121" name="org.jgroups.protocols.DecoupledBroadcast.DecoupledHeader"/>
 
     <!-- RMSysIntegratedProbing -->
-    <class id="119" name="org.jgroups.protocols.RMSysIntegratedNMC.PCSynch$PCSynchHeader"/>
-    <class id="120" name="org.jgroups.protocols.RMSysIntegratedNMC.RMCastHeader"/>
+    <class id="122" name="org.jgroups.protocols.RMSysIntegratedNMC.PCSynch$PCSynchHeader"/>
+    <class id="123" name="org.jgroups.protocols.RMSysIntegratedNMC.RMCastHeader"/>
 </magic-number-class-mapping>

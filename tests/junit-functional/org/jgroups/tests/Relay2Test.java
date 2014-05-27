@@ -1,10 +1,7 @@
 package org.jgroups.tests;
 
 import org.jgroups.*;
-import org.jgroups.protocols.FORWARD_TO_COORD;
-import org.jgroups.protocols.PING;
-import org.jgroups.protocols.SHARED_LOOPBACK;
-import org.jgroups.protocols.UNICAST3;
+import org.jgroups.protocols.*;
 import org.jgroups.protocols.pbcast.GMS;
 import org.jgroups.protocols.pbcast.NAKACK2;
 import org.jgroups.protocols.relay.RELAY2;
@@ -40,33 +37,32 @@ public class Relay2Test {
      * Test that RELAY2 can be added to an already connected channel.
      */
     public void testAddRelay2ToAnAlreadyConnectedChannel() throws Exception {
-    	// 1- Create and connect a channel.
-		a = new JChannel();
-		a.connect(SFO_CLUSTER);
-		
-		System.out.println("Channel " + a.getName() + " is connected. View: " + a.getView());
-		
-		// 3- Add RELAY2 protocol to the already connected channel.
-		RELAY2 relayToInject = createRELAY2(SFO);
+        // 1- Create and connect a channel.
+        a=new JChannel();
+        a.connect(SFO_CLUSTER);
+        System.out.println("Channel " + a.getName() + " is connected. View: " + a.getView());
+
+        // 3- Add RELAY2 protocol to the already connected channel.
+        RELAY2 relayToInject = createRELAY2(SFO);
         // Util.setField(Util.getField(relayToInject.getClass(), "local_addr"), relayToInject, a.getAddress());
 
-		a.getProtocolStack().insertProtocolAtTop(relayToInject);
+        a.getProtocolStack().insertProtocolAtTop(relayToInject);
         relayToInject.down(new Event(Event.SET_LOCAL_ADDRESS, a.getAddress()));
         relayToInject.setProtocolStack(a.getProtocolStack());
-		relayToInject.configure();
+        relayToInject.configure();
         relayToInject.handleView(a.getView());
-		
-		// 4- Check RELAY2 presence.
-		RELAY2 ar=(RELAY2)a.getProtocolStack().findProtocol(RELAY2.class);
-		assert ar != null;
-		
-		waitUntilRoute(SFO, true, 2000, 500, a);
-		
-		assert !ar.printRoutes().equals("n/a (not site master)") : "This member should be site master";
-		
-		Relayer.Route route=getRoute(a, SFO);
-		System.out.println("Route at sfo to sfo: " + route);
-		assert route != null;
+
+        // 4- Check RELAY2 presence.
+        RELAY2 ar=(RELAY2)a.getProtocolStack().findProtocol(RELAY2.class);
+        assert ar != null;
+
+        waitUntilRoute(SFO, true, 10000, 500, a);
+
+        assert !ar.printRoutes().equals("n/a (not site master)") : "This member should be site master";
+
+        Relayer.Route route=getRoute(a, SFO);
+        System.out.println("Route at sfo to sfo: " + route);
+        assert route != null;
     }
     
     /**
@@ -76,7 +72,7 @@ public class Relay2Test {
     public void testMissingRouteAfterMerge() throws Exception {
         a=createNode(LON, "A", LON_CLUSTER, null);
         b=createNode(LON, "B", LON_CLUSTER, null);
-        Util.waitUntilAllChannelsHaveSameSize(30000, 500, a,b);
+        Util.waitUntilAllChannelsHaveSameSize(30000, 1000, a,b);
 
         x=createNode(SFO, "X", SFO_CLUSTER, null);
         assert x.getView().size() == 1;
@@ -285,7 +281,8 @@ public class Relay2Test {
     protected JChannel createNode(String site_name, String node_name, String cluster_name,
                                   Receiver receiver) throws Exception {
         JChannel ch=new JChannel(new SHARED_LOOPBACK(),
-                                 new PING().setValue("timeout", 300).setValue("num_initial_members", 2),
+                                 new SHARED_LOOPBACK_PING(),
+                                 new MERGE3().setValue("max_interval", 3000).setValue("min_interval", 1000),
                                  new NAKACK2(),
                                  new UNICAST3(),
                                  new GMS().setValue("print_local_addr", false),
@@ -315,7 +312,8 @@ public class Relay2Test {
     protected static Protocol[] createBridgeStack() {
         return new Protocol[]{
           new SHARED_LOOPBACK(),
-          new PING().setValue("timeout", 500).setValue("num_initial_members", 2),
+          new SHARED_LOOPBACK_PING(),
+          new MERGE3().setValue("max_interval", 3000).setValue("min_interval", 1000),
           new NAKACK2(),
           new UNICAST3(),
           new GMS().setValue("print_local_addr", false)

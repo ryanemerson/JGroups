@@ -3,11 +3,10 @@ package org.jgroups;
 
 
 import org.jgroups.conf.ClassConfigurator;
-import org.jgroups.logging.Log;
-import org.jgroups.logging.LogFactory;
 import org.jgroups.util.*;
 
-import java.io.*;
+import java.io.DataInput;
+import java.io.DataOutput;
 import java.util.Map;
 
 /**
@@ -42,8 +41,6 @@ public class Message implements Streamable {
 
     protected volatile byte    transient_flags; // transient_flags is neither marshalled nor copied
 
-    protected static final Log log=LogFactory.getLog(Message.class);
-
 
 
     static final byte DEST_SET         =  1;
@@ -64,6 +61,7 @@ public class Message implements Streamable {
         INTERNAL(      (short)(1 << 8)),    // for internal use by JGroups only, don't use !
         SKIP_BARRIER(  (short)(1 << 9));    // passing messages through a closed BARRIER
 
+
         final short value;
         Flag(short value) {this.value=value;}
 
@@ -83,7 +81,8 @@ public class Message implements Streamable {
 
     // =========================== Transient flags ==============================
     public static enum TransientFlag {
-        OOB_DELIVERED((short)1);
+        OOB_DELIVERED( (short)(1)),
+        DONT_LOOPBACK( (short)(1 << 1));   // don't loop back up if this flag is set and it is a multicast message
 
         final short value;
         TransientFlag(short flag) {value=flag;}
@@ -391,6 +390,18 @@ public class Message implements Streamable {
     }
 
     /**
+     * Same as {@link #setFlag(Flag...)} except that transient flags are not marshalled
+     * @param flags The flag
+     */
+    public Message setTransientFlag(TransientFlag ... flags) {
+        if(flags != null)
+            for(TransientFlag flag: flags)
+                if(flag != null)
+                    transient_flags|=flag.value();
+        return this;
+    }
+
+    /**
      * Sets the flags from a short. <em>Not recommended</em> (use {@link #setFlag(org.jgroups.Message.Flag...)} instead),
      * as the internal representation of flags might change anytime.
      * @param flag
@@ -401,12 +412,19 @@ public class Message implements Streamable {
         return this;
     }
 
+    public Message setTransientFlag(short flag) {
+        transient_flags |= flag;
+        return this;
+    }
+
+
     /**
      * Returns the internal representation of flags. Don't use this, as the internal format might change at any time !
      * This is only used by unit test code
      * @return
      */
-    public short getFlags() {return flags;}
+    public short getFlags()          {return flags;}
+    public short getTransientFlags() {return transient_flags;}
 
     /**
      * Clears a number of flags in a message
@@ -418,6 +436,14 @@ public class Message implements Streamable {
             for(Flag flag: flags)
                 if(flag != null)
                     this.flags &= ~flag.value();
+        return this;
+    }
+
+    public Message clearTransientFlag(TransientFlag ... flags) {
+        if(flags != null)
+            for(TransientFlag flag: flags)
+                if(flag != null)
+                    transient_flags &= ~flag.value();
         return this;
     }
 
@@ -434,19 +460,15 @@ public class Message implements Streamable {
         return isFlagSet(flags, flag);
     }
 
-   /**
-    * Same as {@link #setFlag(Flag...)} except that transient flags are not marshalled
-    * @param flags The flag
-    */
-   public Message setTransientFlag(TransientFlag ... flags) {
-       if(flags != null)
-           for(TransientFlag flag: flags)
-               if(flag != null)
-                   transient_flags |= flag.value();
-       return this;
+    public static boolean isTransientFlagSet(short flags, TransientFlag flag) {
+        return flag != null && (flags & flag.value()) == flag.value();
     }
 
-   /**
+    public boolean isTransientFlagSet(TransientFlag flag) {
+        return isTransientFlagSet(transient_flags, flag);
+    }
+
+    /**
     * Atomically checks if a given flag is set and - if not - sets it. When multiple threads
     * concurrently call this method with the same flag, only one of them will be able to set the
     * flag
@@ -459,22 +481,6 @@ public class Message implements Streamable {
             return false;
         setTransientFlag(flag);
         return true;
-    }
-
-    public Message clearTransientFlag(TransientFlag ... flags) {
-        if(flags != null)
-            for(TransientFlag flag: flags)
-                if(flag != null)
-                    transient_flags &= ~flag.value();
-        return this;
-    }
-
-    public boolean isTransientFlagSet(TransientFlag flag) {
-        return flag != null && (transient_flags & flag.value()) == flag.value();
-    }
-
-    public short getTransientFlags() {
-        return transient_flags;
     }
 
 
@@ -631,7 +637,7 @@ public class Message implements Streamable {
         if(flags > 0)
             ret.append(", flags=").append(flagsToString(flags));
         if(transient_flags > 0)
-            ret.append(", transient_flags=" + transientFlagsToString());
+            ret.append(", transient_flags=" + transientFlagsToString(transient_flags));
         ret.append(']');
         return ret.toString();
     }
@@ -894,13 +900,13 @@ public class Message implements Streamable {
     }
 
 
-    public String transientFlagsToString() {
+    public static String transientFlagsToString(short flags) {
         StringBuilder sb=new StringBuilder();
         boolean first=true;
 
         TransientFlag[] all_flags=TransientFlag.values();
         for(TransientFlag flag: all_flags) {
-            if(isTransientFlagSet(flag)) {
+            if(isTransientFlagSet(flags, flag)) {
                 if(first)
                     first=false;
                 else
@@ -938,7 +944,6 @@ public class Message implements Streamable {
     protected static Headers createHeaders(Headers m) {
         return new Headers(m);
     }
-
 
     /* ------------------------------- End of Private methods ---------------------------- */
 

@@ -6,8 +6,8 @@ import org.jgroups.Global;
 import org.jgroups.JChannel;
 import org.jgroups.Message;
 import org.jgroups.ReceiverAdapter;
-import org.jgroups.protocols.PING;
 import org.jgroups.protocols.SHARED_LOOPBACK;
+import org.jgroups.protocols.SHARED_LOOPBACK_PING;
 import org.jgroups.protocols.UNICAST3;
 import org.jgroups.protocols.pbcast.GMS;
 import org.jgroups.protocols.pbcast.NAKACK2;
@@ -82,9 +82,8 @@ public class MessageBeforeConnectedTest extends BMNGRunner {
 
 
     protected JChannel createChannel(String name) throws Exception {
-        JChannel ch=new JChannel(new SHARED_LOOPBACK().setValue("enable_bundling", false)
-                                   .setValue("enable_unicast_bundling", false),
-                                 new PING().setValue("timeout", 500).setValue("num_initial_members", 2),
+        JChannel ch=new JChannel(new SHARED_LOOPBACK(),
+                                 new SHARED_LOOPBACK_PING(),
                                  new NAKACK2().setValue("become_server_queue_size", 10),
                                  new UNICAST3(),
                                  new GMS().setValue("print_local_addr", false));

@@ -5,13 +5,12 @@
   author: Bela Ban
 -->
 
-<config xmlns="urn:org:jgroups"
-        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-        xsi:schemaLocation="urn:org:jgroups http://www.jgroups.org/schema/JGroups-3.3.xsd">
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xmlns="urn:org:jgroups"
+        xsi:schemaLocation="urn:org:jgroups http://www.jgroups.org/schema/jgroups.xsd">
     <UDP
          mcast_port="${jgroups.udp.mcast_port:45588}"
          tos="8"
-         loopback="true"
          max_bundle_size="64K"
          max_bundle_timeout="30"
          enable_diagnostics="true"

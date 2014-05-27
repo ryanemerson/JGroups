@@ -31,6 +31,7 @@ public class UPerf extends ReceiverAdapter {
     private RpcDispatcher          disp;
     static final String            groupname="uperf";
     protected final List<Address>  members=new ArrayList<Address>();
+    protected volatile View        view;
     protected final List<Address>  site_masters=new ArrayList<Address>();
 
 
@@ -114,7 +115,7 @@ public class UPerf extends ReceiverAdapter {
         if(members.size() < 2)
             return;
         Address coord=members.get(0);
-        Config config=(Config)disp.callRemoteMethod(coord, new MethodCall(GET_CONFIG), new RequestOptions(ResponseMode.GET_ALL, 5000));
+        Config config=disp.callRemoteMethod(coord, new MethodCall(GET_CONFIG), new RequestOptions(ResponseMode.GET_ALL, 5000));
         if(config != null) {
             applyConfig(config);
             System.out.println("Fetched config from " + coord + ": " + config);
@@ -130,6 +131,7 @@ public class UPerf extends ReceiverAdapter {
     }
 
     public void viewAccepted(View new_view) {
+        this.view=new_view;
         System.out.println("** view: " + new_view);
         members.clear();
         members.addAll(new_view.getMembers());
@@ -351,7 +353,7 @@ public class UPerf extends ReceiverAdapter {
 
 
     void printView() {
-        System.out.println("\n-- view: " + members + '\n');
+        System.out.println("\n-- view: " + view + '\n');
         try {
             System.in.skip(System.in.available());
         }
@@ -552,6 +554,7 @@ public class UPerf extends ReceiverAdapter {
         String  props=null;
         String  name=null;
         boolean xsite=true;
+        boolean run_event_loop=true;
 
         for(int i=0; i < args.length; i++) {
             if("-props".equals(args[i])) {
@@ -566,6 +569,10 @@ public class UPerf extends ReceiverAdapter {
                 xsite=Boolean.valueOf(args[++i]);
                 continue;
             }
+            if("-nohup".equals(args[i])) {
+                run_event_loop=false;
+                continue;
+            }
             help();
             return;
         }
@@ -574,7 +581,8 @@ public class UPerf extends ReceiverAdapter {
         try {
             test=new UPerf();
             test.init(props, name, xsite);
-            test.eventLoop();
+            if(run_event_loop)
+                test.eventLoop();
         }
         catch(Throwable ex) {
             ex.printStackTrace();
@@ -584,7 +592,7 @@ public class UPerf extends ReceiverAdapter {
     }
 
     static void help() {
-        System.out.println("UPerf [-props <props>] [-name name] [-xsite <true | false>]");
+        System.out.println("UPerf [-props <props>] [-name name] [-xsite <true | false>] [-nohup]");
     }
 
 

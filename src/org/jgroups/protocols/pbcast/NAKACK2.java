@@ -133,11 +133,18 @@ public class NAKACK2 extends Protocol implements DiagnosticsHandler.ProbeHandler
     protected static final Message         DUMMY_OOB_MSG=new Message(false).setFlag(Message.Flag.OOB);
 
     // Accepts messages which are (1) non-null, (2) no DUMMY_OOB_MSGs and (3) not OOB_DELIVERED
-    protected static final Filter<Message> no_dummy_and_no_oob_delivered_msgs=new Filter<Message>() {
+    protected final Filter<Message> no_dummy_and_no_oob_delivered_msgs_and_no_dont_loopback_msgs=new Filter<Message>() {
         public boolean accept(Message msg) {
             return msg != null
               && msg != DUMMY_OOB_MSG
-              && (!msg.isFlagSet(Message.Flag.OOB) || msg.setTransientFlagIfAbsent(Message.TransientFlag.OOB_DELIVERED));
+              && (!msg.isFlagSet(Message.Flag.OOB) || msg.setTransientFlagIfAbsent(Message.TransientFlag.OOB_DELIVERED))
+              && !(msg.isTransientFlagSet(Message.TransientFlag.DONT_LOOPBACK) && local_addr != null && local_addr.equals(msg.getSrc()));
+        }
+    };
+
+    protected static final Filter<Message> dont_loopback_filter=new Filter<Message>() {
+        public boolean accept(Message msg) {
+            return msg != null && msg.isTransientFlagSet(Message.TransientFlag.DONT_LOOPBACK);
         }
     };
 
@@ -611,10 +618,8 @@ public class NAKACK2 extends Protocol implements DiagnosticsHandler.ProbeHandler
 
         for(Iterator<Message> it=batch.iterator(); it.hasNext();) {
             final Message msg=it.next();
-            if(msg == null || msg.isFlagSet(Message.Flag.NO_RELIABILITY))
-                continue;
-            NakAckHeader2 hdr=(NakAckHeader2)msg.getHeader(id);
-            if(hdr == null)
+            NakAckHeader2 hdr;
+            if(msg == null || msg.isFlagSet(Message.Flag.NO_RELIABILITY) || (hdr=(NakAckHeader2)msg.getHeader(id)) == null)
                 continue;
             it.remove(); // remove the message from the batch, so it won't be passed up the stack
 
@@ -725,24 +730,26 @@ public class NAKACK2 extends Protocol implements DiagnosticsHandler.ProbeHandler
         if(buf == null) // discard message if there is no entry for local_addr
             return;
 
-        if(msg.getSrc() == null)
-            msg.setSrc(local_addr); // this needs to be done so we can check whether the message sender is the local_addr
+        if(msg.src() == null)
+            msg.src(local_addr); // this needs to be done so we can check whether the message sender is the local_addr
 
+        boolean dont_loopback_set=msg.isTransientFlagSet(Message.TransientFlag.DONT_LOOPBACK);
         msg_id=seqno.incrementAndGet();
         long sleep=10;
-        while(running) {
+        do {
             try {
                 msg.putHeader(this.id, NakAckHeader2.createMessageHeader(msg_id));
-                buf.add(msg_id, msg);
+                buf.add(msg_id, msg, dont_loopback_set? dont_loopback_filter : null);
                 break;
             }
             catch(Throwable t) {
-                if(!running)
-                    break;
-                Util.sleep(sleep);
-                sleep=Math.min(5000, sleep*2);
+                if(running) {
+                    Util.sleep(sleep);
+                    sleep=Math.min(5000, sleep*2);
+                }
             }
         }
+        while(running);
 
         // moved down_prot.down() out of synchronized clause (bela Sept 7 2006) http://jira.jboss.com/jira/browse/JGRP-300
         if(log.isTraceEnabled())
@@ -804,7 +811,7 @@ public class NAKACK2 extends Protocol implements DiagnosticsHandler.ProbeHandler
         boolean added=loopback || buf.add(msgs, oob, oob? DUMMY_OOB_MSG : null);
 
         if(added && log.isTraceEnabled())
-            log.trace("%s: received %s#%d - #%d (%d messages)",
+            log.trace("%s: received %s#%d-%d (%d messages)",
                       local_addr, sender, msgs.get(0).getVal1(), msgs.get(size-1).getVal1(), msgs.size());
 
 
@@ -844,7 +851,8 @@ public class NAKACK2 extends Protocol implements DiagnosticsHandler.ProbeHandler
             while(true) {
                 // We're removing as many msgs as possible and set processing to false (if null) *atomically* (wrt to add())
                 // Don't include DUMMY and OOB_DELIVERED messages in the removed set
-                List<Message> msgs=buf.removeMany(processing, remove_msgs, max_msg_batch_size, no_dummy_and_no_oob_delivered_msgs);
+                List<Message> msgs=buf.removeMany(processing, remove_msgs, max_msg_batch_size,
+                                                  no_dummy_and_no_oob_delivered_msgs_and_no_dont_loopback_msgs);
                 if(msgs == null || msgs.isEmpty()) {
                     released_processing=true;
                     if(rebroadcasting)
@@ -915,10 +923,10 @@ public class NAKACK2 extends Protocol implements DiagnosticsHandler.ProbeHandler
                 return;
             if(log.isTraceEnabled()) {
                 Message first=batch.first(), last=batch.last();
-                StringBuilder sb=new StringBuilder(local_addr + ": delivering");
+                StringBuilder sb=new StringBuilder(local_addr + ": delivering " + batch.sender());
                 if(first != null && last != null) {
                     NakAckHeader2 hdr1=(NakAckHeader2)first.getHeader(id), hdr2=(NakAckHeader2)last.getHeader(id);
-                    sb.append(" #").append(hdr1.seqno).append(" - #").append(hdr2.seqno);
+                    sb.append("#").append(hdr1.seqno).append("-").append(hdr2.seqno);
                 }
                 sb.append(" (" + batch.size()).append(" messages)");
                 log.trace(sb);

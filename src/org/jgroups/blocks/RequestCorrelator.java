@@ -16,6 +16,7 @@ import org.jgroups.util.Util;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.NotSerializableException;
+import java.lang.reflect.InvocationTargetException;
 import java.util.*;
 import java.util.concurrent.ConcurrentMap;
 
@@ -164,6 +165,8 @@ public class RequestCorrelator {
                 for(Address mbr: dest_mbrs) {
                     Message copy=msg.copy(true);
                     copy.setDest(mbr);
+                    if(!mbr.equals(local_addr) && copy.isTransientFlagSet(Message.TransientFlag.DONT_LOOPBACK))
+                        copy.clearTransientFlag(Message.TransientFlag.DONT_LOOPBACK);
                     transport.down(new Event(Event.MSG, copy));
                 }
             }
@@ -458,7 +461,7 @@ public class RequestCorrelator {
             }
             catch(Throwable t) {
                 if(rsp != null)
-                    rsp.send(t, true);
+                    rsp.send(new InvocationTargetException(t), true);
                 else
                     log.error(local_addr + ": failed dispatching request asynchronously: " + t);
             }
@@ -470,7 +473,7 @@ public class RequestCorrelator {
         }
         catch(Throwable t) {
             threw_exception=true;
-            retval=t;
+            retval=new InvocationTargetException(t);
         }
         if(hdr.rsp_expected)
             sendReply(req, hdr.id, retval, threw_exception);

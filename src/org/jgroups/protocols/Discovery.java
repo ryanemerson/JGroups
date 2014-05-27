@@ -265,8 +265,9 @@ public abstract class Discovery extends Protocol {
             // message needs to have DONT_BUNDLE flag: if A sends message M to B, and we need to fetch B's physical
             // address, then the bundler thread blocks until the discovery request has returned. However, we cannot send
             // the discovery *request* until the bundler thread has returned from sending M
-            Message msg=new Message(null).setFlag(Message.Flag.INTERNAL, Message.Flag.DONT_BUNDLE, Message.Flag.OOB)
-              .putHeader(getId(), hdr).setBuffer(marshal(data));
+            Message msg=new Message(null).putHeader(getId(),hdr).setBuffer(marshal(data))
+              .setFlag(Message.Flag.INTERNAL,Message.Flag.DONT_BUNDLE,Message.Flag.OOB)
+              .setTransientFlag(Message.TransientFlag.DONT_LOOPBACK);
             sendMcastDiscoveryRequest(msg);
         }
         else {
@@ -288,7 +289,7 @@ public abstract class Discovery extends Protocol {
                     if(physical_addr != null && addr.equals(physical_addr)) // no need to send the request to myself
                         continue;
                     // the message needs to be DONT_BUNDLE, see explanation above
-                    final Message msg=new Message(addr).setFlag(Message.Flag.INTERNAL, Message.Flag.DONT_BUNDLE)
+                    final Message msg=new Message(addr).setFlag(Message.Flag.INTERNAL, Message.Flag.DONT_BUNDLE, Message.Flag.OOB)
                       .putHeader(this.id, hdr).setBuffer(marshal(data));
                     if(log.isTraceEnabled())
                         log.trace(local_addr + ": sending discovery request to " + msg.getDest());
@@ -620,14 +621,8 @@ public abstract class Discovery extends Protocol {
         }
     }
 
-    protected PingData deserialize(final byte[] data) {
-        try {
-            return (PingData)Util.streamableFromByteBuffer(PingData.class, data);
-        }
-        catch(Exception e) {
-            log.error("Error", e);
-            return null;
-        }
+    protected static PingData deserialize(final byte[] data) throws Exception {
+        return (PingData)Util.streamableFromByteBuffer(PingData.class, data);
     }
 
     public static Buffer marshal(PingData data) {

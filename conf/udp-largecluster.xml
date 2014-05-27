@@ -5,19 +5,18 @@
   author: Bela Ban
 -->
 
-<config xmlns="urn:org:jgroups"
-        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-        xsi:schemaLocation="urn:org:jgroups http://www.jgroups.org/schema/JGroups-3.3.xsd">
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xmlns="urn:org:jgroups"
+        xsi:schemaLocation="urn:org:jgroups http://www.jgroups.org/schema/jgroups.xsd">
 
 
     <UDP mcast_addr="${jgroups.udp.mcast_addr:239.9.9.9}"
          mcast_port="${jgroups.udp.mcast_port:45588}"
          tos="8"
          ucast_recv_buf_size="5M"
-         ucast_send_buf_size="640K"
+         ucast_send_buf_size="5M"
          mcast_recv_buf_size="5M"
-         mcast_send_buf_size="640K"
-         loopback="true"
+         mcast_send_buf_size="5M"
          max_bundle_size="64K"
          max_bundle_timeout="30"
          enable_diagnostics="true"

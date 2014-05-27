@@ -68,9 +68,7 @@ public class LargeMergeTest {
 
         System.out.print("Connecting channels: ");
         for(int i=0; i < NUM; i++) {
-            SHARED_LOOPBACK shared_loopback=(SHARED_LOOPBACK)new SHARED_LOOPBACK().setValue("enable_bundling", false);
-            // UDP shared_loopback=(UDP)new UDP().setValue("enable_bundling", false);
-            shared_loopback.setLoopback(false);
+            SHARED_LOOPBACK shared_loopback=new SHARED_LOOPBACK();
             shared_loopback.setTimer(timer);
             shared_loopback.setOOBThreadPool(oob_thread_pool);
             shared_loopback.setDefaultThreadPool(thread_pool);
@@ -78,7 +76,7 @@ public class LargeMergeTest {
 
             channels[i]=Util.createChannel(shared_loopback,
                                            new DISCARD().setValue("discard_all",true),
-                                           new PING().setValue("timeout",1).setValue("num_initial_members",50)
+                                           new SHARED_LOOPBACK_PING().setValue("timeout",1).setValue("num_initial_members",50)
                                              .setValue("force_sending_discovery_rsps", true),
                                            new MERGE3().setValue("min_interval",1000)
                                              .setValue("max_interval",5000)
@@ -122,7 +120,7 @@ public class LargeMergeTest {
     public void testClusterFormationAfterMerge() {
         System.out.println("\nEnabling message traffic between members to start the merge");
         for(JChannel ch: channels) {
-            Discovery ping=(Discovery)ch.getProtocolStack().findProtocol(PING.class);
+            Discovery ping=(Discovery)ch.getProtocolStack().findProtocol(Discovery.class);
             ping.setTimeout(3000);
             DISCARD discard=(DISCARD)ch.getProtocolStack().findProtocol(DISCARD.class);
             discard.setDiscardAll(false);

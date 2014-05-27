@@ -65,8 +65,7 @@ public class MessageDispatcherRSVPTest {
 
         System.out.print("Connecting channels: ");
         for(int i=0; i < NUM; i++) {
-            SHARED_LOOPBACK shared_loopback=(SHARED_LOOPBACK)new SHARED_LOOPBACK().setValue("enable_bundling", false);
-            shared_loopback.setLoopback(false);
+            SHARED_LOOPBACK shared_loopback=new SHARED_LOOPBACK();
             shared_loopback.setTimer(timer);
             shared_loopback.setOOBThreadPool(oob_thread_pool);
             shared_loopback.setDefaultThreadPool(thread_pool);
@@ -74,8 +73,7 @@ public class MessageDispatcherRSVPTest {
 
             channels[i]=Util.createChannel(shared_loopback,
                                            new DISCARD(),
-                                           new PING().setValue("timeout",1000).setValue("num_initial_members",NUM)
-                                             .setValue("force_sending_discovery_rsps", true),
+                                           new SHARED_LOOPBACK_PING(),
                                            new MERGE2().setValue("min_interval", 1000).setValue("max_interval", 3000),
                                            new NAKACK2().setValue("use_mcast_xmit",false)
                                              .setValue("discard_delivered_msgs",true)

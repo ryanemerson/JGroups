@@ -31,9 +31,10 @@ public class UUID implements Address {
 
     protected static final int SIZE=Global.LONG_SIZE * 2;
 
-    protected static final LazyRemovalCache.Printable<Address,String> print_function=new LazyRemovalCache.Printable<Address,String>() {
-        public java.lang.String print(Address key, String val) {
-            return val + ": " + (key instanceof UUID? ((UUID)key).toStringLong() : key) + "\n";
+    protected static final LazyRemovalCache.Printable<Address,LazyRemovalCache.Entry<String>> print_function
+      =new LazyRemovalCache.Printable<Address,LazyRemovalCache.Entry<String>>() {
+        public java.lang.String print(Address key, LazyRemovalCache.Entry<String> entry) {
+            return entry.getVal() + ": " + (key instanceof UUID? ((UUID)key).toStringLong() : key) + "\n";
         }
     };
     
@@ -140,18 +141,11 @@ public class UUID implements Address {
 
     /**
      * Static factory to retrieve a type 4 (pseudo randomly generated) UUID.
-     * The {@code UUID} is generated using a cryptographically strong pseudo
-     * random number generator.
+     * The {@code UUID} is generated using a cryptographically strong pseudo random number generator.
      * @return  A randomly generated {@code UUID}
      */
     public static UUID randomUUID() {
-        SecureRandom ng=numberGenerator;
-        if(ng == null)
-            numberGenerator=ng=new SecureRandom();
-
-        byte[] randomBytes=new byte[16];
-        ng.nextBytes(randomBytes);
-        return new UUID(randomBytes);
+        return new UUID(generateRandomBytes());
     }
 
 
@@ -289,6 +283,17 @@ public class UUID implements Address {
 
     public UUID copy() {
         return new UUID(mostSigBits, leastSigBits);
+    }
+
+
+    protected static byte[] generateRandomBytes() {
+        SecureRandom ng=numberGenerator;
+        if(ng == null)
+            numberGenerator=ng=new SecureRandom();
+
+        byte[] randomBytes=new byte[16];
+        ng.nextBytes(randomBytes);
+        return randomBytes;
     }
 
 

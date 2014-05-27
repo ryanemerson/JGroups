@@ -77,7 +77,9 @@ public class MessageDispatcher implements AsyncRequestHandler, ChannelListener {
     }
 
 
-
+    public MessageDispatcher(Channel channel, RequestHandler req_handler) {
+        this(channel, null, null, req_handler);
+    }
 
     public MessageDispatcher(Channel channel, MessageListener l, MembershipListener l2, RequestHandler req_handler) {
         this(channel, l, l2);
@@ -269,7 +271,7 @@ public class MessageDispatcher implements AsyncRequestHandler, ChannelListener {
     public <T> NotifyingFuture<RspList<T>> castMessageWithFuture(final Collection<Address> dests,
                                                                  Message msg,
                                                                  RequestOptions options,
-                                                                 FutureListener<T> listener) throws Exception {
+                                                                 FutureListener<RspList<T>> listener) throws Exception {
         GroupRequest<T> req=cast(dests,msg,options,false, listener);
         return req != null? req : new NullFuture<RspList>(new RspList());
     }
@@ -291,9 +293,16 @@ public class MessageDispatcher implements AsyncRequestHandler, ChannelListener {
 
 
     protected <T> GroupRequest<T> cast(final Collection<Address> dests, Message msg, RequestOptions options,
-                                       boolean block_for_results, FutureListener<T> listener) throws Exception {
+                                       boolean block_for_results, FutureListener<RspList<T>> listener) throws Exception {
         if(msg.getDest() != null && !(msg.getDest() instanceof AnycastAddress))
             throw new IllegalArgumentException("message destination is non-null, cannot send message");
+
+        if(options != null) {
+            msg.setFlag(options.getFlags()).setTransientFlag(options.getTransientFlags());
+            if(options.getScope() > 0)
+                msg.setScope(options.getScope());
+        }
+
         List<Address> real_dests;
         // we need to clone because we don't want to modify the original
         if(dests != null) {
@@ -311,9 +320,9 @@ public class MessageDispatcher implements AsyncRequestHandler, ChannelListener {
         // if local delivery is off, then we should not wait for the message from the local member.
         // therefore remove it from the membership
         Channel tmp=channel;
-        if(tmp != null && tmp.getDiscardOwnMessages()) {
+        if((tmp != null && tmp.getDiscardOwnMessages()) || msg.isTransientFlagSet(Message.TransientFlag.DONT_LOOPBACK)) {
             if(local_addr == null)
-                local_addr=tmp.getAddress();
+                local_addr=tmp != null? tmp.getAddress() : null;
             if(local_addr != null)
                 real_dests.remove(local_addr);
         }
@@ -352,9 +361,6 @@ public class MessageDispatcher implements AsyncRequestHandler, ChannelListener {
         if(options != null) {
             req.setResponseFilter(options.getRspFilter());
             req.setAnycasting(options.getAnycasting());
-            msg.setFlag(options.getFlags());
-            if(options.getScope() > 0)
-                msg.setScope(options.getScope());
         }
         req.setBlockForResults(block_for_results);
         req.execute();
@@ -387,7 +393,7 @@ public class MessageDispatcher implements AsyncRequestHandler, ChannelListener {
             throw new IllegalArgumentException("message destination is null, cannot send message");
 
         if(opts != null) {
-            msg.setFlag(opts.getFlags());
+            msg.setFlag(opts.getFlags()).setTransientFlag(opts.getTransientFlags());
             if(opts.getScope() > 0)
                 msg.setScope(opts.getScope());
             if(opts.getMode() == ResponseMode.GET_NONE)
@@ -439,7 +445,7 @@ public class MessageDispatcher implements AsyncRequestHandler, ChannelListener {
             throw new IllegalArgumentException("message destination is null, cannot send message");
 
         if(options != null) {
-            msg.setFlag(options.getFlags());
+            msg.setFlag(options.getFlags()).setTransientFlag(options.getTransientFlags());
             if(options.getScope() > 0)
                 msg.setScope(options.getScope());
             if(options.getMode() == ResponseMode.GET_NONE)

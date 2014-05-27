@@ -442,7 +442,7 @@ public class ExecutingServiceTest extends ChannelTestBase {
         e1.submit(callable);
         
         // We wait for the thread to start
-        SleepingStreamableCallable.barrier.await(2, TimeUnit.SECONDS);
+        SleepingStreamableCallable.barrier.await(10, TimeUnit.SECONDS);
         
         if (interrupt) {
             if (logger.isTraceEnabled())
@@ -661,7 +661,7 @@ public class ExecutingServiceTest extends ChannelTestBase {
         
         Future<Object> future = e1.submit(new SimpleStreamableCallable<Object>(new Object()));
         try {
-            future.get(2, TimeUnit.SECONDS);
+            future.get(10, TimeUnit.SECONDS);
         }
         catch (ExecutionException e) {
             Throwable t = e.getCause();

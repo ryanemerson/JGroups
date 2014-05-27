@@ -23,52 +23,47 @@ public class UnicastLoopbackTest extends ChannelTestBase {
 
 
     /**
-     * Tests that when UNICAST messages are sent with TP.loopback == true, the following conditions hold:
+     * Tests that when UNICAST messages are sent to self, the following conditions hold:
      * (i) no messages touch the network
      * (ii) all messages are correctly received
-     * 
-     * @throws TimeoutException
      */
     public void testUnicastMsgsWithLoopback() throws Exception {
-    	final long TIMEOUT = 2 * 10000 ;
-    	final int NUM=1000;
-    	long num_msgs_sent_before = 0 ;
-    	long num_msgs_sent_after = 0 ;
+        final long TIMEOUT = 60 * 1000;
+        final int NUM=1000;
+        long num_msgs_sent_before = 0 ;
+        long num_msgs_sent_after = 0 ;
 
-    	Promise<Boolean> promise = new Promise<Boolean>() ;
-    	MyReceiver receiver = new MyReceiver(NUM, promise) ;
-    	channel.setReceiver(receiver) ;
-    	channel.connect("UnicastLoopbackTest") ;
+        Promise<Boolean> promise = new Promise<Boolean>() ;
+        MyReceiver receiver = new MyReceiver(NUM, promise) ;
+        channel.setReceiver(receiver) ;
+        channel.connect("UnicastLoopbackTest") ;
 
-    	Address local_addr=channel.getAddress();
+        Address local_addr=channel.getAddress();
 
-    	// set the loopback property on transport
-    	setLoopbackProperty(channel, true) ;
+        num_msgs_sent_before = getNumMessagesSentViaNetwork(channel) ;
 
-    	num_msgs_sent_before = getNumMessagesSentViaNetwork(channel) ;
+        // send NUM UNICAST messages to ourself
+        for(int i=1; i <= NUM; i++) {
+            channel.send(new Message(local_addr, null,i));
+            if(i % 100 == 0)
+                System.out.println("-- sent " + i);
+        }
 
-    	// send NUM UNICAST messages to ourself 
-    	for(int i=1; i <= NUM; i++) {
-    		channel.send(new Message(local_addr, null,i));
-    		if(i % 100 == 0)
-    			System.out.println("-- sent " + i);
-    	}
+        num_msgs_sent_after = getNumMessagesSentViaNetwork(channel) ;
 
-    	num_msgs_sent_after = getNumMessagesSentViaNetwork(channel) ;
-
-    	// when loopback == true, messages should not touch the network
+        // when sending msgs to self, messages should not touch the network
         System.out.println("num msgs before: " + num_msgs_sent_before + ", num msgs after: " + num_msgs_sent_after);
         assert num_msgs_sent_before <= num_msgs_sent_after;
         assert num_msgs_sent_after < NUM/10;
 
         try {
-    		// wait for all messages to be received
-    		promise.getResultWithTimeout(TIMEOUT) ;
-    	}
-    	catch(TimeoutException te) {
-    		// timeout exception occurred 
-    		Assert.fail("Test timed out before all messages were received; received " + receiver.getNumMsgsReceived()) ;
-    	}
+            // wait for all messages to be received
+            promise.getResultWithTimeout(TIMEOUT) ;
+        }
+        catch(TimeoutException te) {
+            // timeout exception occurred
+            Assert.fail("Test timed out before all messages were received; received " + receiver.getNumMsgsReceived()) ;
+        }
 
     }
 
@@ -81,32 +76,13 @@ public class UnicastLoopbackTest extends ChannelTestBase {
      * @throws Exception
      */
     private static long getNumMessagesSentViaNetwork(JChannel ch) throws Exception {
-    	TP transport = ch.getProtocolStack().getTransport();
-    	if (transport == null)
-    		throw new Exception("transport layer is not present - check default stack configuration") ;
-    	return transport.getNumMessagesSent();
+        TP transport = ch.getProtocolStack().getTransport();
+        if (transport == null)
+            throw new Exception("transport layer is not present - check default stack configuration") ;
+        return transport.getNumMessagesSent();
     }
 
 
-    /**
-     * Set the value of the loopback property on the transport layer.
-     * 
-     * @param ch
-     * @param loopback
-     * @throws Exception
-     */
-    private static void setLoopbackProperty(JChannel ch, boolean loopback) throws Exception {
-    	TP transport =ch.getProtocolStack().getTransport();
-    	if (transport == null)
-    		throw new Exception("transport layer is not present - check default stack configuration") ;
-
-    	// check if already set correctly
-    	if ((loopback && transport.isLoopback()) || (!loopback && !transport.isLoopback()))
-    		return ;
-
-    	// otherwise, set it
-    	transport.setLoopback(loopback);
-    }
 
     /**
      * A receiver which waits for all messages to be received and 
@@ -114,32 +90,32 @@ public class UnicastLoopbackTest extends ChannelTestBase {
      */
     private static class MyReceiver extends ReceiverAdapter {
 
-    	private final int numExpected ;
-    	private int       numReceived;
-    	private final Promise<Boolean> p ;
+        private final int numExpected ;
+        private int       numReceived;
+        private final Promise<Boolean> p ;
 
-    	public MyReceiver(int numExpected, Promise<Boolean> p) {
-    		this.numExpected = numExpected ;
-    		this.numReceived = 0 ;
-    		this.p = p ;
-    	}
+        public MyReceiver(int numExpected, Promise<Boolean> p) {
+            this.numExpected = numExpected ;
+            this.numReceived = 0 ;
+            this.p = p ;
+        }
 
-    	// when we receive a Message, we update the count of messages received
-    	public void receive(Message msg) {
+        // when we receive a Message, we update the count of messages received
+        public void receive(Message msg) {
 
-    		Integer num=(Integer)msg.getObject();
-    		numReceived++;
-    		if(num != null && num % 100 == 0)
-    			System.out.println("-- received " + num);
+            Integer num=(Integer)msg.getObject();
+            numReceived++;
+            if(num != null && num % 100 == 0)
+                System.out.println("-- received " + num);
 
-    		// if we have received NUM messages, set the result
-    		if (numReceived >= numExpected)
-    			p.setResult(Boolean.TRUE) ;
-    	}
+            // if we have received NUM messages, set the result
+            if (numReceived >= numExpected)
+                p.setResult(Boolean.TRUE) ;
+        }
 
-    	public int getNumMsgsReceived() {
-    		return numReceived ;
-    	}
+        public int getNumMsgsReceived() {
+            return numReceived ;
+        }
     }
 
 
