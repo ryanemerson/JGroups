@@ -37,11 +37,31 @@ public class DeliveryManager {
     private final Condition messageReceived = lock.newCondition();
 
     private volatile MessageRecord lastDelivered;
-    private volatile MessageRecord lastTimeout;
 
     public DeliveryManager(RMSys rmSys, Profiler profiler) {
         this.rmSys = rmSys;
         this.profiler = profiler;
+
+        Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
+            @Override
+            public void run() {
+                System.out.println("IN RUNNABLE!!!!!!!!!!!!!!");
+                lock.lock();
+                try {
+                    List<MessageRecord> records = new ArrayList<MessageRecord>();
+                    int count = 0;
+                    for (MessageRecord record : deliverySet) {
+                        if (count++ == 20)
+                            break;
+
+                        records.add(record);
+                    }
+                    System.out.println("DeliverySet := " + records);
+                } finally {
+                    lock.unlock();
+                }
+            }
+        }));
     }
 
     public RMCastHeader addLocalMessage(SenderManager senderManager, Message message, Address localAddress, NMCData data,
@@ -78,6 +98,7 @@ public class DeliveryManager {
 
         lock.lock();
         try {
+            log.info("DM msg received := " + record.id);
             if (hasMessageExpired(record.getHeader())) {
                 if (log.isInfoEnabled())
                     log.info("An old message has been sent to the DeliveryManager | Message and its records discarded | id := " + record.id);
@@ -142,9 +163,8 @@ public class DeliveryManager {
         List<MessageRecord> validPlaceholders = new ArrayList<MessageRecord>();
 //        Set all messages with an expired deliveryTime to be deliverable and remove any blocking placeholders
         MessageRecord record;
+        MessageRecord lastTimeout = null;
         while ((record = timedOutQueue.poll()) != null) {
-            if (missingAckNodeIsStillAlive(record))
-                break;
 
             record.timedOut = true;
             record.actualDeliveryTime = rmSys.getClock().getTime();
@@ -155,6 +175,7 @@ public class DeliveryManager {
         }
         if (lastTimeout != null)
             validPlaceholders =  updateOlderMessages(lastTimeout);
+
         return validPlaceholders;
     }
 
@@ -163,16 +184,37 @@ public class DeliveryManager {
         Iterator<MessageRecord> i = deliverySet.headSet(timedOutRecord).iterator();
         while(i.hasNext()) {
             MessageRecord record = i.next();
-            // TODO insert provision for phs that are greater than timedOutRecord - To reduce blocking
 
             if (!nodeIsAlive(record, timedOutRecord)) {
                 i.remove();
                 messageRecords.remove(record.id);
                 removeReceivedSeq(record.id);
-                log.info("Ph removed for ever | " + record.id);
+                if (log.isDebugEnabled())
+                    log.debug("Placeholder removed from the delivery set forever | " + record.id);
+            }
+            // If ph is > then the last received msg contained in this msg's vc then remove it and add it to valid phs
+            // Provision for phs that are greater than timedOutRecord - Reduces blocking
+            else if (record.isPlaceholder() && placeholderIsRemovable(timedOutRecord, record)) {
+                i.remove();
+                validPlaceholders.add(record);
+
+                if (log.isDebugEnabled())
+                    log.debug("Future placeholder removed from delivery set for reinsertion after delivery | " + record.id);
             }
         }
         return validPlaceholders;
+    }
+
+    private boolean placeholderIsRemovable(MessageRecord timedOutRecord, MessageRecord placeholder) {
+        MessageId id = timedOutRecord.id;
+        VectorClock vc = timedOutRecord.getHeader().getVectorClock();
+        Address phOrigin = placeholder.id.getOriginator();
+
+        if (id.getOriginator().equals(phOrigin))
+            return timedOutRecord.id.compareTo(placeholder.id) < 0; // return true if cr < ph
+
+        MessageId vcMsg = vc.getMessagesReceived().get(phOrigin);
+        return vcMsg != null && vcMsg.compareTo(placeholder.id) < 0; // return true if vc msg < ph
     }
 
     private boolean nodeIsAlive(MessageRecord currentRecord, MessageRecord timedOutRecord) {
@@ -182,9 +224,10 @@ public class DeliveryManager {
         if (id.getTimestamp() != -1 && id.compareTo(timedOutRecord.id) <= 0) // Handles normal ph and actual records
             return true;
 
-        // If cr is a seq ph than compare seq values, return true if cr's seq <= timedOutRecord's seq
-        if (currentRecord.isPlaceholder() && id.getOriginator().equals(timedOutRecord.id.getOriginator()) &&
-                 id.getSequence() <= timedOutRecord.id.getSequence())
+        // If the currentRecord is a seq ph then we know that this msg is on it's way as a subsequent msg has been
+        // received by this node or another node (we know of Seq from the vectorClock) therefore the msg will eventually arrive
+        // as if the node has crashed during transmission, another node will complete the broadcast of at least one message copy
+        if (currentRecord.isPlaceholder() && id.getTimestamp() == -1)
             return true;
 
         // Check if a newer message from the current records origin is known in the vector clocks
@@ -193,14 +236,6 @@ public class DeliveryManager {
                 return true;
 
         return false; // no evidence that the currentRecords origin is still alive
-    }
-
-    private boolean missingAckNodeIsStillAlive(MessageRecord record) {
-        for (Map.Entry<Address, Boolean> ack : record.ackRecord.entrySet())
-            if (!ack.getValue())
-                if (!newerMsgExists(record, ack.getKey()))
-                    return false;
-        return true;
     }
 
     private boolean newerMsgExists(MessageRecord record, Address host) {
