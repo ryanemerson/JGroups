@@ -62,6 +62,18 @@ public class MessageId implements SizeStreamable, Comparable<MessageId> {
         sequence = Bits.readLong(in);
     }
 
+    public int compareLocalOrder(MessageId other) throws IllegalArgumentException {
+        if (other == null) return 1;
+
+        if (!originator.equals(other.originator))
+            throw new IllegalArgumentException("MessageIds must have the same originator to compare their total order");
+
+        if (this.equals(other))
+            return 0;
+
+        return Long.signum(sequence - other.sequence);
+    }
+
     @Override
     public int compareTo(MessageId other) {
         if (other == null) return 1;
@@ -72,6 +84,11 @@ public class MessageId implements SizeStreamable, Comparable<MessageId> {
         if (originator.equals(other.originator))
             if (timestamp == other.timestamp && timestamp == -1)
                 return Long.signum(sequence - other.sequence);
+            else
+                return Long.signum(timestamp - other.timestamp);
+
+        if (originator.equals(other.originator) && sequence == other.sequence)
+            return Long.signum(timestamp - other.timestamp);
 
         if (timestamp < other.timestamp)
             return -1;

@@ -42,6 +42,7 @@ public class DeliveryManager {
         this.rmSys = rmSys;
         this.profiler = profiler;
 
+        // TODO remove
         Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
             @Override
             public void run() {
@@ -76,8 +77,10 @@ public class DeliveryManager {
             // before all of it's copies have been broadcast, this is because the msg destination is set to a single destination in deliver()
             message = message.copy();
             MessageRecord record = new MessageRecord(message);
+
             calculateDeliveryTime(record);
             addRecordToDeliverySet(record);
+            updateDeliveryTimes(record);
             storeVectorClock(record);
 
             if (deliverySet.first().isDeliverable())
@@ -94,11 +97,10 @@ public class DeliveryManager {
 
     public void addMessage(Message message) {
         message = message.copy();
-        MessageRecord record = new MessageRecord(message);
 
         lock.lock();
         try {
-            log.info("DM msg received := " + record.id);
+            MessageRecord record = new MessageRecord(message);
             if (hasMessageExpired(record.getHeader())) {
                 if (log.isInfoEnabled())
                     log.info("An old message has been sent to the DeliveryManager | Message and its records discarded | id := " + record.id);
@@ -131,6 +133,14 @@ public class DeliveryManager {
             if (deliverySet.isEmpty())
                 messageReceived.await(1, TimeUnit.MILLISECONDS);
 
+            TreeSet<MessageRecord> copy = new TreeSet<MessageRecord>(deliverySet);
+            for (MessageRecord r : copy) {
+                MessageId lastDeliveredRecord = deliveredMsgRecord.get(r.id.getOriginator());
+                if (lastDeliveredRecord != null && lastDeliveredRecord.compareLocalOrder(r.id) > 0) {
+                    log.fatal("&&& PH EXISTS < LAST DELIVERED | " + r + " | lastDelivered := " + lastDeliveredRecord);
+                }
+            }
+
             processDeliverySet(deliverable); // Deliver messages that can be delivered under normal conditions
             List<MessageRecord> validPlaceholders = processTimeoutQueue(); // Make messages with an expired timeout deliverable and remove any blocking placeholders
             processDeliverySet(deliverable); // Deliver expired messages
@@ -153,6 +163,8 @@ public class DeliveryManager {
             removeReceivedSeq(id);
             timedOutQueue.remove(record);
 
+            log.fatal("Deliver msg := " + id);
+
             int delay = (int) Math.ceil((rmSys.getClock().getTime() - record.id.getTimestamp()) / 1000000.0);
             // Ensure that the stored delay is not negative (occurs due to clock skew) SHOULD be irrelevant
             profiler.addDeliveryLatency(delay); // Store delivery latency in milliseconds
@@ -161,18 +173,18 @@ public class DeliveryManager {
 
     private List<MessageRecord> processTimeoutQueue() {
         List<MessageRecord> validPlaceholders = new ArrayList<MessageRecord>();
-//        Set all messages with an expired deliveryTime to be deliverable and remove any blocking placeholders
         MessageRecord record;
         MessageRecord lastTimeout = null;
         while ((record = timedOutQueue.poll()) != null) {
 
             record.timedOut = true;
-            record.actualDeliveryTime = rmSys.getClock().getTime();
             lastTimeout = record;
 
-            if (log.isInfoEnabled())
+            if (log.isInfoEnabled() && !record.allAcksReceived())
                 log.info("Msg timedOut, mark ready to deliver | record := " + record);
         }
+
+        // Set all messages with an expired deliveryTime to be deliverable and remove any blocking placeholders
         if (lastTimeout != null)
             validPlaceholders =  updateOlderMessages(lastTimeout);
 
@@ -194,27 +206,37 @@ public class DeliveryManager {
             }
             // If ph is > then the last received msg contained in this msg's vc then remove it and add it to valid phs
             // Provision for phs that are greater than timedOutRecord - Reduces blocking
-            else if (record.isPlaceholder() && placeholderIsRemovable(timedOutRecord, record)) {
+            else if (record.isPlaceholder() && placeholderIsIgnorable(timedOutRecord, record)) {
+                if (log.isDebugEnabled())
+                    log.debug("Future placeholder ignored during delivery | " + record.id);
                 i.remove();
                 validPlaceholders.add(record);
-
-                if (log.isDebugEnabled())
-                    log.debug("Future placeholder removed from delivery set for reinsertion after delivery | " + record.id);
             }
         }
         return validPlaceholders;
     }
 
-    private boolean placeholderIsRemovable(MessageRecord timedOutRecord, MessageRecord placeholder) {
+    private boolean placeholderIsIgnorable(MessageRecord timedOutRecord, MessageRecord placeholder) {
         MessageId id = timedOutRecord.id;
         VectorClock vc = timedOutRecord.getHeader().getVectorClock();
         Address phOrigin = placeholder.id.getOriginator();
 
-        if (id.getOriginator().equals(phOrigin))
-            return timedOutRecord.id.compareTo(placeholder.id) < 0; // return true if cr < ph
+        try {
+            if (id.compareLocalOrder(placeholder.id) < 0)
+                return true; // return true if id seq < ph
+        } catch (IllegalArgumentException e) {
+        }
 
-        MessageId vcMsg = vc.getMessagesReceived().get(phOrigin);
-        return vcMsg != null && vcMsg.compareTo(placeholder.id) < 0; // return true if vc msg < ph
+        MessageId vcMsg = null;
+        try {
+            vcMsg = vc.getMessagesReceived().get(phOrigin);
+            if (vcMsg != null && vcMsg.compareLocalOrder(placeholder.id) <= 0)
+                return true; // return true if vc msg < ph
+        } catch (IllegalArgumentException e) {
+        }
+
+        // If timedout record created the placeholder, then it is safe to ignore the ph as the timedout record must come before the ph
+        return timedOutRecord.getHeader().getAcks().contains(placeholder.id);
     }
 
     private boolean nodeIsAlive(MessageRecord currentRecord, MessageRecord timedOutRecord) {
@@ -290,47 +312,25 @@ public class DeliveryManager {
                 messageRecords.remove(placeholderId);
                 deliverySet.remove(placeholderRecord);
             }
-            existingRecord = record;
-            addRecordToDeliverySet(existingRecord);
+            addRecordToDeliverySet(record);
+            updateDeliveryTimes(record);
         } else {
             if (log.isTraceEnabled())
                 log.trace("Message added to existing record | " + existingRecord);
 
             existingRecord.addMessage(record);
-            updateDeliveryTimes(record);
+            updateDeliveryTimes(existingRecord);
         }
     }
 
     private void addRecordToDeliverySet(MessageRecord record) {
-        deliverySet.add(record);
+        if (!deliverySet.add(record))
+            log.fatal("Record := " + record.id + " | not added to delivery set | addRecordToDeliverySet");
         messageRecords.put(record.id, record);
         getReceivedSeqRecord(record.id.getOriginator()).add(record.id.getSequence());
-
-        if (!record.isPlaceholder())
-            updateDeliveryTimes(record);
     }
 
     private void updateDeliveryTimes(MessageRecord record) {
-        MessageRecord previousRecord = deliverySet.lower(record);
-        if (previousRecord != null && previousRecord.deliveryTime > record.deliveryTime)
-            record.deliveryTime = previousRecord.deliveryTime + 1;
-
-        // PreviousRecord needs to be the record that has just been added
-        previousRecord = record;
-        for (MessageRecord nextRecord : deliverySet.tailSet(record)) {
-            // If the next record's delivery time is < than the previous than increase, otherwise exit
-            if (nextRecord.deliveryTime <= previousRecord.deliveryTime)
-                nextRecord.deliveryTime = previousRecord.deliveryTime + 1;
-            else
-                break;
-        }
-        // Remove all elements from the queue and reinsert them so that the changes to the delivery times will effect
-        // the order of the queue.  Necessary because DelayQueues are ordered on insertion.
-        // TODO make so that only the effected records are removed and reinserted.
-        List<MessageRecord> records = new ArrayList<MessageRecord>();
-        if (!records.contains(record))
-            records.add(record); // Add the passed record to the timedOutQueue for the first time
-        timedOutQueue.drainTo(records);
         timedOutQueue.add(record);
     }
 
@@ -384,13 +384,15 @@ public class DeliveryManager {
     }
 
     private void createPlaceholder(Address ackSource, MessageId id, boolean ack) {
-        // If id is older than the last delivered message, from the originator node, than do not create a placeholder
-        if ((lastDelivered!= null && id.compareTo(lastDelivered.id) <= 0) && id.compareTo(deliveredMsgRecord.get(id.getOriginator())) <= 0)
+        MessageId ackSourceLastDelivered = deliveredMsgRecord.get(id.getOriginator());
+        if (lastDelivered != null && id.compareTo(lastDelivered.id) <= 0)
+            return;
+
+        if (ackSourceLastDelivered != null && (id.compareTo(ackSourceLastDelivered) <= 0) || id.compareLocalOrder(ackSourceLastDelivered) <= 0)
             return;
 
         if (getReceivedSeqRecord(id.getOriginator()).contains(id.getSequence())) {
             MessageRecord record = new MessageRecord(id.getOriginator(), id.getSequence());
-            messageReceived.signal();
             deliverySet.remove(record);
             messageRecords.remove(record.id);
         }
@@ -470,7 +472,6 @@ public class DeliveryManager {
         volatile long deliveryTime;
         volatile boolean timedOut;
         volatile Map<Address, Boolean> ackRecord;
-        volatile long actualDeliveryTime;
 
         MessageRecord(Address origin, long sequence) {
             this.id = new MessageId(-1, origin, sequence);
@@ -520,6 +521,13 @@ public class DeliveryManager {
             return message == null;
         }
 
+        boolean allAcksReceived() {
+            for (Boolean ackReceived : ackRecord.values())
+                if (!ackReceived)
+                    return false;
+            return true;
+        }
+
         boolean isDeliverable() {
             if (id.getTimestamp() > rmSys.getClock().getTime())
                 return false;
@@ -527,15 +535,11 @@ public class DeliveryManager {
             if (isPlaceholder())
                 return false;
 
-            if (timedOut)
-                return true;
-
-            for (Map.Entry<Address, Boolean> entry : ackRecord.entrySet())
-                if (!entry.getValue())
-                    return false;
-
             MessageId previous = deliveredMsgRecord.get(id.getOriginator());
-            return previous == null ||  id.getSequence() == previous.getSequence() + 1;
+            if (previous != null && id.getSequence() != previous.getSequence() + 1)
+                return false;
+
+            return timedOut || allAcksReceived();
         }
 
         void initialiseMap(RMCastHeader header) {
@@ -585,8 +589,7 @@ public class DeliveryManager {
                     ", delay()=" + getDelay(TimeUnit.MILLISECONDS) + "ms" +
                     ", timedOut=" + timedOut +
                     (deliveredMsgRecord.get(id.getOriginator()) == null ? "" : ", lastDeliveredThisNode=" + deliveredMsgRecord.get(id.getOriginator()).getSequence()) +
-                    (getHeader() == null ? "" : ", vectorClock=" + getHeader().getVectorClock()) +
-                    "}";
+                    (getHeader() == null ? "" : ", vectorClock=" + getHeader().getVectorClock()) + "}";
         }
     }
 
