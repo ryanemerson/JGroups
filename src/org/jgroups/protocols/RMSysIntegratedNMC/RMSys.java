@@ -242,6 +242,7 @@ final public class RMSys extends Protocol {
         if (log.isTraceEnabled())
             log.trace("Message received | " + header);
 
+        recordProbe(header); // Record probe latency
         if (header.getType() == RMCastHeader.EMPTY_ACK_MESSAGE) {
             deliveryManager.processEmptyAckMessage(header);
             profiler.emptyAckMessageReceived();
@@ -249,11 +250,8 @@ final public class RMSys extends Protocol {
         // No need to RMCast empty probe messages as we only want the latency
         else if (header.getType() != RMCastHeader.EMPTY_PROBE_MESSAGE) {
             // If this headers sequence has already expired then we don't want to process it again
-            if (deliveryManager.hasMessageExpired(header)) {
-                if (header.getCopy() == 0)
-                    recordProbe(header); // Still record the probe latency, as we want to take into account larger latencies
+            if (deliveryManager.hasMessageExpired(header))
                 return;
-            }
 
             final MessageRecord record;
             MessageRecord newRecord = new MessageRecord(header);
@@ -272,7 +270,6 @@ final public class RMSys extends Protocol {
         } else {
             profiler.emptyProbeMessageReceived();
         }
-        recordProbe(header); // Record probe latency
     }
 
     // Schedule an emptyAckMessage to be sent after ackWait period of time
@@ -421,6 +418,7 @@ final public class RMSys extends Protocol {
     final class DeliverMessages implements Runnable {
         @Override
         public void run() {
+            Thread.currentThread().setName("Delivery Thread"); // TODO implement ThreadFactory
             while (true) {
                 try {
                     List<Message> deliverableMessages = deliveryManager.getDeliverableMessages();
