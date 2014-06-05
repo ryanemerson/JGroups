@@ -25,7 +25,7 @@ public class NMC {
     private final Profiler profiler;
     private final List<Integer> currentLatencies = new ArrayList<Integer>(epochSize);
     private final List<Integer> recentPastLatencies = Collections.synchronizedList(new ArrayList<Integer>());
-    private final ReentrantLock lock = new ReentrantLock(true);
+    private final ReentrantLock lock = new ReentrantLock(false);
     private NMCData nmcData;
     private volatile int activeNodes = 0;
     private volatile int xMax = 0;

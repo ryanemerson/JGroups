@@ -33,7 +33,7 @@ public class DeliveryManager {
     private final RMSys rmSys;
     private final Profiler profiler;
 
-    private final ReentrantLock lock = new ReentrantLock(true);
+    private final ReentrantLock lock = new ReentrantLock(false);
     private final Condition messageReceived = lock.newCondition();
 
     private volatile MessageRecord lastDelivered;

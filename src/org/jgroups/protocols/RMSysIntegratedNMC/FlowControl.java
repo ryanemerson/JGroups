@@ -16,7 +16,7 @@ public class FlowControl {
 
     private final int BUCKET_SIZE = 1;
     private final double DELTA_REDUCTION = 0.01; // K variable, must be >= 1. A higher value increases the amount the cumulative delay is reduced // In seconds e.g. 0.01 = 10ms
-    private final ReentrantLock lock = new ReentrantLock(true);
+    private final ReentrantLock lock = new ReentrantLock(false);
     private final AtomicInteger bucketId = new AtomicInteger();
     private final NMC nmc;
     private final RMSys rmSys;
