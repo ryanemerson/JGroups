@@ -38,6 +38,9 @@ public class DeliveryManager {
 
     private volatile MessageRecord lastDelivered;
 
+    private volatile long timeWasted = 0;
+    private volatile long largestDelay = 0;
+
     public DeliveryManager(RMSys rmSys, Profiler profiler) {
         this.rmSys = rmSys;
         this.profiler = profiler;
@@ -57,6 +60,8 @@ public class DeliveryManager {
 
                         records.add(record);
                     }
+                    System.out.println("Time wasted := " + TimeUnit.NANOSECONDS.toSeconds(timeWasted));
+                    System.out.println("Largest Delay := " + TimeUnit.NANOSECONDS.toMillis(largestDelay));
                     System.out.println("DeliverySet := " + records);
                 } finally {
                     lock.unlock();
@@ -83,8 +88,8 @@ public class DeliveryManager {
             updateDeliveryTimes(record);
             storeVectorClock(record);
 
-            if (deliverySet.first().isDeliverable())
-                messageReceived.signal();
+//            if (deliverySet.first().isDeliverable())
+            messageReceived.signal();
 
             if (log.isDebugEnabled())
                 log.debug("Local Message added | " + record + (deliverySet.isEmpty() ? "" : " | deliverySet 1st := " + deliverySet.first()));
@@ -119,8 +124,8 @@ public class DeliveryManager {
             handleNewMessageRecord(record);
             rmSys.handleAcks(record.getHeader());
 
-            if (deliverySet.first().isDeliverable())
-                messageReceived.signal();
+//            if (deliverySet.first().isDeliverable())
+            messageReceived.signal();
         } finally {
             lock.unlock();
         }
@@ -130,16 +135,20 @@ public class DeliveryManager {
         final List<Message> deliverable = new ArrayList<Message>();
         lock.lock();
         try {
-            if (deliverySet.isEmpty())
-                messageReceived.await(1, TimeUnit.MILLISECONDS);
+//            MessageRecord timedOut = timedOutQueue.peek();
+//            if (deliverySet.isEmpty() || (!deliverySet.first().isDeliverable() && (timedOut == null || timedOut.getDelay(TimeUnit.NANOSECONDS) > 0))) {
+//                if (timedOut == null)
+//                    messageReceived.await();
+//                else
+//                    messageReceived.awaitNanos(timedOut.getDelay(TimeUnit.NANOSECONDS));
+//            }
+//
+//            timedOut = timedOutQueue.peek();
+//            if (deliverySet.isEmpty() || (!deliverySet.first().isDeliverable() && (timedOut == null || timedOut.getDelay(TimeUnit.NANOSECONDS) > 0)))
+//                return deliverable;
 
-            TreeSet<MessageRecord> copy = new TreeSet<MessageRecord>(deliverySet);
-            for (MessageRecord r : copy) {
-                MessageId lastDeliveredRecord = deliveredMsgRecord.get(r.id.getOriginator());
-                if (lastDeliveredRecord != null && lastDeliveredRecord.compareLocalOrder(r.id) > 0) {
-                    log.fatal("&&& PH EXISTS < LAST DELIVERED | " + r + " | lastDelivered := " + lastDeliveredRecord);
-                }
-            }
+            if (deliverySet.isEmpty())
+                messageReceived.await();
 
             processDeliverySet(deliverable); // Deliver messages that can be delivered under normal conditions
             List<MessageRecord> validPlaceholders = processTimeoutQueue(); // Make messages with an expired timeout deliverable and remove any blocking placeholders
@@ -163,7 +172,7 @@ public class DeliveryManager {
             removeReceivedSeq(id);
             timedOutQueue.remove(record);
 
-            log.fatal("Deliver msg := " + id);
+//            log.fatal("Deliver msg := " + id);
 
             int delay = (int) Math.ceil((rmSys.getClock().getTime() - record.id.getTimestamp()) / 1000000.0);
             // Ensure that the stored delay is not negative (occurs due to clock skew) SHOULD be irrelevant
@@ -281,8 +290,8 @@ public class DeliveryManager {
             processAcks(header.getId().getOriginator(), header.getAcks());
             processVectorClock(header.getVectorClock());
 
-            if (!deliverySet.isEmpty() && deliverySet.first().isDeliverable())
-                messageReceived.signal();
+//            if (!deliverySet.isEmpty() && deliverySet.first().isDeliverable())
+            messageReceived.signal();
         } finally {
             lock.unlock();
         }
@@ -456,10 +465,10 @@ public class DeliveryManager {
 
         long startTime = header.getId().getTimestamp();
         long ackWait = (2 * data.getEta()) + data.getOmega();
-        long delay = TimeUnit.MILLISECONDS.toNanos(Math.max(data.getCapD(), data.getXMax() + data.getCapS()));
+        long delay = Math.max(data.getCapD(), data.getXMax() + data.getCapS());
         // Takes into consideration the broadcast time of an ack and the max possible delay before an ack is piggybacked or explicitly broadcast
         delay = (2 * delay) + ackWait;
-        delay = delay + rmSys.getClock().getMaximumError();
+        delay = TimeUnit.MILLISECONDS.toNanos(delay) + rmSys.getClock().getMaximumError(); // Convert to Nanos and add epislon
         record.deliveryTime = startTime + delay;
 
         if (lastDelivered != null && record.deliveryTime < lastDelivered.deliveryTime)
