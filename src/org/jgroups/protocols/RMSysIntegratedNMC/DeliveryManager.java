@@ -37,9 +37,12 @@ public class DeliveryManager {
     private final Condition messageReceived = lock.newCondition();
 
     private volatile MessageRecord lastDelivered;
+    private final DMProfiler dmProfiler = new DMProfiler();
 
-    private volatile long timeWasted = 0;
-    private volatile long largestDelay = 0;
+    private volatile MessageRecord lastTimeout;
+
+    private enum DeliveryType {V1, V2}
+    private DeliveryType deliveryType = DeliveryType.V2;
 
     public DeliveryManager(RMSys rmSys, Profiler profiler) {
         this.rmSys = rmSys;
@@ -60,8 +63,18 @@ public class DeliveryManager {
 
                         records.add(record);
                     }
-                    System.out.println("Time wasted := " + TimeUnit.NANOSECONDS.toSeconds(timeWasted));
-                    System.out.println("Largest Delay := " + TimeUnit.NANOSECONDS.toMillis(largestDelay));
+                    System.out.println("Processing ----------------");
+                    System.out.println("Total Time taken := " + TimeUnit.NANOSECONDS.toSeconds(dmProfiler.timeTaken));
+                    System.out.println("Average time := " + (dmProfiler.timeTaken / dmProfiler.accessCount));
+                    System.out.println("Longest time := " + dmProfiler.longestTime);
+                    System.out.println("Shortest time := " + dmProfiler.shortestTime);
+
+                    System.out.println("Synchronisation -------------------");
+                    System.out.println("Total Time taken := " + TimeUnit.NANOSECONDS.toSeconds(dmProfiler.lockAcquireTime));
+                    System.out.println("Average time := " + (dmProfiler.lockAcquireTime / dmProfiler.acquireCount));
+                    System.out.println("Longest := " + dmProfiler.longestAt);
+                    System.out.println("Shortest := " + dmProfiler.shortestAT);
+
                     System.out.println("DeliverySet := " + records);
                 } finally {
                     lock.unlock();
@@ -88,7 +101,6 @@ public class DeliveryManager {
             updateDeliveryTimes(record);
             storeVectorClock(record);
 
-//            if (deliverySet.first().isDeliverable())
             messageReceived.signal();
 
             if (log.isDebugEnabled())
@@ -116,6 +128,8 @@ public class DeliveryManager {
             if (log.isDebugEnabled())
                 log.debug("Message added | " + record + (deliverySet.isEmpty() ? "" : " | deliverySet 1st := " + deliverySet.first()));
 
+            log.fatal("Message added | " + record.id);
+
             // Process vc & acks at the start, so that placeholders are always created before a message is added to the deliverySet
             processAcks(record);
             processVectorClock(record);
@@ -124,7 +138,6 @@ public class DeliveryManager {
             handleNewMessageRecord(record);
             rmSys.handleAcks(record.getHeader());
 
-//            if (deliverySet.first().isDeliverable())
             messageReceived.signal();
         } finally {
             lock.unlock();
@@ -133,33 +146,55 @@ public class DeliveryManager {
 
     public List<Message> getDeliverableMessages() throws InterruptedException {
         final List<Message> deliverable = new ArrayList<Message>();
+        long s = System.nanoTime();
         lock.lock();
         try {
-//            MessageRecord timedOut = timedOutQueue.peek();
-//            if (deliverySet.isEmpty() || (!deliverySet.first().isDeliverable() && (timedOut == null || timedOut.getDelay(TimeUnit.NANOSECONDS) > 0))) {
-//                if (timedOut == null)
-//                    messageReceived.await();
-//                else
-//                    messageReceived.awaitNanos(timedOut.getDelay(TimeUnit.NANOSECONDS));
-//            }
-//
-//            timedOut = timedOutQueue.peek();
-//            if (deliverySet.isEmpty() || (!deliverySet.first().isDeliverable() && (timedOut == null || timedOut.getDelay(TimeUnit.NANOSECONDS) > 0)))
-//                return deliverable;
+            long f = System.nanoTime() - s;
+            dmProfiler.lockAcquireTime += f;
+            dmProfiler.longestAt = f > dmProfiler.longestAt ? f : dmProfiler.longestAt;
+            dmProfiler.shortestAT = f < dmProfiler.shortestAT ? f : dmProfiler.shortestAT;
+            dmProfiler.acquireCount++;
 
-            if (deliverySet.isEmpty())
-                messageReceived.await();
+            MessageRecord timedOut = timedOutQueue.peek();
+            if (deliverySet.isEmpty() || (!deliverySet.first().isDeliverable() && (timedOut == null || timedOut.getDelay(TimeUnit.NANOSECONDS) > 0))) {
+                if (timedOut == null)
+                    messageReceived.await();
+                else
+                    messageReceived.awaitNanos(timedOut.getDelay(TimeUnit.NANOSECONDS));
+            }
 
-            processDeliverySet(deliverable); // Deliver messages that can be delivered under normal conditions
-            List<MessageRecord> validPlaceholders = processTimeoutQueue(); // Make messages with an expired timeout deliverable and remove any blocking placeholders
-            processDeliverySet(deliverable); // Deliver expired messages
-            deliverySet.addAll(validPlaceholders); // Re-add the 'valid' placeholders
+            timedOut = timedOutQueue.peek();
+            if (deliverySet.isEmpty() || (!deliverySet.first().isDeliverable() && (timedOut == null || timedOut.getDelay(TimeUnit.NANOSECONDS) > 0)))
+                return deliverable;
+
+            long st = System.nanoTime();
+
+            switch (deliveryType) {
+                case V1:
+                    // OLD APPROACH
+                    processDeliverySet(deliverable); // Deliver messages that can be delivered under normal conditions
+                    List<MessageRecord> validPlaceholders = processTimeoutQueue(); // Make messages with an expired timeout deliverable and remove any blocking placeholders
+                    processDeliverySet(deliverable); // Deliver expired messages
+                    deliverySet.addAll(validPlaceholders); // Re-add the 'valid' placeholders
+                    break;
+                case V2:
+                    // NEW APPROACH
+                    processTimeoutQueueV2(); // Get the newest timedout message
+                    processDeliverySetV2(deliverable); // Deliver normal and timedout messages
+                    break;
+            }
+
+            long latency = System.nanoTime() - st;
+            dmProfiler.timeTaken += latency;
+            dmProfiler.longestTime = latency > dmProfiler.longestTime ? latency : dmProfiler.longestTime;
+            dmProfiler.shortestTime = latency < dmProfiler.shortestTime ? latency : dmProfiler.shortestTime;
+            dmProfiler.accessCount++;
         } finally {
             lock.unlock();
         }
         return deliverable;
     }
-
+    // ------------------- Version 1 of delivery conditions ------------------------------- //
     private void processDeliverySet(List<Message> deliverable) {
         MessageRecord record;
         while (!deliverySet.isEmpty() && (record = deliverySet.first()).isDeliverable()) {
@@ -172,7 +207,7 @@ public class DeliveryManager {
             removeReceivedSeq(id);
             timedOutQueue.remove(record);
 
-//            log.fatal("Deliver msg := " + id);
+            log.fatal("Deliver msg := " + id);
 
             int delay = (int) Math.ceil((rmSys.getClock().getTime() - record.id.getTimestamp()) / 1000000.0);
             // Ensure that the stored delay is not negative (occurs due to clock skew) SHOULD be irrelevant
@@ -224,6 +259,74 @@ public class DeliveryManager {
         }
         return validPlaceholders;
     }
+
+    // *********************** VERSION 2 of delivery conditions ************************************** //
+    private void processTimeoutQueueV2() {
+        MessageRecord record;
+        while ((record = timedOutQueue.poll()) != null) {
+
+            record.timedOut = true;
+            lastTimeout = record;
+
+            if (log.isInfoEnabled() && !record.allAcksReceived())
+                log.info("Msg timedOut, mark ready to deliver | record := " + record);
+        }
+    }
+
+    private void processDeliverySetV2(List<Message> deliverable) {
+        if (deliverySet.isEmpty() || (lastTimeout == null && !deliverySet.first().isDeliverable()))
+            return;
+
+        MessageRecord record;
+        Iterator<MessageRecord> i = deliverySet.iterator();
+        while (i.hasNext()) {
+            record = i.next();
+
+            if (record.isDeliverable()) {
+                MessageId id = record.id;
+                i.remove();
+                messageRecords.remove(id);
+                deliverable.add(record.message);
+                deliveredMsgRecord.put(id.getOriginator(), id);
+                lastDelivered = record;
+                removeReceivedSeq(id);
+                timedOutQueue.remove(record);
+
+                log.fatal("Deliver msg := " + id);
+
+                if (lastTimeout != null && lastTimeout.equals(record))
+                    lastTimeout = null;
+
+                int delay = (int) Math.ceil((rmSys.getClock().getTime() - record.id.getTimestamp()) / 1000000.0);
+                // Ensure that the stored delay is not negative (occurs due to clock skew) SHOULD be irrelevant
+                profiler.addDeliveryLatency(delay); // Store delivery latency in milliseconds
+                continue;
+            }
+
+            if (record.isPlaceholder() && lastTimeout != null) {
+                if (!nodeIsAlive(record, lastTimeout)) {
+                    i.remove(); // Remove from the deliverySet forever
+                    messageRecords.remove(record.id);
+                    removeReceivedSeq(record.id);
+
+                    if (log.isDebugEnabled())
+                        log.debug("Placeholder removed from the delivery set forever | " + record.id);
+                    continue;
+                }
+
+                // If ph is > then the last received msg contained in this msg's vc then ignore it this time
+                // Provision for handling phs that are greater than lastTimeout - Reduces blocking
+                if (placeholderIsIgnorable(lastTimeout, record)) {
+                    if (log.isDebugEnabled())
+                        log.debug("Future placeholder ignored during delivery | " + record.id);
+                    continue;
+                }
+            }
+            break;
+        }
+    }
+
+    // -------------- Start of common methods ------------------------ //
 
     private boolean placeholderIsIgnorable(MessageRecord timedOutRecord, MessageRecord placeholder) {
         MessageId id = timedOutRecord.id;
@@ -290,7 +393,6 @@ public class DeliveryManager {
             processAcks(header.getId().getOriginator(), header.getAcks());
             processVectorClock(header.getVectorClock());
 
-//            if (!deliverySet.isEmpty() && deliverySet.first().isDeliverable())
             messageReceived.signal();
         } finally {
             lock.unlock();
@@ -612,5 +714,17 @@ public class DeliveryManager {
 
             return record1.id.compareTo(record2.id);
         }
+    }
+
+    private class DMProfiler {
+        volatile long timeTaken = 0;
+        volatile long longestTime = 0;
+        volatile long shortestTime = Long.MAX_VALUE;
+        volatile long accessCount = 0;
+
+        volatile long lockAcquireTime = 0;
+        volatile long longestAt = 0;
+        volatile long shortestAT = Long.MAX_VALUE;
+        volatile long acquireCount = 0;
     }
 }
