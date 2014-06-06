@@ -244,7 +244,7 @@ final public class RMSys extends Protocol {
 
         recordProbe(header); // Record probe latency
         if (header.getType() == RMCastHeader.EMPTY_ACK_MESSAGE) {
-            deliveryManager.processEmptyAckMessage(header);
+            deliveryManager.processEmptyAckMessage((Message) event.getArg());
             profiler.emptyAckMessageReceived();
         }
         // No need to RMCast empty probe messages as we only want the latency

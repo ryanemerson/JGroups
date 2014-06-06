@@ -5,13 +5,13 @@ import org.jgroups.Message;
 import org.jgroups.conf.ClassConfigurator;
 import org.jgroups.logging.Log;
 import org.jgroups.logging.LogFactory;
+import org.jgroups.util.Util;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.DelayQueue;
 import java.util.concurrent.Delayed;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.Condition;
-import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Class responsible for holding messages until they are ready to deliver
@@ -29,20 +29,16 @@ public class DeliveryManager {
     private final Map<Address, Set<Long>> receivedSeqRecord = new HashMap<Address, Set<Long>>();
     private final Map<Address, VectorClock> receivedVectorClocks = new HashMap<Address, VectorClock>();
     private final DelayQueue<MessageRecord> timedOutQueue = new DelayQueue<MessageRecord>();
+    private final Queue<Message> messageQueue = new ConcurrentLinkedQueue<Message>();
     private final Log log = LogFactory.getLog(RMSys.class);
+    private final DMProfiler dmProfiler = new DMProfiler();
     private final RMSys rmSys;
     private final Profiler profiler;
 
-    private final ReentrantLock lock = new ReentrantLock(false);
-    private final Condition messageReceived = lock.newCondition();
-
-    private volatile MessageRecord lastDelivered;
-    private final DMProfiler dmProfiler = new DMProfiler();
-
-    private volatile MessageRecord lastTimeout;
-
     private enum DeliveryType {V1, V2}
     private DeliveryType deliveryType = DeliveryType.V2;
+    private volatile MessageRecord lastDelivered;
+    private volatile MessageRecord lastTimeout;
 
     public DeliveryManager(RMSys rmSys, Profiler profiler) {
         this.rmSys = rmSys;
@@ -53,8 +49,7 @@ public class DeliveryManager {
             @Override
             public void run() {
                 System.out.println("IN RUNNABLE!!!!!!!!!!!!!!");
-                lock.lock();
-                try {
+                synchronized (deliverySet) {
                     List<MessageRecord> records = new ArrayList<MessageRecord>();
                     int count = 0;
                     for (MessageRecord record : deliverySet) {
@@ -69,103 +64,129 @@ public class DeliveryManager {
                     System.out.println("Longest time := " + dmProfiler.longestTime);
                     System.out.println("Shortest time := " + dmProfiler.shortestTime);
 
-                    System.out.println("Synchronisation -------------------");
-                    System.out.println("Total Time taken := " + TimeUnit.NANOSECONDS.toSeconds(dmProfiler.lockAcquireTime));
-                    System.out.println("Average time := " + (dmProfiler.lockAcquireTime / dmProfiler.acquireCount));
-                    System.out.println("Longest := " + dmProfiler.longestAt);
-                    System.out.println("Shortest := " + dmProfiler.shortestAT);
+                    System.out.println("Queue Polling -------------------");
+                    System.out.println("Total Time taken := " + TimeUnit.NANOSECONDS.toSeconds(dmProfiler.queuePollTime));
+                    System.out.println("Average time := " + (dmProfiler.queuePollTime / dmProfiler.pollCount));
+                    System.out.println("Longest := " + dmProfiler.longestPoll);
+                    System.out.println("Shortest := " + dmProfiler.shortestPoll);
 
                     System.out.println("DeliverySet := " + records);
-                } finally {
-                    lock.unlock();
                 }
             }
         }));
     }
 
+    // RMSys
     public RMCastHeader addLocalMessage(SenderManager senderManager, Message message, Address localAddress, NMCData data,
                                         short rmsysId, Collection<Address> destinations) {
-        lock.lock();
-        try {
-            RMCastHeader header = senderManager.newMessageBroadcast(localAddress, data, destinations);
-            message.putHeader(rmsysId, header);
-
-            // Copy necessary to prevent message.setDest in deliver() from affecting broadcasts of copies > 0
-            // Without this the RMSys.broadcastMessage() will throw an exception if a message has been delivered
-            // before all of it's copies have been broadcast, this is because the msg destination is set to a single destination in deliver()
-            message = message.copy();
-            MessageRecord record = new MessageRecord(message);
-
-            calculateDeliveryTime(record);
-            addRecordToDeliverySet(record);
-            updateDeliveryTimes(record);
-            storeVectorClock(record);
-
-            messageReceived.signal();
-
-            if (log.isDebugEnabled())
-                log.debug("Local Message added | " + record + (deliverySet.isEmpty() ? "" : " | deliverySet 1st := " + deliverySet.first()));
-
-            return header;
-        } finally {
-            lock.unlock();
-        }
+        RMCastHeader header = senderManager.newMessageBroadcast(localAddress, data, destinations);
+        message.putHeader(rmsysId, header);
+        message.src(localAddress);
+        addMessageToQueue(message);
+        return header;
     }
 
+    // RMSys
     public void addMessage(Message message) {
-        message = message.copy();
+        addMessageToQueue(message);
+    }
 
-        lock.lock();
-        try {
-            MessageRecord record = new MessageRecord(message);
-            if (hasMessageExpired(record.getHeader())) {
-                if (log.isInfoEnabled())
-                    log.info("An old message has been sent to the DeliveryManager | Message and its records discarded | id := " + record.id);
-                rmSys.collectGarbage(record.id); // Remove records created in RMSys
-                return;
-            }
+    public void processEmptyAckMessage(Message message) {
+        addMessageToQueue(message);
+    }
+
+    public boolean hasMessageExpired(RMCastHeader header) {
+        MessageId messageId = header.getId();
+        MessageId lastDeliveredId = deliveredMsgRecord.get(messageId.getOriginator());
+
+        boolean result = lastDeliveredId != null && lastDeliveredId.getSequence() >= messageId.getSequence();
+        if (result && log.isDebugEnabled())
+            log.debug(header.getId() + " has a seq < the last delivered message " + lastDeliveredId +
+                    " therefore this message is ignored | header copy := " + header.getCopy());
+
+        return result;
+    }
+
+    private void addMessageToQueue(Message message) {
+        // Copy necessary to prevent message.setDest in deliver() from affecting broadcasts of copies > 0
+        // Without this the RMSys.broadcastMessage() will throw an exception if a message has been delivered
+        // before all of it's copies have been broadcast, this is because the msg destination is set to a single destination in deliver()
+        message = message.copy();
+        messageQueue.add(message);
+    }
+
+    private void addLocalMessage(Message message) {
+        MessageRecord record = new MessageRecord(message);
+
+        calculateDeliveryTime(record);
+        addRecordToDeliverySet(record);
+        updateDeliveryTimes(record);
+        storeVectorClock(record);
+
+        if (log.isDebugEnabled())
+            log.debug("Local Message added | " + record + (deliverySet.isEmpty() ? "" : " | deliverySet 1st := " + deliverySet.first()));
+    }
+
+    private void addRemoteMessage(Message message) {
+        MessageRecord record = new MessageRecord(message);
+
+        // If empty ack message don't do anything else
+        RMCastHeader header = record.getHeader();
+        if (header.getType() == RMCastHeader.EMPTY_ACK_MESSAGE) {
+            processAcks(header.getId().getOriginator(), header.getAcks());
+            processVectorClock(header.getVectorClock());
+            // Do we need to store the vc as well?? The same as normal msgs?
 
             if (log.isDebugEnabled())
-                log.debug("Message added | " + record + (deliverySet.isEmpty() ? "" : " | deliverySet 1st := " + deliverySet.first()));
-
-            log.fatal("Message added | " + record.id);
-
-            // Process vc & acks at the start, so that placeholders are always created before a message is added to the deliverySet
-            processAcks(record);
-            processVectorClock(record);
-            calculateDeliveryTime(record);
-
-            handleNewMessageRecord(record);
-            rmSys.handleAcks(record.getHeader());
-
-            messageReceived.signal();
-        } finally {
-            lock.unlock();
+                log.debug("Empty Ack Message received | Acks := " + header.getAcks());
+            return;
         }
+
+        if (hasMessageExpired(record.getHeader())) {
+            if (log.isInfoEnabled())
+                log.info("An old message has been sent to the DeliveryManager | Message and its records discarded | id := " + record.id);
+            rmSys.collectGarbage(record.id); // Remove records created in RMSys
+            return;
+        }
+
+        // Process vc & acks at the start, so that placeholders are always created before a message is added to the deliverySet
+        processAcks(record);
+        processVectorClock(record);
+
+        calculateDeliveryTime(record);
+        handleNewMessageRecord(record);
+        rmSys.handleAcks(record.getHeader());
+
+        if (log.isDebugEnabled())
+            log.debug("Message added | " + record + (deliverySet.isEmpty() ? "" : " | deliverySet 1st := " + deliverySet.first()));
+
+        log.debug("Message added | " + record.id);
     }
 
     public List<Message> getDeliverableMessages() throws InterruptedException {
         final List<Message> deliverable = new ArrayList<Message>();
-        long s = System.nanoTime();
-        lock.lock();
-        try {
-            long f = System.nanoTime() - s;
-            dmProfiler.lockAcquireTime += f;
-            dmProfiler.longestAt = f > dmProfiler.longestAt ? f : dmProfiler.longestAt;
-            dmProfiler.shortestAT = f < dmProfiler.shortestAT ? f : dmProfiler.shortestAT;
-            dmProfiler.acquireCount++;
-
-            MessageRecord timedOut = timedOutQueue.peek();
-            if (deliverySet.isEmpty() || (!deliverySet.first().isDeliverable() && (timedOut == null || timedOut.getDelay(TimeUnit.NANOSECONDS) > 0))) {
-                if (timedOut == null)
-                    messageReceived.await();
-                else
-                    messageReceived.awaitNanos(timedOut.getDelay(TimeUnit.NANOSECONDS));
+        synchronized (deliverySet) {
+            // Prevents the thread from constantly running
+            if (messageQueue.isEmpty() && (timedOutQueue.isEmpty() || timedOutQueue.peek().getDelay(TimeUnit.NANOSECONDS) > 0)) {
+                Util.sleep(1);
+                return deliverable;
             }
 
-            timedOut = timedOutQueue.peek();
-            if (deliverySet.isEmpty() || (!deliverySet.first().isDeliverable() && (timedOut == null || timedOut.getDelay(TimeUnit.NANOSECONDS) > 0)))
-                return deliverable;
+            long s = System.nanoTime();
+
+            Message message;
+            while ((message = messageQueue.poll()) != null) {
+                if (message.src().equals(rmSys.getLocalAddress()))
+                    addLocalMessage(message);
+                else
+                    addRemoteMessage(message);
+            }
+            long f = System.nanoTime() - s;
+
+            dmProfiler.queuePollTime += f;
+            dmProfiler.longestPoll = f > dmProfiler.longestPoll ? f : dmProfiler.longestPoll;
+            dmProfiler.shortestPoll = f < dmProfiler.shortestPoll ? f : dmProfiler.shortestPoll;
+            dmProfiler.pollCount++;
 
             long st = System.nanoTime();
 
@@ -189,11 +210,10 @@ public class DeliveryManager {
             dmProfiler.longestTime = latency > dmProfiler.longestTime ? latency : dmProfiler.longestTime;
             dmProfiler.shortestTime = latency < dmProfiler.shortestTime ? latency : dmProfiler.shortestTime;
             dmProfiler.accessCount++;
-        } finally {
-            lock.unlock();
+            return deliverable;
         }
-        return deliverable;
     }
+
     // ------------------- Version 1 of delivery conditions ------------------------------- //
     private void processDeliverySet(List<Message> deliverable) {
         MessageRecord record;
@@ -382,33 +402,6 @@ public class DeliveryManager {
         // Then the node is classed as being crashed
         MessageId lastReceived = vc.getMessagesReceived().get(origin);
         return lastReceived != null && lastReceived.compareTo(record.id) > 0;
-    }
-
-    public void processEmptyAckMessage(RMCastHeader header) {
-        lock.lock();
-        try {
-            if (log.isDebugEnabled())
-                log.debug("Empty Ack Message received | Acks := " + header.getAcks());
-
-            processAcks(header.getId().getOriginator(), header.getAcks());
-            processVectorClock(header.getVectorClock());
-
-            messageReceived.signal();
-        } finally {
-            lock.unlock();
-        }
-    }
-
-    public boolean hasMessageExpired(RMCastHeader header) {
-        MessageId messageId = header.getId();
-        MessageId lastDeliveredId = deliveredMsgRecord.get(messageId.getOriginator());
-
-        boolean result = lastDeliveredId != null && lastDeliveredId.getSequence() >= messageId.getSequence();
-        if (result && log.isDebugEnabled())
-            log.debug(header.getId() + " has a seq < the last delivered message " + lastDeliveredId +
-                    " therefore this message is ignored | header copy := " + header.getCopy());
-
-        return result;
     }
 
     private void handleNewMessageRecord(MessageRecord record) {
@@ -722,9 +715,9 @@ public class DeliveryManager {
         volatile long shortestTime = Long.MAX_VALUE;
         volatile long accessCount = 0;
 
-        volatile long lockAcquireTime = 0;
-        volatile long longestAt = 0;
-        volatile long shortestAT = Long.MAX_VALUE;
-        volatile long acquireCount = 0;
+        volatile long queuePollTime = 0;
+        volatile long longestPoll = 0;
+        volatile long shortestPoll = Long.MAX_VALUE;
+        volatile long pollCount = 0;
     }
 }
