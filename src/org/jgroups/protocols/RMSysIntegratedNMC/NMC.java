@@ -1,8 +1,12 @@
 package org.jgroups.protocols.RMSysIntegratedNMC;
 
+import org.jgroups.Address;
 import org.jgroups.logging.Log;
 import org.jgroups.logging.LogFactory;
 
+import java.io.BufferedWriter;
+import java.io.FileWriter;
+import java.io.PrintWriter;
 import java.util.*;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -20,6 +24,7 @@ public class NMC {
     private double qThreshold = 1.05; // The threshold for calculating Q
     private double etaProbability = 0.99;
     private double alpha = 0.9; // The value alpha that is used to update xMax
+    private int xrcSampleSize = 10; // The minimum number of values we use to calculate R
 
     private final PCSynch clock;
     private final Profiler profiler;
@@ -32,9 +37,27 @@ public class NMC {
 
     private Log log = LogFactory.getLog(RMSys.class);
 
-    public NMC(PCSynch clock, Profiler profiler) {
+    private final NMCProfiler nmcProfiler = new NMCProfiler(); // TODO remove
+    private final RMSys rmsys;
+
+    public NMC(PCSynch clock, RMSys rmSys, final Profiler profiler) {
         this.clock = clock;
         this.profiler = profiler;
+        this.rmsys = rmSys;
+
+        // TODO remove
+        Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
+            @Override
+            public void run() {
+                System.out.println("Profiler ------- \n " + profiler);
+                System.out.println("NMC  -------\n" + nmcProfiler);
+                try {
+                    nmcProfiler.collectionToFile(nmcProfiler.localXMax, "local");
+                } catch (Exception e) {
+                    System.out.println("WriteToFile Exception | " + e);
+                }
+            }
+        }));
     }
 
     public NMCData getData() {
@@ -62,11 +85,6 @@ public class NMC {
         lock.lock();
         try {
             addLatency(probeLatencyMilli);
-            NMCData data = header.getNmcData();
-
-            // If data == null then there is no xMax to store (message must be an initial empty probe)
-            if (data != null)
-                addGlobalXMax(data.getXMax());
         } finally {
             lock.unlock();
         }
@@ -75,12 +93,20 @@ public class NMC {
     // Return XMax / xMax
     public double calculateR() throws Exception {
         ExceedsXrcResult exceeds = getLatenciesThatExceedXrc();
-        try {
-            return Collections.max(exceeds.latencies) / exceeds.nmcData.getXMax();
-        } catch (NoSuchElementException e) {
-            // Throw an exception if R can't be calculated
+
+        // Throw an exception if R can't be calculated
+        if (exceeds.latencies.isEmpty())
             throw new Exception("No messages exceed the Xrc");
-        }
+
+        int xMax = exceeds.nmcData.getXMax();
+        int total = 0;
+        for (Integer i : exceeds.latencies)
+            total += i - xMax;
+
+        double divisor = Math.max(xrcSampleSize, exceeds.latencies.size());
+        double marginalPeakAverage = total / divisor;
+
+        return (xMax + marginalPeakAverage) / xMax;
     }
 
     private ExceedsXrcResult getLatenciesThatExceedXrc() {
@@ -95,7 +121,8 @@ public class NMC {
         }
 
         List<Integer> latencies = result.latencies;
-        double threshold = result.nmcData.getXMax() + (result.nmcData.getEta() / 2);
+//        double threshold = result.nmcData.getXMax() + (result.nmcData.getEta() / 2); // Original Xrc
+        double threshold = result.nmcData.getXMax();
         for (Integer latency : cl)
             if (latency > threshold)
                 latencies.add(latency);
@@ -106,14 +133,8 @@ public class NMC {
     private void addXMax(int maxLatency) {
         xMax = (int) Math.ceil(((1 - alpha) * xMax) + (alpha * maxLatency));
         profiler.addLocalXmax(xMax); // Store local xMax
-    }
 
-    private void addGlobalXMax(int maxLatency) {
-        xMax = (int) Math.ceil(((1 - alpha) * xMax) + (alpha * maxLatency));
-        if (nmcData != null)
-            nmcData = new NMCData(nmcData, xMax, clock.getTime());
-
-        profiler.addGlobalXmax(maxLatency);
+        nmcProfiler.localXMax.add(xMax);
     }
 
     private void addLatency(int latency) {
@@ -248,6 +269,90 @@ public class NMC {
             return "ExceedsXrcResult{" +
                     "xMax=" + xMax +
                     ", latencies=" + latencies +
+                    '}';
+        }
+    }
+
+    private class NMCProfiler {
+        final ArrayList<Integer> localXMax = new ArrayList<Integer>();
+        PrintWriter out;
+
+        double average(Collection<Integer> collection) {
+            int total = 0;
+            for (Integer i : collection)
+                total += i;
+
+            return total / collection.size();
+        }
+
+        String restrictedOutput(Collection<Integer> collection, boolean showCount) {
+            int previous = -1;
+            int count = 1;
+            String output = "";
+            for (Integer i : collection) {
+                if (i == previous || previous == -1) {
+                    count++;
+                } else {
+                    if (showCount)
+                        output += previous + "(" + count + ")\n";
+                    else
+                        output += previous + "\n";
+                    count = 1;
+                }
+                previous = i;
+            }
+            return output;
+        }
+
+        String output(Collection<Integer> collection) {
+            String output = "";
+            for (Integer i : collection)
+                output += i + "\n";
+            return output;
+        }
+
+        void collectionToFile(Collection<Integer> collection, String name, int type) throws Exception {
+            String PATH = "/work/a7109534/";
+            Address localAddress = rmsys.getLocalAddress();
+
+            String output = "";
+            String filename = "";
+            switch (type) {
+                case 0:
+                    output = output(collection);
+                    filename = "xMax";
+                    break;
+                case 1:
+                    output = restrictedOutput(collection, false);
+                    filename = "xMaxRestricted";
+                    break;
+                case 2:
+                    output = restrictedOutput(collection, true);
+                    filename = "xMaxCount";
+                    break;
+            }
+
+            String filePath = PATH + filename + "-" + name + "-" + localAddress + ".csv";
+            out = new PrintWriter(new BufferedWriter(new FileWriter(filePath,true)), true);
+            out.print(output);
+            out.flush();
+            out.close();
+        }
+
+        void collectionToFile(Collection<Integer> collection, String name) throws Exception {
+            collectionToFile(collection, name, 1);
+            collectionToFile(collection, name, 2);
+            collectionToFile(collection, name, 0);
+        }
+
+        @Override
+        public String toString() {
+            return "NMCProfiler{" +
+                    "\n\tlocalXMax{" +
+                        "\n\t\tLargest := " + Collections.max(localXMax) +
+                        "\n\t\tSmallest := " + Collections.min(localXMax) +
+                        "\n\t\tAverage := " + average(localXMax) +
+                        "}, " +
                     '}';
         }
     }
