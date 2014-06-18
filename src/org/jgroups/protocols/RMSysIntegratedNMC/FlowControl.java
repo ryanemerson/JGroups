@@ -7,18 +7,11 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 
-/**
- * // TODO: Document this
- *
- * @author ryan
- * @since 4.0
- */
 public class FlowControl {
 
     private final int BUCKET_SIZE = 1;
     private final double DELTA_UPPER_LIMIT = 0.01; // The max value of delta in seconds e.g. 0.01 = 10ms
-    private final double DELTA_LOWER_LIMIT = 0.0006; // The min value of delta in seconds
-    private final double DELTA_REDUCTION = DELTA_LOWER_LIMIT; // K variable, must be >= 1. A higher value increases the amount the cumulative delay is reduced // In seconds e.g. 0.01 = 10ms
+    private final double DELTA_LOWER_LIMIT = 0.001; // The min value of delta in seconds
     private final ReentrantLock lock = new ReentrantLock(false);
     private final AtomicInteger bucketId = new AtomicInteger();
     private final NMC nmc;
@@ -29,18 +22,21 @@ public class FlowControl {
     private NMCData nmcData = null; // The most recent nmc data accessed by this object
 
     private final Profiler profiler = new Profiler(); // TODO remove
+    private final boolean PROFILE_ENABLED = true;
 
     public FlowControl(RMSys rmSys, NMC nmc) {
         this.rmSys = rmSys;
         this.nmc = nmc;
 
-        // TODO remove
-        Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
-            @Override
-            public void run() {
-                System.out.println("Flow Control -------\n" + profiler);
-            }
-        }));
+        if (PROFILE_ENABLED) {
+            // TODO remove
+            Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    System.out.println("Flow Control -------\n" + profiler);
+                }
+            }));
+        }
     }
 
     public void addMessage(Message message) {
@@ -99,39 +95,22 @@ public class FlowControl {
             double bucketDelay = newDelta ? flowData.delta * BUCKET_SIZE : flowData.bucketDelay;
 
             if (bucketDelay > DELTA_UPPER_LIMIT) {
-                profiler.deltaExceeded++;
-                profiler.deltaHighest = Math.max(profiler.deltaHighest, bucketDelay);
-                profiler.deltaLowest = Math.min(profiler.deltaLowest, bucketDelay);
-                profiler.deltaExceededTotal += bucketDelay - DELTA_UPPER_LIMIT;
-                System.out.println("^^^^^^^^^^^^^^^^^^^^^^^^^ bucketDelay := " + bucketDelay + " | exceeededTotal := " +
-                        profiler.deltaExceededTotal + " | diff:= " + (bucketDelay - DELTA_UPPER_LIMIT) + "\n DelayInNanos := " + (long) Math.ceil(bucketDelay * 1e+9));
-
+                if (PROFILE_ENABLED)
+                    profiler.deltaLimitExceeded(bucketDelay);
                 bucketDelay = DELTA_UPPER_LIMIT; // Reset the buckets delay to the upper limit
             }
 
             if (bucketDelay < DELTA_LOWER_LIMIT)
                 bucketDelay = DELTA_LOWER_LIMIT;
 
-//            double delay = flowData.cumulativeDelay + bucketDelay;
             double delay = bucketDelay;
-//            System.out.println("ID := " + id + " | Delay := " + delay + " | delta := " + flowData.delta);
-//            delay = delay < 0 ? 0 : (delay > DELTA_UPPER_LIMIT ? DELTA_UPPER_LIMIT : delay); // Limit the max delay to
-//            delay = delay < 0 ? 0 : delay;
-            if (delay > profiler.cumulativeLimit) {
-                profiler.cumulativeExceeded++;
-                profiler.cumulativeExceededTotal += delay - profiler.cumulativeLimit;
-            }
-
             long delayInNanos = delay == 0 ? 0 : (long) Math.ceil(delay * 1e+9); // Convert to nanoseconds * 1e+9 so that the delay can be added to the currentTime
-            broadcastTime = rmSys.getClock().getTime() + delayInNanos;
 
-            // This broadcast time can't be less than the previous bucket, therefore increase this broadcast time accordingly
-            if (buckets.previous != null && broadcastTime < buckets.previous.broadcastTime) {
-                System.out.println("UPDATE BUCKET TIME!");
-                broadcastTime = buckets.previous.broadcastTime + 1;
-            }
+            if (buckets.previous != null)
+                broadcastTime = buckets.previous.broadcastTime + delayInNanos;
+            else
+                broadcastTime = rmSys.getClock().getTime() + delayInNanos;
 
-            flowData.cumulativeDelay = delay;
             flowData.bucketDelay = bucketDelay;
         }
 
@@ -156,11 +135,9 @@ public class FlowControl {
                     }
                 } catch (Exception e) {
                     // If an exception is thrown by getExponentialResult then it means no latencies have exceeded Xrc
-//                    System.out.println("Id " + id + " | " + e.getMessage());
                 }
                 return false; // The old delta value will be used
             } else {
-//                flowData.delta = -DELTA_REDUCTION / BUCKET_SIZE;
                 flowData.delta = DELTA_LOWER_LIMIT;
                 nmcData = newNMCData;
             }
@@ -169,7 +146,6 @@ public class FlowControl {
 
         double getExponentialResult() throws Exception {
             double r = nmc.calculateR();
-//            System.out.println("Bucket id := " + id + " | R := " + r);
             int c = 1; // TODO make configurable
 
             // return the new broadcast rate (omega2)
@@ -185,23 +161,17 @@ public class FlowControl {
 
         public void delay() {
             long delay = getDelay();
-            if (delay <= 0)
-                delay = (long) ((DELTA_LOWER_LIMIT * BUCKET_SIZE) * 1e+9);
-
             double delayInMilli = delay / 1e+6;
             long milli = (long) delayInMilli;
             int nano = (int) ((delayInMilli - milli) * 1e+6);
 
-            profiler.delayTotal += delay;
-            profiler.msgCount++;
-
-            if (delay > (DELTA_LOWER_LIMIT * 1e+9) * BUCKET_SIZE)
-                System.out.println("Delay bucket " + id + " for := " + TimeUnit.NANOSECONDS.toMillis(delay) + "ms | milli := " + milli + " | nano := " + nano + " | original := " + delay);
+            if (PROFILE_ENABLED) {
+                profiler.delayTotal += delay;
+                profiler.msgCount++;
+            }
 
             if (delay > 0)
                 Util.sleep(milli, nano);
-            else
-                System.out.println("ERROR!!!!!! Delay <= 0 | " + flowData);
         }
 
         public long getDelay() {
@@ -220,7 +190,6 @@ public class FlowControl {
     }
 
     private class FCDataWrapper {
-        double cumulativeDelay = 0; // w in pseudocode
         double delta = 0.0;
         double broadcastRate = 0.0;
         double exponentialResult = 0.0;
@@ -229,7 +198,6 @@ public class FlowControl {
         @Override
         public String toString() {
             return "FCDataWrapper{" +
-                    "cumulativeDelay=" + cumulativeDelay +
                     ", delta=" + delta +
                     ", broadcastRate=" + broadcastRate +
                     ", exponentialResult=" + exponentialResult +
@@ -264,6 +232,13 @@ public class FlowControl {
         double cumulativeExceededTotal = 0;
         long delayTotal = 0;
         int msgCount = 0;
+
+        public void deltaLimitExceeded(double bucketDelay) {
+            deltaExceeded++;
+            deltaHighest = Math.max(profiler.deltaHighest, bucketDelay);
+            deltaLowest = Math.min(profiler.deltaLowest, bucketDelay);
+            deltaExceededTotal += bucketDelay - DELTA_UPPER_LIMIT;
+        }
 
         @Override
         public String toString() {
