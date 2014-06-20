@@ -7,7 +7,9 @@ import org.jgroups.util.Util;
 
 import java.io.*;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -57,6 +59,9 @@ public class Test extends ReceiverAdapter {
     private boolean allMessagesReceived = false;
     private Future lastOutputFuture;
 
+    private Map<Address, RMCastHeader> msgRecord = new HashMap<Address, RMCastHeader>();
+    private boolean checkMissingSeq = false;
+
     public Test(String propsFile, int numberOfMessages, String initiator) {
         PROPERTIES_FILE = propsFile;
         NUMBER_MESSAGES_TO_SEND = numberOfMessages;
@@ -64,7 +69,7 @@ public class Test extends ReceiverAdapter {
     }
 
     public void run() throws Exception {
-        ExecutorService threadPool = Executors.newFixedThreadPool(5);
+        ExecutorService threadPool = Executors.newFixedThreadPool(25);
 
         System.out.println(PROPERTIES_FILE + " | " + NUMBER_MESSAGES_TO_SEND + " messages | Initiator " + INITIATOR);
         channel = new JChannel(PROPERTIES_FILE);
@@ -98,8 +103,6 @@ public class Test extends ReceiverAdapter {
 //                });
                 channel.send(message);
                 sentMessages++;
-
-//                Util.sleep(1);
 
                 if (sentMessages == NUMBER_MESSAGES_TO_SEND)
                     break;
@@ -160,18 +163,31 @@ public class Test extends ReceiverAdapter {
 //            System.out.println("Received msg " + ((RMCastHeader)header).getId());
 
             if (deliveredMessages.size() % NUMBER_MESSAGES_PER_FILE == 0) {
-                final List<Header> outputHeaders = new ArrayList<Header>(deliveredMessages);
-                deliveredMessages.clear();
-                // Output using a single thread to ensure that this operation does not effect receiving messages
-                lastOutputFuture = outputThread.submit(new Runnable() {
-                    @Override
-                    public void run() {
-                        writeHeadersToFile(outputHeaders);
-                    }
-                });
+                    final List<Header> outputHeaders = new ArrayList<Header>(deliveredMessages);
+                    deliveredMessages.clear();
+                    // Output using a single thread to ensure that this operation does not effect receiving messages
+                    lastOutputFuture = outputThread.submit(new Runnable() {
+                        @Override
+                        public void run() {
+                            writeHeadersToFile(outputHeaders);
+                        }
+                    });
+                }
+
+            if (checkMissingSeq) {
+                if (protocolId == 1008) {
+                    RMCastHeader h = (RMCastHeader) header;
+                    RMCastHeader oldHeader = msgRecord.put(h.getId().getOriginator(), h);
+                    if (oldHeader != null && oldHeader.getId().getSequence() + 1 != h.getId().getSequence())
+                        for (long i = oldHeader.getId().getSequence() + 1; i < h.getId().getSequence(); i++)
+                            System.out.println("ERROR!!!!!!!! Sequence missing := " + i + " | from " + h.getId().getOriginator());
+
+                    System.out.println("Msg received " + h.getId() + " | #" + (msgsReceived + 1));
+                } else {
+                    System.out.println("Msg received | #  " + (msgsReceived + 1));
+                }
             }
 
-            System.out.println("Msgs received := " + msgsReceived + 1);
             if (++msgsReceived == (NUMBER_MESSAGES_TO_SEND * channel.getView().size())) {
                 try {
                     sendCompleteMessage(channel);
