@@ -46,9 +46,11 @@ public class Test extends ReceiverAdapter {
     private final String PROPERTIES_FILE;
     private final int NUMBER_MESSAGES_TO_SEND;
     private final int NUMBER_MESSAGES_PER_FILE = 5000;
+    private final int LATENCY_INTERVAL = 5000;
     private final String INITIATOR;
     private final String PATH = "/work/a7109534/";
     private final List<Header> deliveredMessages = new ArrayList<Header>();
+    private final short id = 1025;
     private ExecutorService outputThread = Executors.newSingleThreadExecutor();
     private JChannel channel;
     private int count = 1;
@@ -76,7 +78,7 @@ public class Test extends ReceiverAdapter {
         channel.setReceiver(this);
         channel.connect("uperfBox");
 
-        ClassConfigurator.add((short) 1025, TestHeader.class); // Add Header to magic map without adding to file
+        ClassConfigurator.add(id, TestHeader.class); // Add Header to magic map without adding to file
         System.out.println("Channel Created | lc := " + channel.getAddress());
         System.out.println("Number of message to send := " + NUMBER_MESSAGES_TO_SEND);
 
@@ -91,6 +93,7 @@ public class Test extends ReceiverAdapter {
             if (startSending) {
                 AnycastAddress anycastAddress = new AnycastAddress(channel.getView().getMembers());
                 final Message message = new Message(anycastAddress, sentMessages);
+                message.putHeader(id, TestHeader.createTestMsg(sentMessages + 1));
 //                threadPool.execute(new Runnable() {
 //                    @Override
 //                    public void run() {
@@ -130,18 +133,23 @@ public class Test extends ReceiverAdapter {
     private void sendStatusMessage(JChannel channel, TestHeader header) throws Exception {
 //        Message message = new Message(new AnycastAddress(channel.getView().getMembers()));
         Message message = new Message(null);
-        message.putHeader((short) 1025, header);
+        message.putHeader(id, header);
         message.setFlag(Message.Flag.NO_TOTAL_ORDER);
         channel.send(message);
     }
 
     public void receive(Message msg) {
-        Header header = msg.getHeader((short)1025);
-        if (header != null) {
-            if (((TestHeader)header).type == TestHeader.START_SENDING && !startSending) {
+        long arrivalTime = System.nanoTime();
+        long timeTaken = -1;
+
+        final TestHeader testHeader = (TestHeader) msg.getHeader(id);
+        if (testHeader != null) {
+            byte type = testHeader.type;
+            if (type == TestHeader.START_SENDING && !startSending) {
                 startSending = true;
                 System.out.println("Start sending msgs ------");
-            } else {
+                return;
+            } else if (type == TestHeader.SENDING_COMPLETE) {
                 completeMsgsReceived++;
 
                 if (msg.src() != null)
@@ -151,28 +159,37 @@ public class Test extends ReceiverAdapter {
                 if (completeMsgsReceived ==  numberOfNodes) {
                     System.out.println("Cluster finished! | Time Taken := " + TimeUnit.MILLISECONDS.convert(System.nanoTime() - startTime, TimeUnit.NANOSECONDS));
                 }
+                return;
             }
-            return;
+            timeTaken = arrivalTime - testHeader.timestamp;
         }
 
         synchronized (deliveredMessages) {
             short protocolId = (short) (PROPERTIES_FILE.equalsIgnoreCase("RMSysIntegrated.xml") ? 1008 : 58);
-            header = msg.getHeader(protocolId);
+            Header header = msg.getHeader(protocolId);
             deliveredMessages.add(header);
 
-//            System.out.println("Received msg " + ((RMCastHeader)header).getId());
-
             if (deliveredMessages.size() % NUMBER_MESSAGES_PER_FILE == 0) {
-                    final List<Header> outputHeaders = new ArrayList<Header>(deliveredMessages);
-                    deliveredMessages.clear();
-                    // Output using a single thread to ensure that this operation does not effect receiving messages
-                    lastOutputFuture = outputThread.submit(new Runnable() {
-                        @Override
-                        public void run() {
-                            writeHeadersToFile(outputHeaders);
-                        }
-                    });
-                }
+                final List<Header> outputHeaders = new ArrayList<Header>(deliveredMessages);
+                deliveredMessages.clear();
+                // Output using a single thread to ensure that this operation does not effect receiving messages
+                lastOutputFuture = outputThread.submit(new Runnable() {
+                    @Override
+                    public void run() {
+                        writeHeadersToFile(outputHeaders);
+                    }
+                });
+            }
+
+            if (msg.src().equals(channel.getAddress()) && testHeader != null && testHeader.seq % LATENCY_INTERVAL == 0) {
+                final long tt = timeTaken;
+                lastOutputFuture = outputThread.submit(new Runnable() {
+                    @Override
+                    public void run() {
+                        writeLatencyToFile(testHeader.seq, tt);
+                    }
+                });
+            }
 
             if (checkMissingSeq) {
                 if (protocolId == 1008) {
@@ -201,11 +218,10 @@ public class Test extends ReceiverAdapter {
         System.out.println("New View := " + view);
     }
 
-    private PrintWriter getPrintWriter() {
+    private PrintWriter getPrintWriter(String path) {
         try {
             new File(PATH).mkdirs();
-            return new PrintWriter(new BufferedWriter(new FileWriter(PATH + "DeliveredMessages" + channel.getAddress() + "-" + count + ".csv",
-                    true)), true);
+            return new PrintWriter(new BufferedWriter(new FileWriter(path, true)), true);
         } catch (Exception e) {
             System.out.println("Error: " + e);
             return null;
@@ -213,7 +229,7 @@ public class Test extends ReceiverAdapter {
     }
 
     private void writeHeadersToFile(List<Header> headers) {
-        PrintWriter out = getPrintWriter();
+        PrintWriter out = getPrintWriter(PATH + "DeliveredMessages" + channel.getAddress() + "-" + count + ".csv");
         for (Header header : headers)
             if (PROPERTIES_FILE.equalsIgnoreCase("RMSysIntegrated.xml"))
                 out.println(((RMCastHeader) header).getId());
@@ -232,16 +248,34 @@ public class Test extends ReceiverAdapter {
         count++;
     }
 
+    private void writeLatencyToFile(int count, long timeTaken) {
+        PrintWriter out = getPrintWriter(PATH + "Latencies" + channel.getAddress() + ".csv");
+        out.println(count + "," + timeTaken);
+    }
+
     public static class TestHeader extends Header {
         public static final byte START_SENDING = 1;
         public static final byte SENDING_COMPLETE = 2;
+        public static final byte TEST_MSG = 3;
 
         private byte type;
+        private int seq = -1;
+        private long timestamp = -1;
 
         public TestHeader() {}
 
         public TestHeader(byte type) {
             this.type = type;
+        }
+
+        public TestHeader(byte type, int seq, long timestamp) {
+            this.type = type;
+            this.seq = seq;
+            this.timestamp = timestamp;
+        }
+
+        public static TestHeader createTestMsg(int seq) {
+            return new TestHeader(TEST_MSG, seq, System.nanoTime());
         }
 
         @Override
@@ -252,17 +286,23 @@ public class Test extends ReceiverAdapter {
         @Override
         public void writeTo(DataOutput out) throws Exception {
             out.writeByte(type);
+            out.writeInt(seq);
+            out.writeLong(timestamp);
         }
 
         @Override
         public void readFrom(DataInput in) throws Exception {
             type = in.readByte();
+            seq = in.readInt();
+            timestamp = in.readLong();
         }
 
         @Override
         public String toString() {
             return "TestHeader{" +
                     "type=" + type +
+                    ", seq=" + seq +
+                    ", timestamp=" + timestamp +
                     '}';
         }
     }
