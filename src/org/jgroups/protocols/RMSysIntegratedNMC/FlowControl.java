@@ -1,10 +1,10 @@
 package org.jgroups.protocols.RMSysIntegratedNMC;
 
 import org.jgroups.Message;
-import org.jgroups.util.Util;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
 public class FlowControl {
@@ -13,6 +13,7 @@ public class FlowControl {
     private final double DELTA_UPPER_LIMIT = 0.01; // The max value of delta in seconds e.g. 0.01 = 10ms
     private final double DELTA_LOWER_LIMIT = 0.001; // The min value of delta in seconds
     private final ReentrantLock lock = new ReentrantLock(false);
+    private final Condition signal = lock.newCondition();
     private final AtomicInteger bucketId = new AtomicInteger();
     private final NMC nmc;
     private final RMSys rmSys;
@@ -42,11 +43,15 @@ public class FlowControl {
     public void addMessage(Message message) {
         lock.lock();
         try {
-            MessageBucket bucket = buckets.current; // Assign after the initial wait as the bucket will have changed
+            MessageBucket bucket = buckets.current;
             boolean bucketIsFull = bucket.addMessage(message);
             if (bucketIsFull) {
-                bucket.delay();
-                bucket.send();
+                try {
+                    bucket.delay();
+                    bucket.send();
+                } catch (InterruptedException e) {
+                    System.out.println("Delay Exception: " + e);
+                }
             }
         } finally {
             lock.unlock();
@@ -59,6 +64,7 @@ public class FlowControl {
         volatile int messageIndex = 0;
         volatile long broadcastTime = -1;
         volatile boolean sent = false;
+        volatile MessageBucket previous = null;
 
 
         public MessageBucket() {
@@ -106,9 +112,10 @@ public class FlowControl {
             double delay = bucketDelay;
             long delayInNanos = delay == 0 ? 0 : (long) Math.ceil(delay * 1e+9); // Convert to nanoseconds * 1e+9 so that the delay can be added to the currentTime
 
-            if (buckets.previous != null)
+            if (buckets.previous != null) {
                 broadcastTime = buckets.previous.broadcastTime + delayInNanos;
-            else
+                previous = buckets.previous;
+            } else
                 broadcastTime = rmSys.getClock().getTime() + delayInNanos;
 
             flowData.bucketDelay = bucketDelay;
@@ -157,21 +164,12 @@ public class FlowControl {
                 rmSys.sendRMCast(message);
 
             sent = true;
+            signal.signalAll();
         }
 
-        public void delay() {
-            long delay = getDelay();
-            double delayInMilli = delay / 1e+6;
-            long milli = (long) delayInMilli;
-            int nano = (int) ((delayInMilli - milli) * 1e+6);
-
-            if (PROFILE_ENABLED) {
-                profiler.delayTotal += delay;
-                profiler.msgCount++;
-            }
-
-            if (delay > 0)
-                Util.sleep(milli, nano);
+        public void delay() throws InterruptedException {
+            while ((id != 0 && previous != null && !previous.sent) || getDelay() > 0)
+                signal.awaitNanos(getDelay());
         }
 
         public long getDelay() {
