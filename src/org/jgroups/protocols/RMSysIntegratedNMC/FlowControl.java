@@ -2,7 +2,6 @@ package org.jgroups.protocols.RMSysIntegratedNMC;
 
 import org.jgroups.Message;
 
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
@@ -13,7 +12,7 @@ public class FlowControl {
     private final double DELTA_UPPER_LIMIT = 0.01; // The max value of delta in seconds e.g. 0.01 = 10ms
     private final double DELTA_LOWER_LIMIT = 0.001; // The min value of delta in seconds
     private final ReentrantLock lock = new ReentrantLock(false);
-    private final Condition signal = lock.newCondition();
+    private final Condition condition = lock.newCondition();
     private final AtomicInteger bucketId = new AtomicInteger();
     private final NMC nmc;
     private final RMSys rmSys;
@@ -65,7 +64,7 @@ public class FlowControl {
         volatile long broadcastTime = -1;
         volatile boolean sent = false;
         volatile MessageBucket previous = null;
-
+        volatile long actualSendTime = -1;
 
         public MessageBucket() {
             id = bucketId.getAndIncrement();
@@ -160,16 +159,26 @@ public class FlowControl {
         }
 
         void send() {
+            actualSendTime = rmSys.getClock().getTime();
+            profiler.msgCount++;
+
+            if (previous != null)
+                profiler.delayTotal += actualSendTime - previous.actualSendTime;
+
             for (Message message : messages)
                 rmSys.sendRMCast(message);
 
             sent = true;
-            signal.signalAll();
+            condition.signalAll();
         }
 
         public void delay() throws InterruptedException {
-            while ((id != 0 && previous != null && !previous.sent) || getDelay() > 0)
-                signal.awaitNanos(getDelay());
+            long delay;
+            while ((delay = getDelay()) > 0)
+                condition.awaitNanos(delay);
+
+            while (previous != null && !previous.sent)
+                condition.await();
         }
 
         public long getDelay() {
@@ -241,15 +250,15 @@ public class FlowControl {
         @Override
         public String toString() {
             return "Profiler{" +
-                    "Delta Exceeded=" + deltaExceeded +
-                    ", Delta Exceeded Average =" + (deltaExceeded > 0 ? (deltaExceededTotal / deltaExceeded) : 0) +
-                    ", Delta Highest =" + (deltaHighest - DELTA_UPPER_LIMIT) +
-                    ", Delta Lowest =" + (deltaLowest - DELTA_UPPER_LIMIT) +
-                    ", w Limit=" + cumulativeLimit +
-                    ", w Exceeded=" + cumulativeExceeded +
-                    ", w Average=" + cumulativeExceededTotal +
-                    ", Delay Average=" + TimeUnit.NANOSECONDS.toMillis(msgCount > 0 ? (delayTotal / msgCount) : 0) +
-                    ", Msg Count=" + msgCount +
+                    "Delta Exceeded=" + deltaExceeded + "\n" +
+                    ", Delta Exceeded Average =" + (deltaExceeded > 0 ? (deltaExceededTotal / deltaExceeded) : 0) + "\n" +
+                    ", Delta Highest =" + (deltaHighest - DELTA_UPPER_LIMIT) + "\n" +
+                    ", Delta Lowest =" + (deltaLowest - DELTA_UPPER_LIMIT) + "\n" +
+                    ", w Limit=" + cumulativeLimit + "\n" +
+                    ", w Exceeded=" + cumulativeExceeded + "\n" +
+                    ", w Average=" + cumulativeExceededTotal + "\n" +
+                    ", Delay Average=" + (msgCount > 0 ? (delayTotal / msgCount) : 0) + "ns" + "\n" +
+                    ", Msg Count=" + msgCount + "\n" +
                     ", delayTotal =" + delayTotal +
                     '}';
         }
