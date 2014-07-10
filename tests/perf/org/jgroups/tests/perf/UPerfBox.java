@@ -41,6 +41,7 @@ public class UPerfBox extends ReceiverAdapter {
     private int num_msgs=10000, msg_size=1000;
     private int anycast_count=2;
     private boolean use_anycast_addrs = true;
+    private boolean random_destinations = false;
     private double read_percentage=0; // 80% reads, 20% writes
     private List<String> boxMembers  = new ArrayList<String>();
     // =======================================================
@@ -224,9 +225,10 @@ public class UPerfBox extends ReceiverAdapter {
         List<Address> nonBoxMembers = new ArrayList<Address>(members);
         removeBoxMembers(nonBoxMembers);
 
+        Random random = new Random();
         Invoker[] invokers=new Invoker[num_threads];
         for(int i=0; i < invokers.length; i++)
-            invokers[i]=new Invoker(nonBoxMembers, num_msgs, num_msgs_sent);
+            invokers[i]=new Invoker(nonBoxMembers, num_msgs, num_msgs_sent, random);
 
         long start=System.currentTimeMillis();
         for(Invoker invoker: invokers)
@@ -522,12 +524,14 @@ public class UPerfBox extends ReceiverAdapter {
         private final AtomicInteger  num_msgs_sent;
         private int                  num_gets=0;
         private int                  num_puts=0;
+        private Random random;
 
 
-        public Invoker(Collection<Address> dests, int num_msgs_to_send, AtomicInteger num_msgs_sent) {
+        public Invoker(Collection<Address> dests, int num_msgs_to_send, AtomicInteger num_msgs_sent, Random random) {
             this.num_msgs_sent=num_msgs_sent;
             this.dests.addAll(dests);
             this.num_msgs_to_send=num_msgs_to_send;
+            this.random = random;
             setName("Invoker-" + COUNTER.getAndIncrement());
         }
 
@@ -575,7 +579,7 @@ public class UPerfBox extends ReceiverAdapter {
                         num_gets++;
                     }
                     else {    // sync or async (based on value of 'sync') PUT
-                        Collection<Address> targets=pickAnycastTargets();
+                        Collection<Address> targets = random_destinations ? pickRandomAnycastTargets() : pickAnycastTargets();
                         put_args[0]=i;
                         RspList rsp = disp.callRemoteMethods(targets, put_call, put_options);
                         num_puts++;
@@ -591,6 +595,18 @@ public class UPerfBox extends ReceiverAdapter {
             int index=dests.indexOf(local_addr);
             int new_index=(index +1) % dests.size();
             return dests.get(new_index);
+        }
+
+        private Collection<Address> pickRandomAnycastTargets() {
+            Collection<Address> anycastTargets = new HashSet<Address>(anycast_count);
+            while (anycastTargets.size() < anycast_count) {
+                int randomIndex = random.nextInt(dests.size());
+                Address randomAddress = dests.get(randomIndex);
+
+                if (!anycastTargets.contains(randomAddress))
+                    anycastTargets.add(randomAddress);
+            }
+            return anycastTargets;
         }
 
         private Collection<Address> pickAnycastTargets() {
