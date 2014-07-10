@@ -221,13 +221,19 @@ public class DeliveryManager {
             MessageId id = record.id;
             deliverySet.remove(record);
             messageRecords.remove(id);
-            deliverable.add(record.message);
             deliveredMsgRecord.put(id.getOriginator(), id);
-            lastDelivered = record;
             removeReceivedSeq(id);
             timedOutQueue.remove(record);
 
-            log.fatal("Deliver msg := " + id);
+            if (lastDelivered != null && id.getTimestamp() < lastDelivered.id.getTimestamp()) {
+                if (log.isWarnEnabled()) {
+                    log.warn("Msg rejected as a msg with a newer timestamp has already been delivered | rejected msg := " +
+                            id + " | lastDelivered := " + lastDelivered.id);
+                }
+            } else {
+                deliverable.add(record.message);
+            }
+            lastDelivered = record;
 
             int delay = (int) Math.ceil((rmSys.getClock().getTime() - record.id.getTimestamp()) / 1000000.0);
             // Ensure that the stored delay is not negative (occurs due to clock skew) SHOULD be irrelevant
@@ -244,8 +250,8 @@ public class DeliveryManager {
             record.timedOut = true;
             lastTimeout = record;
 
-            if (log.isInfoEnabled() && !record.allAcksReceived())
-                log.info("Msg timedOut, mark ready to deliver | record := " + record);
+            if (log.isWarnEnabled() && !record.allAcksReceived())
+                log.warn("Msg timedOut, mark ready to deliver | record := " + record);
         }
 
         // Set all messages with an expired deliveryTime to be deliverable and remove any blocking placeholders
@@ -306,13 +312,19 @@ public class DeliveryManager {
                 MessageId id = record.id;
                 i.remove();
                 messageRecords.remove(id);
-                deliverable.add(record.message);
                 deliveredMsgRecord.put(id.getOriginator(), id);
-                lastDelivered = record;
                 removeReceivedSeq(id);
                 timedOutQueue.remove(record);
 
-                log.fatal("Deliver msg := " + id);
+                if (lastDelivered != null && id.getTimestamp() < lastDelivered.id.getTimestamp()) {
+                    if (log.isWarnEnabled()) {
+                        log.warn("Msg rejected as a msg with a newer timestamp has already been delivered | rejected msg := " +
+                                id + " | lastDelivered := " + lastDelivered.id);
+                    }
+                } else {
+                    deliverable.add(record.message);
+                }
+                lastDelivered = record;
 
                 if (lastTimeout != null && lastTimeout.equals(record))
                     lastTimeout = null;
