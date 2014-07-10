@@ -2,19 +2,18 @@ package org.jgroups.protocols.DecoupledBroadcast;
 
 import org.jgroups.*;
 import org.jgroups.annotations.Property;
-import org.jgroups.blocks.MethodCall;
 import org.jgroups.protocols.RMSysIntegratedNMC.PCSynch;
 import org.jgroups.protocols.RMSysIntegratedNMC.RMSys;
 import org.jgroups.protocols.tom.TOA;
 import org.jgroups.stack.Protocol;
 import org.jgroups.stack.ProtocolStack;
 
-import java.nio.ByteBuffer;
 import java.util.*;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.logging.ConsoleHandler;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * // TODO: Document this
@@ -33,11 +32,21 @@ public class Decoupled extends Protocol {
     @Property(name = "total_order", description = "The name of the total order protocol to be used by box members")
     private String totalOrderProtocol = "TOA";
 
+    @Property(name = "msg_size", description = "The max size of a msg between box members.  Determines the number of msgs that can be bundled")
+    private int MSG_SIZE = 1000;
+
+    @Property(name = "queue_capacity", description = "The maximum number of ordering requests that can be queued")
+    private int QUEUE_CAPACITY = 500;
+
+    @Property(name = "bundle_msgs", description = "If true then ordering requests will be bundled when possible" +
+            "in order to reduce the number of total order broadcasts between box members")
+    private boolean BUNDLE_MSGS = true;
+
     private Address localAddress = null;
     private final ViewManager viewManager = new ViewManager();
     private final DeliveryManager deliveryManager = new DeliveryManager(log, viewManager);
-    // Store messages before ordering request is sent
     private final Map<MessageId, Message> messageStore = Collections.synchronizedMap(new HashMap<MessageId, Message>());
+    private final BlockingQueue<DecoupledHeader> inputQueue = new ArrayBlockingQueue<DecoupledHeader>(QUEUE_CAPACITY);
     private final List<Address> boxMembers = new ArrayList<Address>();
     private View view = null;
     private OrderingBox box;
@@ -50,9 +59,19 @@ public class Decoupled extends Protocol {
     public Decoupled() {
     }
 
+    private void logHack() {
+        Logger logger = Logger.getLogger(this.getClass().getName());
+        ConsoleHandler handler = new ConsoleHandler();
+        handler.setLevel(Level.FINEST);
+        logger.addHandler(handler);
+        logger.setUseParentHandlers(false);
+    }
+
     @Override
     public void init() throws Exception {
-        setLevel("info");
+        logHack();
+//        setLevel("debug");
+
         if (boxMember) {
             createProtocolStack();
             getTransport().getTimer().schedule(new BoxMemberAnnouncement(), 20, TimeUnit.SECONDS);
@@ -98,7 +117,7 @@ public class Decoupled extends Protocol {
     @Override
     public void start() throws Exception {
         executor = Executors.newSingleThreadExecutor();
-        executor.execute(new DeliverMessages());
+        executor.execute(new MessageHandler());
     }
 
     @Override
@@ -122,10 +141,13 @@ public class Decoupled extends Protocol {
                             log.info("Box Member discovered | " + message.getSrc());
                         break;
                     case DecoupledHeader.BOX_REQUEST:
-                        box.handleOrderingRequest(header.getMessageInfo());
+                        handleOrderingRequest(header);
                         break;
                     case DecoupledHeader.BOX_ORDERING:
-                        box.receiveOrdering(header.getMessageInfo(), message);
+                        box.receiveOrdering(header, message);
+                        break;
+                    case DecoupledHeader.BUNDLED_MESSAGE:
+                        box.receiveMultipleOrderings(header, message);
                         break;
                     case DecoupledHeader.BOX_RESPONSE:
                         handleOrderingResponse(header);
@@ -162,6 +184,16 @@ public class Decoupled extends Protocol {
                 break;
         }
         return down_prot.down(event);
+    }
+
+    private void handleOrderingRequest(DecoupledHeader header) {
+        try {
+            log.trace("Request received | " + header.getMessageInfo().getId());
+            inputQueue.add(header);
+        } catch (IllegalStateException e) {
+            if (log.isErrorEnabled())
+                log.error("Ordering Request rejected : " + e);
+        }
     }
 
     private boolean checkIfDestinationIsBox(AnycastAddress anycastAddress) {
@@ -240,40 +272,11 @@ public class Decoupled extends Protocol {
         Address destination = singleOrderPoint ? boxMembers.get(0) : boxMembers.get(random.nextInt(boxMembers.size())); // Select box at random;
         Message requestMessage = new Message(destination).src(localAddress).putHeader(id, header);
         down_prot.down(new Event(Event.MSG, requestMessage));
-
-        if (log.isTraceEnabled()) {
-            try {
-                MethodCall mc = (MethodCall) objectFromBuffer(message.getBuffer(), message.getOffset(), message.getLength());
-                log.trace("Ordering Request Sent to " + destination + " | " + header + " | UPerf Seq := " + mc.getArgs()[0]);
-            } catch(Exception e) {
-                log.trace("Cast exception: " + e);
-            }
-        }
-    }
-
-    public Object objectFromBuffer(byte[] buffer, int offset, int length) throws Exception {
-        ByteBuffer buf=ByteBuffer.wrap(buffer, offset, length);
-
-        byte type=buf.get();
-        if (type == 10) {
-            Long longarg=buf.getLong();
-            int len=buf.getInt();
-            byte[] arg2=new byte[len];
-            buf.get(arg2, 0, arg2.length);
-            return new MethodCall(type, longarg, arg2);
-        }
-        return null;
     }
 
     private void handleOrderingResponse(DecoupledHeader responseHeader) {
         if (log.isTraceEnabled())
             log.trace("Ordering response received | " + responseHeader);
-        // Receive the ordering list and send this message to all nodes in the destination set
-
-        if (log.isTraceEnabled()) {
-            log.trace("Ordering Response received | " + responseHeader.getMessageInfo().getOrdering());
-            log.trace("Ordering received| " + responseHeader.getMessageInfo().getId() + " | dest " + Arrays.toString(responseHeader.getMessageInfo().getDestinations()) +  " | " + viewManager.getDestinations(responseHeader.getMessageInfo()));
-        }
 
         MessageInfo messageInfo = responseHeader.getMessageInfo();
         DecoupledHeader header = DecoupledHeader.createBroadcast(messageInfo);
@@ -290,7 +293,7 @@ public class Decoupled extends Protocol {
         boolean deliverToSelf = destinations.contains(localAddress);
         // Send the message to all destinations
         if (log.isTraceEnabled())
-            log.trace("Broadcast Message " + ((DecoupledHeader)message.getHeader(id)).getMessageInfo().getOrdering() +
+            log.trace("Broadcast Message " + ((DecoupledHeader) message.getHeader(id)).getMessageInfo().getOrdering() +
                     " to | " + destinations + " | deliverToSelf " + deliverToSelf);
 
         for (Address destination : destinations) {
@@ -300,8 +303,6 @@ public class Decoupled extends Protocol {
             Message messageCopy = message.copy();
             messageCopy.setDest(destination);
             down_prot.down(new Event(Event.MSG, messageCopy));
-            if (log.isTraceEnabled())
-                log.trace("Broadcast Sent := " + ((DecoupledHeader)message.getHeader(id)).getMessageInfo().getOrdering() + " | To := " + destination);
         }
 
         DecoupledHeader header = (DecoupledHeader)message.getHeader(id);
@@ -315,7 +316,7 @@ public class Decoupled extends Protocol {
 
     private void handleBroadcast(DecoupledHeader header, Message message) {
         if (log.isTraceEnabled())
-            log.debug("Broadcast received | " + header.getMessageInfo().getOrdering() + " | Src := " + message.getSrc());
+            log.trace("Broadcast received | " + header.getMessageInfo().getOrdering() + " | Src := " + message.getSrc());
         deliveryManager.addMessageToDeliver(header, message, false);
     }
 
@@ -331,22 +332,61 @@ public class Decoupled extends Protocol {
         message.setDest(localAddress);
 
         if (log.isTraceEnabled())
-            log.trace("Deliver Message | " + (DecoupledHeader)message.getHeader(this.id));
+            log.trace("Deliver Message | " + (DecoupledHeader) message.getHeader(this.id));
 
         up_prot.up(new Event(Event.MSG, message));
     }
 
-    final class DeliverMessages implements Runnable {
+    final class MessageHandler implements Runnable {
         @Override
         public void run() {
+            if (boxMember)
+                handleRequests();
+            else
+                deliverMessages();
+        }
+
+        private void handleRequests() {
+            while (true) {
+                try {
+                    DecoupledHeader header = inputQueue.take();
+                    if (BUNDLE_MSGS) {
+                        int bundleSize = 0;
+                        if (inputQueue.isEmpty()) {
+                            box.handleOrderingRequest(header.getMessageInfo());
+                        } else {
+                            List<MessageInfo> requests = new ArrayList<MessageInfo>();
+                            requests.add(header.getMessageInfo());
+                            while ((header = inputQueue.peek()) != null && (bundleSize + header.size()) < MSG_SIZE) {
+                                inputQueue.poll(); // Just removes header. Peek necessary because of the size check
+                                MessageInfo info = header.getMessageInfo();
+                                bundleSize += info.size();
+                                requests.add(info);
+                            }
+                            box.handleOrderingRequests(requests);
+                        }
+                    } else {
+                        box.handleOrderingRequest(header.getMessageInfo());
+                    }
+
+                } catch (InterruptedException e) {
+                    if (log.isErrorEnabled())
+                        log.error("Decoupled:handleRequests():" + e);
+                    break;
+                }
+            }
+        }
+
+        private void deliverMessages() {
             while (true) {
                 try {
                     List<Message> messages = deliveryManager.getNextMessagesToDeliver();
-                    for(Message message : messages) {
+                    for (Message message : messages) {
                         try {
                             deliverMessage(message);
-                        } catch(Throwable t) {
-                            log.warn("Exception caught while delivering message " + message + ":" + t.getMessage());
+                        } catch (Throwable t) {
+                            if (log.isWarnEnabled())
+                                log.warn("Decoupled: Exception caught while delivering message " + message + ":" + t.getMessage());
                         }
                     }
                 } catch (InterruptedException e) {

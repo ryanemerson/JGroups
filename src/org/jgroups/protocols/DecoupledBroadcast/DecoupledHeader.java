@@ -2,9 +2,12 @@ package org.jgroups.protocols.DecoupledBroadcast;
 
 import org.jgroups.Global;
 import org.jgroups.Header;
+import org.jgroups.util.Util;
 
 import java.io.DataInput;
 import java.io.DataOutput;
+import java.util.ArrayList;
+import java.util.Collection;
 
 /**
  * // TODO: Document this
@@ -20,15 +23,14 @@ final public class DecoupledHeader extends Header {
     public static final byte BOX_ORDERING = 4; // Ordering a boxRequest
     public static final byte BROADCAST = 5; // Actual broadcsat of a message to anycast destinations
     public static final byte SINGLE_DESTINATION = 6; // Request for a missing message (shouldn't be necessary)
+    public static final byte BUNDLED_MESSAGE = 7; // A decoupled message that contains multiple requests
 
     private byte type = 0;
     private MessageInfo messageInfo = null;
-
-    public DecoupledHeader() {
-    }
+    private Collection<MessageInfo> bundledMsgInfo = null;
 
     public static DecoupledHeader createBoxMember() {
-        return new DecoupledHeader(BOX_MEMBER, null);
+        return new DecoupledHeader(BOX_MEMBER);
     }
 
     public static DecoupledHeader createBoxRequest(MessageInfo info) {
@@ -51,9 +53,25 @@ final public class DecoupledHeader extends Header {
         return new DecoupledHeader(SINGLE_DESTINATION, info);
     }
 
+    public static DecoupledHeader createBundledMessage(Collection<MessageInfo> requestHeaders) {
+        return new DecoupledHeader(BUNDLED_MESSAGE, requestHeaders);
+    }
+
+    public DecoupledHeader() {
+    }
+
+    public DecoupledHeader(byte type) {
+        this.type = type;
+    }
+
     public DecoupledHeader(byte type, MessageInfo messageInfo) {
         this.type = type;
         this.messageInfo = messageInfo;
+    }
+
+    public DecoupledHeader(byte type, Collection<MessageInfo> bundledMsgInfo) {
+        this.type = type;
+        this.bundledMsgInfo = bundledMsgInfo;
     }
 
     public byte getType() {
@@ -68,25 +86,27 @@ final public class DecoupledHeader extends Header {
         return messageInfo;
     }
 
-    public void setMessageInfo(MessageInfo messageInfo) {
-        this.messageInfo = messageInfo;
+    public Collection<MessageInfo> getBundledMsgInfo() {
+        return bundledMsgInfo;
     }
 
     @Override
     public int size() {
-        return Global.BYTE_SIZE + (messageInfo != null ? messageInfo.size() : 0);
+        return Global.BYTE_SIZE + (messageInfo != null ? messageInfo.size() : 0) + (bundledMsgInfo != null ? getBundledSize() : 0);
     }
 
     @Override
     public void writeTo(DataOutput out) throws Exception {
         out.writeByte(type);
         writeMessageInfo(messageInfo, out);
+        writeBundledMsgInfo(bundledMsgInfo, out);
     }
 
     @Override
     public void readFrom(DataInput in) throws Exception {
         type = in.readByte();
         messageInfo = readMessageInfo(in);
+        bundledMsgInfo = readBundledMsgInfo(in);
     }
 
     @Override
@@ -104,8 +124,9 @@ final public class DecoupledHeader extends Header {
             case BOX_RESPONSE:          return "BOX_RESPONSE";
             case BOX_ORDERING:          return "BOX_ORDERING";
             case BROADCAST:	            return "BROADCAST";
-            case SINGLE_DESTINATION:       return "SINGLE_DESTINATION";
-            default:                        return "UNDEFINED(" + t + ")";
+            case SINGLE_DESTINATION:    return "SINGLE_DESTINATION";
+            case BUNDLED_MESSAGE:       return "BUNDLED_MESSAGE";
+            default:                    return "UNDEFINED(" + t + ")";
         }
     }
 
@@ -117,6 +138,8 @@ final public class DecoupledHeader extends Header {
         DecoupledHeader that = (DecoupledHeader) o;
 
         if (type != that.type) return false;
+        if (bundledMsgInfo != null ? !bundledMsgInfo.equals(that.bundledMsgInfo) : that.bundledMsgInfo != null)
+            return false;
         if (messageInfo != null ? !messageInfo.equals(that.messageInfo) : that.messageInfo != null) return false;
 
         return true;
@@ -126,6 +149,7 @@ final public class DecoupledHeader extends Header {
     public int hashCode() {
         int result = (int) type;
         result = 31 * result + (messageInfo != null ? messageInfo.hashCode() : 0);
+        result = 31 * result + (bundledMsgInfo != null ? bundledMsgInfo.hashCode() : 0);
         return result;
     }
 
@@ -147,5 +171,33 @@ final public class DecoupledHeader extends Header {
             info.readFrom(in);
             return info;
         }
+    }
+
+    private int getBundledSize() {
+        int size = 0;
+        for (MessageInfo info : bundledMsgInfo)
+            size += info.size();
+        return size;
+    }
+
+    private void writeBundledMsgInfo(Collection<MessageInfo> bundledHeaders, DataOutput out) throws Exception{
+        if (bundledHeaders == null) {
+            out.writeShort(-1);
+            return;
+        }
+
+        out.writeShort(bundledHeaders.size());
+        for (MessageInfo info : bundledHeaders)
+            Util.writeStreamable(info, out);
+    }
+
+    private Collection<MessageInfo> readBundledMsgInfo(DataInput in) throws Exception {
+        short length = in.readShort();
+        if (length < 0) return null;
+
+        Collection<MessageInfo> bundledHeaders = new ArrayList<MessageInfo>();
+        for (int i = 0; i < length; i++)
+            bundledHeaders.add((MessageInfo) Util.readStreamable(MessageInfo.class, in));
+        return bundledHeaders;
     }
 }
