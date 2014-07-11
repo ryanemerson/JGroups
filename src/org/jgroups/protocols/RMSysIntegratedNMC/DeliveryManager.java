@@ -8,10 +8,7 @@ import org.jgroups.logging.LogFactory;
 import org.jgroups.util.Util;
 
 import java.util.*;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.DelayQueue;
-import java.util.concurrent.Delayed;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 
 /**
  * Class responsible for holding messages until they are ready to deliver
@@ -30,6 +27,7 @@ public class DeliveryManager {
     private final Map<Address, VectorClock> receivedVectorClocks = new HashMap<Address, VectorClock>();
     private final DelayQueue<MessageRecord> timedOutQueue = new DelayQueue<MessageRecord>();
     private final Queue<Message> messageQueue = new ConcurrentLinkedQueue<Message>();
+    private final Queue<MessageId> localMsgQueue = new ConcurrentLinkedQueue<MessageId>();
     private final Log log = LogFactory.getLog(RMSys.class);
     private final DMProfiler dmProfiler = new DMProfiler();
     private final RMSys rmSys;
@@ -79,7 +77,7 @@ public class DeliveryManager {
     // RMSys
     public RMCastHeader addLocalMessage(SenderManager senderManager, Message message, Address localAddress, NMCData data,
                                         short rmsysId, Collection<Address> destinations) {
-        RMCastHeader header = senderManager.newMessageBroadcast(localAddress, data, destinations);
+        RMCastHeader header = senderManager.newMessageBroadcast(localAddress, data, destinations, localMsgQueue);
         message.putHeader(rmsysId, header);
         message.src(localAddress);
         addMessageToQueue(message);
@@ -221,18 +219,22 @@ public class DeliveryManager {
             MessageId id = record.id;
             deliverySet.remove(record);
             messageRecords.remove(id);
-            deliveredMsgRecord.put(id.getOriginator(), id);
             removeReceivedSeq(id);
             timedOutQueue.remove(record);
 
             if (lastDelivered != null && id.getTimestamp() < lastDelivered.id.getTimestamp()) {
                 if (log.isWarnEnabled()) {
                     log.warn("Msg rejected as a msg with a newer timestamp has already been delivered | rejected msg := " +
-                            id + " | lastDelivered := " + lastDelivered.id);
+                            id + " | lastDelivered := " + lastDelivered.id + " | record " + record);
                 }
             } else {
                 deliverable.add(record.message);
             }
+
+            if (record.isLocal())
+                localMsgQueue.poll();
+
+            deliveredMsgRecord.put(id.getOriginator(), id);
             lastDelivered = record;
 
             int delay = (int) Math.ceil((rmSys.getClock().getTime() - record.id.getTimestamp()) / 1000000.0);
@@ -312,18 +314,22 @@ public class DeliveryManager {
                 MessageId id = record.id;
                 i.remove();
                 messageRecords.remove(id);
-                deliveredMsgRecord.put(id.getOriginator(), id);
                 removeReceivedSeq(id);
                 timedOutQueue.remove(record);
 
                 if (lastDelivered != null && id.getTimestamp() < lastDelivered.id.getTimestamp()) {
                     if (log.isWarnEnabled()) {
                         log.warn("Msg rejected as a msg with a newer timestamp has already been delivered | rejected msg := " +
-                                id + " | lastDelivered := " + lastDelivered.id);
+                                id + " | lastDelivered := " + lastDelivered.id + " | rejected " + record + " | lastDelivered " + lastDelivered);
                     }
                 } else {
                     deliverable.add(record.message);
                 }
+
+                if (record.isLocal())
+                    localMsgQueue.poll();
+
+                deliveredMsgRecord.put(id.getOriginator(), id);
                 lastDelivered = record;
 
                 if (lastTimeout != null && lastTimeout.equals(record))
@@ -644,12 +650,22 @@ public class DeliveryManager {
             return true;
         }
 
+        boolean isLocal() {
+            return id.getOriginator().equals(rmSys.getLocalAddress());
+        }
+
         boolean isDeliverable() {
             if (id.getTimestamp() > rmSys.getClock().getTime())
                 return false;
 
             if (isPlaceholder())
                 return false;
+
+            if (!isLocal()) {
+                MessageId latestLocalMsg = localMsgQueue.peek();
+                if (latestLocalMsg != null && id.getTimestamp() >= latestLocalMsg.getTimestamp())
+                    return false;
+            }
 
             MessageId previous = deliveredMsgRecord.get(id.getOriginator());
             if (previous != null && id.getSequence() != previous.getSequence() + 1)

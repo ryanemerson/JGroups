@@ -38,9 +38,10 @@ public class SenderManager {
         }
     }
 
-    public RMCastHeader newMessageBroadcast(Address localAddress, NMCData data, Collection<Address> destinations) {
+    public RMCastHeader newMessageBroadcast(Address localAddress, NMCData data, Collection<Address> destinations, Queue localMsgQueue) {
         synchronized (receivedMessages) {
             MessageId messageId = new MessageId(clock.getTime(), localAddress, sequence.getAndIncrement());
+            localMsgQueue.add(messageId);
             return RMCastHeader.createBroadcastHeader(messageId, localAddress, 0, data, destinations,
                     getLatestVectorClock(messageId, destinations), getIdsToAck());
         }
