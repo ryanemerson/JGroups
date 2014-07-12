@@ -24,6 +24,7 @@ public class OrderingBox {
     private final AtomicInteger globalSequence;
     private final Set<MessageId> requestCache;
     private Address localAddress;
+    private Profiler profiler;
 
     // TODO remove
     private Map<Address, RMCastHeader> msgRecord = new HashMap<Address, RMCastHeader>();
@@ -45,12 +46,13 @@ public class OrderingBox {
         }
     }
 
-    public OrderingBox(short id, Log log, Protocol downProtocol, ViewManager viewManager, List<Address> boxMembers) {
+    public OrderingBox(short id, Log log, Protocol downProtocol, ViewManager viewManager, List<Address> boxMembers, Profiler profiler) {
         this.id = id;
         this.log = log;
         this.downProtocol = downProtocol;
         this.viewManager = viewManager;
         this.boxMembers = boxMembers;
+        this.profiler = profiler;
         orderStore = Collections.synchronizedMap(new HashMap<Address, Long>());
         globalSequence = new AtomicInteger();
         requestCache = Collections.synchronizedSet(new HashSet<MessageId>());
@@ -69,6 +71,8 @@ public class OrderingBox {
 
         DecoupledHeader bundledHeader = DecoupledHeader.createBundledMessage(requests);
         sendToAllBoxMembers(bundledHeader);
+
+        profiler.requestsReceived(requests.size());
     }
 
     public void handleOrderingRequest(MessageInfo messageInfo) {
@@ -79,6 +83,8 @@ public class OrderingBox {
         DecoupledHeader header = DecoupledHeader.createBoxOrdering(messageInfo);
 
         sendToAllBoxMembers(header);
+
+        profiler.requestReceived();
     }
 
     private void sendToAllBoxMembers(DecoupledHeader header) {
@@ -96,6 +102,8 @@ public class OrderingBox {
             log.trace("Send ordering to := " + anycastAddress);
 
         downProtocol.down(new Event(Event.MSG, message));
+
+        profiler.totalOrderSent();
     }
 
     public void receiveMultipleOrderings(DecoupledHeader header, Message message) {
@@ -138,6 +146,8 @@ public class OrderingBox {
             sendOrderingResponse(messageInfo);
         else if (log.isTraceEnabled())
             log.trace("Don't respond request did not originate here | " + messageInfo.getOrdering() + " | " + messageInfo.getId());
+
+        profiler.orderReceived();
     }
 
     private void sendOrderingResponse(MessageInfo messageInfo) {

@@ -42,6 +42,10 @@ public class Decoupled extends Protocol {
             "in order to reduce the number of total order broadcasts between box members")
     private boolean BUNDLE_MSGS = true;
 
+    @Property(name = "profile", description = "If true the profiler will record statistics about this protocol")
+    private boolean PROFILE_ENABLED = true;
+
+    private Profiler profiler = new Profiler(PROFILE_ENABLED);
     private Address localAddress = null;
     private final ViewManager viewManager = new ViewManager();
     private final DeliveryManager deliveryManager = new DeliveryManager(log, viewManager);
@@ -62,22 +66,32 @@ public class Decoupled extends Protocol {
     private void logHack() {
         Logger logger = Logger.getLogger(this.getClass().getName());
         ConsoleHandler handler = new ConsoleHandler();
-        handler.setLevel(Level.FINEST);
+        handler.setLevel(Level.FINE);
         logger.addHandler(handler);
         logger.setUseParentHandlers(false);
     }
 
     @Override
     public void init() throws Exception {
-        logHack();
-//        setLevel("debug");
+//        logHack();
+//        setLevel("info");
 
         if (boxMember) {
             createProtocolStack();
             getTransport().getTimer().schedule(new BoxMemberAnnouncement(), 20, TimeUnit.SECONDS);
 
             // Must be after the protocols have been added to the stack to ensure that down_prot is set to the correct protocol
-            box = new OrderingBox(id, log, down_prot, viewManager, boxMembers);
+            box = new OrderingBox(id, log, down_prot, viewManager, boxMembers, profiler);
+
+            if (PROFILE_ENABLED) {
+                // TODO remove
+                Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        System.out.println("Decoupled -------\n" + profiler);
+                    }
+                }));
+            }
         }
     }
 
@@ -122,6 +136,9 @@ public class Decoupled extends Protocol {
 
     @Override
     public void stop() {
+        if (log.isDebugEnabled())
+            log.debug(profiler.toString());
+
         executor.shutdown();
     }
 
