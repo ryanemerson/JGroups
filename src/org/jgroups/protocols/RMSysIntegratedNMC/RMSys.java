@@ -20,11 +20,11 @@ final public class RMSys extends Protocol {
 
     @Property(name = "initial_probe_frequency", description = "The time (in milliseconds) between each probe message that is" +
             " sent during initialisation")
-    private final int initialProbeFrequency = 5; // Time between each probe during initial probe period
+    private final int initialProbeFrequency = 1; // Time between each probe during initial probe period
 
     @Property(name = "initial_probe_count", description = "The number of probes that should be sent by this node" +
             " before message sending can occur")
-    private final int initialProbeCount = 750; // Time between each probe during initial probe period
+    private final int initialProbeCount = 1000; // Time between each probe during initial probe period
 
     @Property(name = "minimum_nodes", description = "The minimum number of nodes allowed in a cluster")
     private int minimumNodes = 2;
@@ -81,11 +81,11 @@ final public class RMSys extends Protocol {
 
     @Override
     public void start() throws Exception {
-//        log.setLevel("fatal");
+        log.setLevel("info");
         if (activeMembers.size() > 0)
             nmc.setActiveNodes(activeMembers.size());
 
-        nmc = new NMC(clock, profiler);
+        nmc = new NMC(clock, this, profiler);
         deliveryManager = new DeliveryManager(this, profiler);
         senderManager = new SenderManager(clock, numberOfAcks);
         flowControl = new FlowControl(this, nmc);
@@ -242,16 +242,18 @@ final public class RMSys extends Protocol {
         if (log.isTraceEnabled())
             log.trace("Message received | " + header);
 
-        recordProbe(header); // Record probe latency
+//        recordProbe(header); // Record probe latency
         if (header.getType() == RMCastHeader.EMPTY_ACK_MESSAGE) {
-            deliveryManager.processEmptyAckMessage(header);
+            deliveryManager.processEmptyAckMessage((Message) event.getArg());
             profiler.emptyAckMessageReceived();
         }
         // No need to RMCast empty probe messages as we only want the latency
         else if (header.getType() != RMCastHeader.EMPTY_PROBE_MESSAGE) {
             // If this headers sequence has already expired then we don't want to process it again
-            if (deliveryManager.hasMessageExpired(header))
+            if (deliveryManager.hasMessageExpired(header)) {
+                recordProbe(header); // Record probe latency
                 return;
+            }
 
             final MessageRecord record;
             MessageRecord newRecord = new MessageRecord(header);
@@ -270,6 +272,7 @@ final public class RMSys extends Protocol {
         } else {
             profiler.emptyProbeMessageReceived();
         }
+        recordProbe(header); // Record probe latency
     }
 
     // Schedule an emptyAckMessage to be sent after ackWait period of time
@@ -426,7 +429,7 @@ final public class RMSys extends Protocol {
                         try {
                             deliver(message);
                         } catch (Throwable t) {
-                            log.error("Exception caught while delivering message " + message + ":" + t.getMessage());
+                            log.error("RMSys: Exception caught while delivering message " + message + ":" + t.getMessage());
                         }
                     }
                 } catch (InterruptedException e) {
@@ -474,6 +477,7 @@ final public class RMSys extends Protocol {
             Header header = RMCastHeader.createEmptyProbeHeader(messageId, localAddress, nmc.getData(), destinations);
             Message message = new Message().putHeader(id, header);
             message.setDest(new AnycastAddress(destinations));
+            message.setBuffer(new byte[1024]);
             return new MessageBroadcaster(message, 0, 0, 0, id);
         }
 
