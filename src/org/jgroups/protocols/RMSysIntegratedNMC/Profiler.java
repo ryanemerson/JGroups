@@ -17,6 +17,7 @@ public class Profiler {
         MESSAGES_RECEIVED,
         MESSAGES_DELIVERED,
         MESSAGES_REJECTED,
+        MESSAGES_TIMEDOUT,
         EMPTY_PROBE_MESSAGES_SENT,
         EMPTY_PROBE_MESSAGES_RECEIVED,
         EMPTY_ACK_MESSAGES_SENT,
@@ -121,6 +122,13 @@ public class Profiler {
             return;
 
         counters.get(Counter.MESSAGES_REJECTED).incrementAndGet();
+    }
+
+    public void messageTimedOut() {
+        if (!profileEnabled)
+            return;
+
+        counters.get(Counter.MESSAGES_TIMEDOUT).incrementAndGet();
     }
 
     public void messageDisseminated() {
