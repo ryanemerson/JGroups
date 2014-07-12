@@ -6,10 +6,7 @@ import org.jgroups.protocols.tom.ToaHeader;
 import org.jgroups.util.Util;
 
 import java.io.*;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -94,17 +91,18 @@ public class Test extends ReceiverAdapter {
                 AnycastAddress anycastAddress = new AnycastAddress(channel.getView().getMembers());
                 final Message message = new Message(anycastAddress, sentMessages);
                 message.putHeader(id, TestHeader.createTestMsg(sentMessages + 1));
-//                threadPool.execute(new Runnable() {
-//                    @Override
-//                    public void run() {
-//                        try {
-//                            channel.send(message);
-//                        } catch (Exception e) {
-//                            System.out.println(e);
-//                        }
-//                    }
-//                });
-                channel.send(message);
+                message.setBuffer(new byte[1024]);
+                threadPool.execute(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            channel.send(message);
+                        } catch (Exception e) {
+                            System.out.println(e);
+                        }
+                    }
+                });
+//                channel.send(message);
                 sentMessages++;
 
                 if (sentMessages == NUMBER_MESSAGES_TO_SEND)
