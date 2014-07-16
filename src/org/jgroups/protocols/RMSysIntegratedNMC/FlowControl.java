@@ -21,8 +21,8 @@ public class FlowControl {
     private FCDataWrapper flowData = new FCDataWrapper();
     private NMCData nmcData = null; // The most recent nmc data accessed by this object
 
-    private final Profiler profiler = new Profiler(); // TODO remove
-    private final boolean PROFILE_ENABLED = true;
+    private final Profiler profiler = new Profiler();
+    private final boolean PROFILE_ENABLED = false;
 
     public FlowControl(RMSys rmSys, NMC nmc) {
         this.rmSys = rmSys;
@@ -48,6 +48,7 @@ public class FlowControl {
                 try {
                     bucket.delay();
                     bucket.send();
+                    bucket.clear();
                 } catch (InterruptedException e) {
                     System.out.println("Delay Exception: " + e);
                 }
@@ -184,6 +185,11 @@ public class FlowControl {
         public long getDelay() {
             long delay = broadcastTime - rmSys.getClock().getTime();
             return delay < 0 ? 0 : delay;
+        }
+
+        // Necessary for garbage collection
+        void clear() {
+            previous = null;
         }
 
         @Override
