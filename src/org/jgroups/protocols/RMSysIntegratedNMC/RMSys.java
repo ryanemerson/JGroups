@@ -543,7 +543,8 @@ final public class RMSys extends Protocol {
             this.record = record;
             this.header = header;
             this.delay = delay;
-            this.message = receivedMessages.get(header.getId());
+            Message storedMessage = receivedMessages.get(header.getId());
+            this.message = storedMessage != null ? storedMessage.copy() : null;
         }
 
         @Override

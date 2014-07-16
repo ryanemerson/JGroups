@@ -77,7 +77,7 @@ public class DeliveryManager {
         // Copy necessary to prevent message.setDest in deliver() from affecting broadcasts of copies > 0
         // Without this the RMSys.broadcastMessage() will throw an exception if a message has been delivered
         // before all of it's copies have been broadcast, this is because the msg destination is set to a single destination in deliver()
-        message = message.copy();
+//        message = message.copy();
         messageQueue.add(message);
     }
 
@@ -283,6 +283,7 @@ public class DeliveryManager {
             if (log.isWarnEnabled())
                 log.warn("Msg rejected as a msg with a newer timestamp has already been delivered | rejected msg := " +
                         id + " | lastDelivered := " + lastDelivered.id + " | record " + record);
+            rmSys.collectGarbage(id);
             profiler.messageRejected();
         } else {
             deliverable.add(record.message);
