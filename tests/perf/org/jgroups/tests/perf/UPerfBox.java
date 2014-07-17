@@ -42,6 +42,7 @@ public class UPerfBox extends ReceiverAdapter {
     private int anycast_count=2;
     private boolean use_anycast_addrs = true;
     private boolean random_destinations = false;
+    private boolean include_local_address = true; // Include local address in anycast count
     private double read_percentage=0; // 80% reads, 20% writes
     private List<String> boxMembers  = new ArrayList<String>();
     // =======================================================
@@ -599,6 +600,10 @@ public class UPerfBox extends ReceiverAdapter {
 
         private Collection<Address> pickRandomAnycastTargets() {
             Collection<Address> anycastTargets = new HashSet<Address>(anycast_count);
+
+            if (include_local_address)
+                anycastTargets.add(local_addr);
+
             while (anycastTargets.size() < anycast_count) {
                 int randomIndex = random.nextInt(dests.size());
                 Address randomAddress = dests.get(randomIndex);
@@ -611,6 +616,10 @@ public class UPerfBox extends ReceiverAdapter {
 
         private Collection<Address> pickAnycastTargets() {
             Collection<Address> anycast_targets=new ArrayList<Address>(anycast_count);
+
+            if (include_local_address)
+                anycast_targets.add(local_addr);
+
             int index=dests.indexOf(local_addr);
             for(int i=index + 1; i < index + 1 + anycast_count; i++) {
                 int new_index=i % dests.size();
