@@ -11,6 +11,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * // TODO: Document this
@@ -22,10 +23,15 @@ public class Test extends ReceiverAdapter {
     public static void main(String[] args) throws Exception{
         String propsFile = "RMSysIntegrated.xml";
         String initiator = "";
-        int numberOfMessages = 100000;
+        int numberOfMessages = 100000; // #Msgs to be executed by this node
+        int totalMessages = 1000000; // #Msgs to be sent by the whole cluster
         for (int i = 0; i < args.length; i++) {
             if("-config".equals(args[i])) {
                 propsFile = args[++i];
+                continue;
+            }
+            if("-t-messages".equals(args[i])) {
+                totalMessages = Integer.parseInt(args[++i]);
                 continue;
             }
             if("-nr-messages".equals(args[i])) {
@@ -37,11 +43,13 @@ public class Test extends ReceiverAdapter {
                 continue;
             }
         }
-        new Test(propsFile, numberOfMessages, initiator).run();
+        new Test(propsFile, numberOfMessages, totalMessages, initiator).run();
     }
 
+    public static AtomicInteger msgsReceived = new AtomicInteger();
     private final String PROPERTIES_FILE;
     private final int NUMBER_MESSAGES_TO_SEND;
+    private final int TOTAL_NUMBER_OF_MESSAGES;
     private final int NUMBER_MESSAGES_PER_FILE = 5000;
     private final int LATENCY_INTERVAL = 5000;
     private final String INITIATOR;
@@ -53,7 +61,7 @@ public class Test extends ReceiverAdapter {
     private int count = 1;
     private boolean startSending = false;
     private int completeMsgsReceived = 0;
-    private int msgsReceived = 0;
+//    private int msgsReceived = 0;
     private long startTime;
     private boolean allMessagesReceived = false;
     private Future lastOutputFuture;
@@ -61,16 +69,18 @@ public class Test extends ReceiverAdapter {
     private Map<Address, RMCastHeader> msgRecord = new HashMap<Address, RMCastHeader>();
     private boolean checkMissingSeq = false;
 
-    public Test(String propsFile, int numberOfMessages, String initiator) {
+    public Test(String propsFile, int numberOfMessages, int totalMessages, String initiator) {
         PROPERTIES_FILE = propsFile;
         NUMBER_MESSAGES_TO_SEND = numberOfMessages;
+        TOTAL_NUMBER_OF_MESSAGES = totalMessages;
         INITIATOR = initiator;
     }
 
     public void run() throws Exception {
         ExecutorService threadPool = Executors.newFixedThreadPool(25);
 
-        System.out.println(PROPERTIES_FILE + " | " + NUMBER_MESSAGES_TO_SEND + " messages | Initiator " + INITIATOR);
+        System.out.println(PROPERTIES_FILE + " | Total Cluster Msgs " + TOTAL_NUMBER_OF_MESSAGES +
+                " | Msgs to send " + NUMBER_MESSAGES_TO_SEND + " | Initiator " + INITIATOR);
         channel = new JChannel(PROPERTIES_FILE);
         channel.setReceiver(this);
         channel.connect("uperfBox");
@@ -91,18 +101,18 @@ public class Test extends ReceiverAdapter {
                 AnycastAddress anycastAddress = new AnycastAddress(channel.getView().getMembers());
                 final Message message = new Message(anycastAddress, sentMessages);
                 message.putHeader(id, TestHeader.createTestMsg(sentMessages + 1));
-                message.setBuffer(new byte[1024]);
-                threadPool.execute(new Runnable() {
-                    @Override
-                    public void run() {
-                        try {
-                            channel.send(message);
-                        } catch (Exception e) {
-                            System.out.println(e);
-                        }
-                    }
-                });
-//                channel.send(message);
+                message.setBuffer(new byte[1000]);
+//                threadPool.execute(new Runnable() {
+//                    @Override
+//                    public void run() {
+//                        try {
+//                            channel.send(message);
+//                        } catch (Exception e) {
+//                            System.out.println(e);
+//                        }
+//                    }
+//                });
+                channel.send(message);
                 sentMessages++;
 
                 if (sentMessages == NUMBER_MESSAGES_TO_SEND)
@@ -197,15 +207,17 @@ public class Test extends ReceiverAdapter {
                         for (long i = oldHeader.getId().getSequence() + 1; i < h.getId().getSequence(); i++)
                             System.out.println("ERROR!!!!!!!! Sequence missing := " + i + " | from " + h.getId().getOriginator());
 
-                    System.out.println("Msg received " + h.getId() + " | #" + (msgsReceived + 1));
+                    System.out.println("Msg received " + h.getId() + " | #" + (msgsReceived.intValue() + 1));
                 } else {
-                    System.out.println("Msg received | #  " + (msgsReceived + 1));
+                    System.out.println("Msg received | #  " + (msgsReceived.intValue() + 1));
                 }
             }
 
-            if (++msgsReceived == (NUMBER_MESSAGES_TO_SEND * channel.getView().size())) {
+            if (msgsReceived.incrementAndGet() == TOTAL_NUMBER_OF_MESSAGES) {
                 try {
                     sendCompleteMessage(channel);
+                    if (!deliveredMessages.isEmpty())
+                        writeHeadersToFile(new ArrayList<Header>(deliveredMessages));
                 } catch (Exception e) {
                 }
             }
@@ -235,8 +247,7 @@ public class Test extends ReceiverAdapter {
                 out.println(((ToaHeader)header).getMessageID());
         out.flush();
 
-        int numberOfNodes = channel.getView().size();
-        int totalNumberOfRounds = (numberOfNodes * NUMBER_MESSAGES_TO_SEND) / NUMBER_MESSAGES_PER_FILE;
+        int totalNumberOfRounds = TOTAL_NUMBER_OF_MESSAGES / NUMBER_MESSAGES_PER_FILE;
         if (count == totalNumberOfRounds) {
             allMessagesReceived = true;
             System.out.println("&&&&&&&& Final Count := " + count + " | totalNumberOfRounds := " + totalNumberOfRounds +
