@@ -516,6 +516,9 @@ public class DeliveryManager {
         long delay = Math.max(data.getCapD(), data.getXMax() + data.getCapS());
         // Takes into consideration the broadcast time of an ack and the max possible delay before an ack is piggybacked or explicitly broadcast
         delay = (2 * delay) + ackWait;
+
+        profiler.addDeliveryDelay(delay + TimeUnit.NANOSECONDS.toMillis(rmSys.getClock().getMaximumError()));
+
         delay = TimeUnit.MILLISECONDS.toNanos(delay) + rmSys.getClock().getMaximumError(); // Convert to Nanos and add epislon
         record.deliveryTime = startTime + delay;
 

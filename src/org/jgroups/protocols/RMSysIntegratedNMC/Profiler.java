@@ -14,6 +14,7 @@ public class Profiler {
 
     private static enum Counter {
         PROBES_RECORDED,
+        MESSAGES_SENT,
         MESSAGES_RECEIVED,
         MESSAGES_DELIVERED,
         MESSAGES_REJECTED,
@@ -38,6 +39,8 @@ public class Profiler {
     private static enum DeliveryLatency {
         SMALLEST,
         LARGEST,
+        SMALLEST_DELIVERY_DELAY,
+        LARGEST_DELIVERY_DELAY,
     }
 
     private final EnumMap<Counter, AtomicInteger> counters = new EnumMap<Counter, AtomicInteger>(Counter.class);
@@ -45,6 +48,7 @@ public class Profiler {
     private final EnumMap<DeliveryLatency, AtomicInteger> deliveryLatencies = new EnumMap<DeliveryLatency, AtomicInteger>(DeliveryLatency.class);
     private final AtomicLong averageProbeLatency = new AtomicLong();
     private final AtomicLong averageDeliveryLatency = new AtomicLong();
+    private final AtomicLong averageDeliveryDelay = new AtomicLong();
     private final boolean profileEnabled;
 
     public Profiler(boolean profileEnabled) {
@@ -55,6 +59,21 @@ public class Profiler {
             initialiseEnum(ProbeLatency.class, probeLatencies);
             initialiseEnum(DeliveryLatency.class, deliveryLatencies);
         }
+    }
+
+    public void addDeliveryDelay(long delay) {
+        if (!profileEnabled)
+            return;
+
+        AtomicInteger smallest = deliveryLatencies.get(DeliveryLatency.SMALLEST_DELIVERY_DELAY);
+        if (smallest.intValue() == 0 || delay < smallest.intValue())
+            smallest.set((int) delay);
+
+        AtomicInteger largest = deliveryLatencies.get(DeliveryLatency.LARGEST_DELIVERY_DELAY);
+        if (delay > largest.intValue())
+            largest.set((int) delay);
+
+        calculateAverageDelay(delay);
     }
 
     public void addDeliveryLatency(int latency) {
@@ -78,6 +97,13 @@ public class Profiler {
             return;
 
         counters.get(Counter.PROBES_RECORDED).incrementAndGet();
+    }
+
+    public void messageSent() {
+        if (!profileEnabled)
+            return;
+
+        counters.get(Counter.MESSAGES_SENT).incrementAndGet();
     }
 
     public void messageReceived(boolean firstCopyAbsent) {
@@ -170,6 +196,13 @@ public class Profiler {
             smallest.set(latency);
     }
 
+    private void calculateAverageDelay(double delay) {
+        double average = Double.longBitsToDouble(averageDeliveryDelay.longValue());
+        average = (average + delay) / 2;
+        long longAverage = Double.doubleToLongBits(average); // No AtomicDouble class, so long used instead
+        averageDeliveryDelay.set(longAverage);
+    }
+
     private void calculateAverageLatency(int latency, boolean deliveryLatency) {
         AtomicLong averageLatency = deliveryLatency ? averageDeliveryLatency : averageProbeLatency;
         double average = Double.longBitsToDouble(averageLatency.longValue());
@@ -207,12 +240,14 @@ public class Profiler {
     public String toString() {
         double averageProbe = Math.round(Double.longBitsToDouble(averageProbeLatency.longValue()) * 100.0) / 100.0;
         double averageDelivery = Math.round(Double.longBitsToDouble(averageDeliveryLatency.longValue()) * 100.0) / 100.0;
+        double averageDeliveryD = Math.round(Double.longBitsToDouble(averageDeliveryDelay.longValue()) * 100.0) / 100.0;
         return "Profiler{" +
                 "\nCounters=" + counters +
                 ",\nProbe Latencies=" + probeLatencies +
                 ",\nAverage ProbeLatency=" + averageProbe + "ms" +
                 ",\nDelivery Latencies=" + deliveryLatencies +
                 ",\nAverage DeliveryLatency=" + averageDelivery + "ms" +
+                ",\nAverage DeliveryDelay=" + averageDeliveryD + "ms" +
                 '}';
     }
 }

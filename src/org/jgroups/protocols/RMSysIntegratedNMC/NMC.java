@@ -51,11 +51,11 @@ public class NMC {
             public void run() {
                 System.out.println("Profiler ------- \n " + profiler);
                 System.out.println("NMC  -------\n" + nmcProfiler);
-                try {
-                    nmcProfiler.collectionToFile(nmcProfiler.localXMax, "local");
-                } catch (Exception e) {
-                    System.out.println("WriteToFile Exception | " + e);
-                }
+//                try {
+//                    nmcProfiler.collectionToFile(nmcProfiler.localXMax, "local");
+//                } catch (Exception e) {
+//                    System.out.println("WriteToFile Exception | " + e);
+//                }
             }
         }));
     }
@@ -217,6 +217,9 @@ public class NMC {
 
         if (log.isDebugEnabled())
             log.debug("NMCData recorded | " + nmcData);
+
+        nmcProfiler.add(nmcData);
+        nmcProfiler.addQ(q);
     }
 
     // Forces decimals to always round up, pessimistic!
@@ -275,11 +278,34 @@ public class NMC {
 
     private class NMCProfiler {
         final ArrayList<Integer> localXMax = new ArrayList<Integer>();
+        final ArrayList<Integer> localOmega = new ArrayList<Integer>();
+        final ArrayList<Integer> localEta = new ArrayList<Integer>();
+        final ArrayList<Integer> localRho = new ArrayList<Integer>();
+        final ArrayList<Double> localQ = new ArrayList<Double>();
+
         PrintWriter out;
+
+        void add(NMCData data) {
+            localOmega.add(data.getOmega());
+            localEta.add(data.getEta());
+            localRho.add(data.getMessageCopies());
+        }
+
+        void addQ(double q) {
+            localQ.add(q);
+        }
+
+        double average(Collection<Double> collection, boolean flag) {
+            double total = 0;
+            for (double d : collection)
+                total += d;
+
+            return total / collection.size();
+        }
 
         double average(Collection<Integer> collection) {
             int total = 0;
-            for (Integer i : collection)
+            for (int i : collection)
                 total += i;
 
             return total / collection.size();
@@ -352,6 +378,26 @@ public class NMC {
                         "\n\t\tLargest := " + Collections.max(localXMax) +
                         "\n\t\tSmallest := " + Collections.min(localXMax) +
                         "\n\t\tAverage := " + average(localXMax) +
+                        "}, " +
+                    "\n\tOmega{" +
+                        "\n\t\tLargest := " + Collections.max(localOmega) +
+                        "\n\t\tSmallest := " + Collections.min(localOmega) +
+                        "\n\t\tAverage := " + average(localOmega) +
+                        "}, " +
+                    "\n\tEta{" +
+                        "\n\t\tLargest := " + Collections.max(localEta) +
+                        "\n\t\tSmallest := " + Collections.min(localEta) +
+                        "\n\t\tAverage := " + average(localEta) +
+                        "}, " +
+                    "\n\tRho{" +
+                        "\n\t\tLargest := " + Collections.max(localRho) +
+                        "\n\t\tSmallest := " + Collections.min(localRho) +
+                        "\n\t\tAverage := " + average(localRho) +
+                        "}, " +
+                    "\n\tQ{" +
+                        "\n\t\tLargest := " + Collections.max(localQ) +
+                        "\n\t\tSmallest := " + Collections.min(localQ) +
+                        "\n\t\tAverage := " + average(localQ, false) +
                         "}, " +
                     '}';
         }
