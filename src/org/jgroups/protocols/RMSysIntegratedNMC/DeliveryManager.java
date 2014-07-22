@@ -265,8 +265,9 @@ public class DeliveryManager {
             record.timedOut = true;
             lastTimeout = record;
 
-            if (log.isInfoEnabled() && !record.allAcksReceived()) {
-                log.info("Msg timedOut, mark ready to deliver | record := " + record);
+            if (!record.allAcksReceived()) {
+                if (log.isInfoEnabled())
+                    log.info("Msg timedOut, mark ready to deliver | record := " + record);
                 profiler.messageTimedOut();
             }
         }
