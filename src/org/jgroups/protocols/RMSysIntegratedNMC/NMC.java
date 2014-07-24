@@ -209,7 +209,7 @@ public class NMC {
         int rho = calculateRho(q);
         int eta = (int) Math.ceil(-1 * d * Math.log(1 - etaProbability)); // Calculate 1 - e - Np / d = 0.99
 //        int eta = xMax; // Eta as xMax, increases the deliveryDelay and responsiveness provisions
-        eta = Math.max(eta, xMax);
+//        eta = Math.max(eta, xMax);
         int omega = eta - d;
         int capD = xMax + (rho * eta);
         int capS = xMax + ((rho + 2) * eta) + omega;
@@ -295,12 +295,12 @@ public class NMC {
             localQ.add(q);
         }
 
-        double average(Collection<Double> collection, boolean flag) {
+        double averageDouble(Collection<Double> collection) {
             double total = 0;
             for (double d : collection)
                 total += d;
 
-            return total / collection.size();
+            return total / (double) collection.size();
         }
 
         double average(Collection<Integer> collection) {
@@ -308,7 +308,17 @@ public class NMC {
             for (int i : collection)
                 total += i;
 
-            return total / collection.size();
+            return total / (double) collection.size();
+        }
+
+        int median(List<Integer> list) {
+            Collections.sort(list);
+            return list.get((int) Math.round(list.size() / (double) 2));
+        }
+
+        double medianDouble(List<Double> list) {
+            Collections.sort(list);
+            return list.get((int) Math.round(list.size() / (double) 2));
         }
 
         String restrictedOutput(Collection<Integer> collection, boolean showCount) {
@@ -377,27 +387,32 @@ public class NMC {
                     "\n\tlocalXMax{" +
                         "\n\t\tLargest := " + Collections.max(localXMax) +
                         "\n\t\tSmallest := " + Collections.min(localXMax) +
+                        "\n\t\tMedian := " + median(localXMax) +
                         "\n\t\tAverage := " + average(localXMax) +
                         "}, " +
                     "\n\tOmega{" +
                         "\n\t\tLargest := " + Collections.max(localOmega) +
                         "\n\t\tSmallest := " + Collections.min(localOmega) +
+                        "\n\t\tMedian := " + median(localOmega) +
                         "\n\t\tAverage := " + average(localOmega) +
                         "}, " +
                     "\n\tEta{" +
                         "\n\t\tLargest := " + Collections.max(localEta) +
                         "\n\t\tSmallest := " + Collections.min(localEta) +
+                        "\n\t\tMedian := " + median(localEta) +
                         "\n\t\tAverage := " + average(localEta) +
                         "}, " +
                     "\n\tRho{" +
                         "\n\t\tLargest := " + Collections.max(localRho) +
                         "\n\t\tSmallest := " + Collections.min(localRho) +
+                        "\n\t\tMedian := " + median(localRho) +
                         "\n\t\tAverage := " + average(localRho) +
                         "}, " +
                     "\n\tQ{" +
                         "\n\t\tLargest := " + Collections.max(localQ) +
                         "\n\t\tSmallest := " + Collections.min(localQ) +
-                        "\n\t\tAverage := " + average(localQ, false) +
+                        "\n\t\tMedian := " + medianDouble(localQ) +
+                        "\n\t\tAverage := " + averageDouble(localQ) +
                         "}, " +
                     '}';
         }
