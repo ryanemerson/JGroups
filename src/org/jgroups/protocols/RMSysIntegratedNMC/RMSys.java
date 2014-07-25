@@ -217,6 +217,8 @@ final public class RMSys extends Protocol {
 
         if (log.isDebugEnabled())
             log.debug("Broadcast MSG := " + header);
+
+        profiler.messageSent();
     }
 
     private void sendEmptyAckMessage() {
