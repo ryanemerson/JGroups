@@ -54,6 +54,12 @@ final public class RMSys extends Protocol {
     private final boolean profilingEnabled = true;
     private final Profiler profiler = new Profiler(profilingEnabled);
 
+    private static PCSynch sClock;
+
+    public static long getClockTime() {
+        return sClock != null ? sClock.getTime() : -1;
+    }
+
     public RMSys() {
     }
 
@@ -76,11 +82,22 @@ final public class RMSys extends Protocol {
 
             // TODO change so that Events are passed up and down the stack (temporary hack)
             getProtocolStack().insertProtocol(clock, ProtocolStack.BELOW, this.getName());
+
+            // TODO remove experiment hack
+            sClock = clock;
         }
     }
 
     @Override
     public void start() throws Exception {
+        // TODO remove
+        Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
+            @Override
+            public void run() {
+                System.out.println("Final Broadcast := " + senderManager.getLastVectorClock().getLastBroadcast() + " | synch clock time := " + clock.getTime());
+            }
+        }));
+
         log.setLevel("info");
         if (activeMembers.size() > 0)
             nmc.setActiveNodes(activeMembers.size());

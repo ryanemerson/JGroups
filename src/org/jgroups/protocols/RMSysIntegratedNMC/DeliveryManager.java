@@ -286,6 +286,7 @@ public class DeliveryManager {
                         id + " | lastDelivered := " + lastDelivered.id + " | record " + record);
             rmSys.collectGarbage(id);
             profiler.messageRejected();
+            Test.msgsReceived.incrementAndGet();
         } else {
             deliverable.add(record.message);
         }

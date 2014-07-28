@@ -4,9 +4,14 @@ import org.jgroups.*;
 import org.jgroups.conf.ClassConfigurator;
 import org.jgroups.protocols.tom.ToaHeader;
 import org.jgroups.util.Util;
+import sun.misc.Unsafe;
 
 import java.io.*;
-import java.util.*;
+import java.lang.reflect.Field;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -46,11 +51,12 @@ public class Test extends ReceiverAdapter {
         new Test(propsFile, numberOfMessages, totalMessages, initiator).run();
     }
 
+    // Remember to incremement this in the delivery manager when messages are rejected
     public static AtomicInteger msgsReceived = new AtomicInteger();
     private final String PROPERTIES_FILE;
     private final int NUMBER_MESSAGES_TO_SEND;
-    private final int TOTAL_NUMBER_OF_MESSAGES;
-    private final int NUMBER_MESSAGES_PER_FILE = 5000;
+    private int TOTAL_NUMBER_OF_MESSAGES;
+    private final int NUMBER_MESSAGES_PER_FILE = 1000;
     private final int LATENCY_INTERVAL = 5000;
     private final String INITIATOR;
     private final String PATH = "/work/a7109534/";
@@ -68,6 +74,8 @@ public class Test extends ReceiverAdapter {
 
     private Map<Address, RMCastHeader> msgRecord = new HashMap<Address, RMCastHeader>();
     private boolean checkMissingSeq = false;
+
+    private final int MSGS_BEFORE_CRASH = 50000;
 
     public Test(String propsFile, int numberOfMessages, int totalMessages, String initiator) {
         PROPERTIES_FILE = propsFile;
@@ -96,8 +104,18 @@ public class Test extends ReceiverAdapter {
         if (channel.getAddress().toString().contains(INITIATOR))
             sendStartMessage(channel);
 
+        if (TOTAL_NUMBER_OF_MESSAGES / channel.getView().size() == NUMBER_MESSAGES_TO_SEND)
+            TOTAL_NUMBER_OF_MESSAGES = (NUMBER_MESSAGES_TO_SEND * 2) + MSGS_BEFORE_CRASH;
+
+        System.out.println("Expected Msgs after crash := " + TOTAL_NUMBER_OF_MESSAGES);
+
         while (true) {
             if (startSending) {
+                if (channel.getAddress().toString().contains("mill005") && sentMessages == MSGS_BEFORE_CRASH) {
+                    crashNode();
+                    while (true);
+                }
+
                 AnycastAddress anycastAddress = new AnycastAddress(channel.getView().getMembers());
                 final Message message = new Message(anycastAddress, sentMessages);
                 message.putHeader(id, TestHeader.createTestMsg(sentMessages + 1));
@@ -128,6 +146,20 @@ public class Test extends ReceiverAdapter {
 
         System.out.println("Test Finished");
         System.exit(0);
+    }
+
+    private void crashNode() throws Exception {
+        System.out.println("Crash Node");
+        getUnsafe().getByte(0);
+//        Field theUnsafe = Unsafe.class.getDeclaredField("theUnsafe");
+//        theUnsafe.setAccessible(true);
+//        theUnsafe.get(null).getByte(0);
+    }
+
+    private static Unsafe getUnsafe() throws NoSuchFieldException, IllegalAccessException {
+        Field theUnsafe = Unsafe.class.getDeclaredField("theUnsafe");
+        theUnsafe.setAccessible(true);
+        return (Unsafe) theUnsafe.get(null);
     }
 
     public void sendStartMessage(JChannel channel) throws Exception {
@@ -225,7 +257,7 @@ public class Test extends ReceiverAdapter {
     }
 
     public void viewAccepted(View view) {
-        System.out.println("New View := " + view);
+        System.out.println("New View := " + view + " | " + RMSys.getClockTime() + " | Channel View := " + channel.getViewAsString());
     }
 
     private PrintWriter getPrintWriter(String path) {
@@ -247,7 +279,7 @@ public class Test extends ReceiverAdapter {
                 out.println(((ToaHeader)header).getMessageID());
         out.flush();
 
-        int totalNumberOfRounds = TOTAL_NUMBER_OF_MESSAGES / NUMBER_MESSAGES_PER_FILE;
+        int totalNumberOfRounds = (int) Math.round((TOTAL_NUMBER_OF_MESSAGES) / (double) NUMBER_MESSAGES_PER_FILE);
         if (count == totalNumberOfRounds) {
             allMessagesReceived = true;
             System.out.println("&&&&&&&& Final Count := " + count + " | totalNumberOfRounds := " + totalNumberOfRounds +

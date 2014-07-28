@@ -20,6 +20,11 @@ public class SenderManager {
         this.numberOfAcks = numberOfAcks;
     }
 
+    // Just for tests
+    public VectorClock getLastVectorClock() {
+        return VectorClock.copyVectorClock(vectorClock);
+    }
+
     public RMCastHeader newEmptyBroadcast(Address localAddress, Collection<Address> destinations) {
         try {
             MessageId firstId = (MessageId) ((SortedSet) ackSet).first();
