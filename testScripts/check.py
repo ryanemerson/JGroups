@@ -8,15 +8,12 @@ file_location = '/work/a7109534/'
 #file_location = '/home/ryan/workspace/JGroups'
 #file_location = '/home/pg/p11/a7109534/'
 file_wildcard = '*'
-extension = "Delivered*.csv"
+extension = ".csv"
 get_file = file_location + file_wildcard + extension
 destination = '.'
+number_of_rounds = 18
 
-os.system("rm *" + extension)
-for hostname in hosts:
-    cmd = "scp " + user + "@" + hostname + ":" + get_file + " " + destination
-    print cmd
-    os.system(cmd)
+os.system("rm xMax*")
 
 host_files = defaultdict(list)
 for file in os.listdir(destination):
@@ -40,5 +37,3 @@ while True:
         cmd = "diff " + first_host + " " + second_host + " -usa"
         os.system(cmd)
     x += 1
-
-#os.system("rm " +  extension)
