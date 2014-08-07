@@ -16,6 +16,8 @@
          enable_diagnostics="true"
          thread_naming_pattern="cl"
 
+         ip_mcast="false"
+
          timer_type="new3"
          timer.min_threads="4"
          timer.max_threads="10"
@@ -38,8 +40,12 @@
          oob_thread_pool.queue_max_size="100"
          oob_thread_pool.rejection_policy="discard"/>
 
-    <PING timeout="2000"
-            num_initial_members="20"/>
+    <!--<PING timeout="2000"-->
+            <!--num_initial_members="20"/>-->
+    <FILE_PING
+            timeout="2000"
+            num_initial_members="20"
+            location="workspace/jgroups"/>
     <MERGE2 max_interval="30000"
             min_interval="10000"/>
     <FD_SOCK/>

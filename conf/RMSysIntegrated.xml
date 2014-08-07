@@ -11,12 +11,12 @@
     <UDP
             mcast_port="${jgroups.udp.mcast_port:45588}"
             tos="8"
-            loopback="true"
             max_bundle_size="64K"
             max_bundle_timeout="30"
-            ip_ttl="${jgroups.udp.ip_ttl:8}"
             enable_diagnostics="true"
             thread_naming_pattern="cl"
+
+            ip_mcast="false"
 
             timer_type="new3"
             timer.min_threads="4"
@@ -39,9 +39,14 @@
             oob_thread_pool.queue_enabled="false"
             oob_thread_pool.queue_max_size="100"
             oob_thread_pool.rejection_policy="discard"/>
+    <!--<FRAG2 frag_size="60K"  />-->
 
-    <PING timeout="2000"
-            num_initial_members="20"/>
+    <!--<PING timeout="2000"-->
+    <!--num_initial_members="20"/>-->
+    <FILE_PING
+            timeout="2000"
+            num_initial_members="20"
+            location="workspace/jgroups"/>
     <MERGE2 max_interval="30000"
             min_interval="10000"/>
     <FD_SOCK/>
@@ -66,6 +71,10 @@
     <pbcast.GMS print_local_addr="true" join_timeout="3000"
                 view_bundling="true"/>
     <FRAG2 frag_size="60K"  />
+    <!--<UFC max_credits="2M"-->
+         <!--min_threshold="0.4"/>-->
+    <!--<MFC max_credits="2M"-->
+         <!--min_threshold="0.4"/>-->
     <RSVP resend_interval="2000" timeout="10000"/>
     <RMSysIntegratedNMC.RMSys />
     <pbcast.STATE_TRANSFER />
