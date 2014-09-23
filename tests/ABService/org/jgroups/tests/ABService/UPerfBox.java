@@ -1,4 +1,4 @@
-package org.jgroups.tests.perf;
+package org.jgroups.tests.ABService;
 
 import org.jgroups.*;
 import org.jgroups.blocks.*;

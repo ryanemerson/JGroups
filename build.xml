@@ -672,7 +672,7 @@
             </fileset>
             <manifest>
                 <attribute name="Main-Class" value="org.jgroups.tests.ABService.CrashedNodeInfiniteClients" />
-                <!--<attribute name="Main-Class" value="org.jgroups.tests.perf.UPerfBox"/>-->
+                <!--<attribute name="Main-Class" value="org.jgroups.tests.ABService.UPerfBox"/>-->
             </manifest>
         </jar>
     </target>
