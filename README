@@ -1,5 +1,7 @@
 
+This is a fork of the JGroups framework detailed below.  The purpose of this fork is to hold prototype implementations of my research into atomic broadcast protocols.  More details about my research can be found on my linkedin page that is provided on my github profile.  
 
+This fork is not actively maintained, and is instead provided as a history of my research and the associated performance evaluations.  If you want to contribute to the JGroups framework you should fork the original repository: https://github.com/belaban/JGroups.
 
        JGroups - A Framework for Group Communication in Java
        ========================================================
