@@ -40,6 +40,16 @@ public class DeliveryManager {
     public DeliveryManager(RMSys rmSys, Profiler profiler) {
         this.rmSys = rmSys;
         this.profiler = profiler;
+
+        Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
+            @Override
+            public void run() {
+                synchronized (deliverySet) {
+                    System.out.println("---------------------------------------------------------------------------------");
+                    System.out.println(deliverySet);
+                }
+            }
+        }));
     }
 
     // RMSys
@@ -188,16 +198,17 @@ public class DeliveryManager {
         while(i.hasNext()) {
             MessageRecord record = i.next();
 
-            if (!nodeIsAlive(record, timedOutRecord)) {
-                i.remove();
-                messageRecords.remove(record.id);
-                removeReceivedSeq(record.id);
-                if (log.isDebugEnabled())
-                    log.debug("Placeholder removed from the delivery set forever | " + record.id);
-            }
+//            if (!nodeIsAlive(record, timedOutRecord)) {
+//                i.remove();
+//                messageRecords.remove(record.id);
+//                removeReceivedSeq(record.id);
+//                if (log.isDebugEnabled())
+//                    log.debug("Placeholder removed from the delivery set forever | " + record.id);
+//            }
             // If ph is > then the last received msg contained in this msg's vc then remove it and add it to valid phs
             // Provision for phs that are greater than timedOutRecord - Reduces blocking
-            else if (record.isPlaceholder() && placeholderIsIgnorable(timedOutRecord, record)) {
+//            else if (record.isPlaceholder() && placeholderIsIgnorable(timedOutRecord, record)) {
+            if (record.isPlaceholder() && placeholderIsIgnorable(timedOutRecord, record)) {
                 if (log.isDebugEnabled())
                     log.debug("Future placeholder ignored during delivery | " + record.id);
                 i.remove();
@@ -233,15 +244,15 @@ public class DeliveryManager {
             }
 
             if (record.isPlaceholder() && lastTimeout != null) {
-                if (!nodeIsAlive(record, lastTimeout)) {
-                    i.remove(); // Remove from the deliverySet forever
-                    messageRecords.remove(record.id);
-                    removeReceivedSeq(record.id);
-
-                    if (log.isDebugEnabled())
-                        log.debug("Placeholder removed from the delivery set forever | " + record.id);
-                    continue;
-                }
+//                if (!nodeIsAlive(record, lastTimeout)) {
+//                    i.remove(); // Remove from the deliverySet forever
+//                    messageRecords.remove(record.id);
+//                    removeReceivedSeq(record.id);
+//
+//                    if (log.isInfoEnabled())
+//                        log.info("Placeholder REMOVED from the delivery set forever | " + record.id);
+//                    continue;
+//                }
 
                 // If ph is > then the last received msg contained in this msg's vc then ignore it this time
                 // Provision for handling phs that are greater than lastTimeout - Reduces blocking

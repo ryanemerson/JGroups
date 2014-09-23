@@ -198,6 +198,7 @@ final public class RMSys extends Protocol {
     }
 
     private void deliver(Message message) {
+        message = message.copy();
         message.setDest(localAddress);
 
         if (log.isDebugEnabled())
@@ -529,11 +530,11 @@ final public class RMSys extends Protocol {
             RMCastHeader header = (RMCastHeader) message.getHeader(headerId);
             header.setCopy(currentCopy.intValue());
 
-            if (deliveryManager.hasMessageExpired(header)) {
-                if (log.isDebugEnabled())
-                    log.debug("Message copy not broadcast as the message has already been delivered");
-                return;
-            }
+//            if (deliveryManager.hasMessageExpired(header)) {
+//                if (log.isDebugEnabled())
+//                    log.debug("Message copy not broadcast as the message has already been delivered");
+//                return;
+//            }
 
             if (header.getCopy() > 0)
                 message.setFlag(Message.Flag.OOB); // Send copies > 0 OOB to ensure that messages aren't disseminated unnecessarily
