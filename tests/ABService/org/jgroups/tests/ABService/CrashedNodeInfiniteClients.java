@@ -1,8 +1,10 @@
-package org.jgroups.protocols.RMSysIntegratedNMC;
+package org.jgroups.tests.ABService;
 
 import org.jgroups.*;
 import org.jgroups.conf.ClassConfigurator;
 import org.jgroups.logging.LogFactory;
+import org.jgroups.protocols.RMSysIntegratedNMC.RMCastHeader;
+import org.jgroups.protocols.RMSysIntegratedNMC.RMSys;
 import org.jgroups.protocols.tom.ToaHeader;
 import org.jgroups.util.Util;
 import sun.misc.Unsafe;
@@ -20,12 +22,14 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * // TODO: Document this
+ * A test class to send abcasts between multiple nodes. A single node is configured to crash after x amount of messages
+ * as specified in the variable MSGS_BEFORE_CRASH.  This test assumes infinite clients in an AbaaS scenario (i.e
+ * the ARP is always full).
  *
  * @author ryan
  * @since 4.0
  */
-public class Test extends ReceiverAdapter {
+public class CrashedNodeInfiniteClients extends ReceiverAdapter {
     public static void main(String[] args) throws Exception{
         String propsFile = "RMSysIntegrated.xml";
         String initiator = "";
@@ -49,7 +53,7 @@ public class Test extends ReceiverAdapter {
                 continue;
             }
         }
-        new Test(propsFile, numberOfMessages, totalMessages, initiator).run();
+        new CrashedNodeInfiniteClients(propsFile, numberOfMessages, totalMessages, initiator).run();
     }
 
     // Remember to incremement this in the delivery manager when messages are rejected
@@ -78,7 +82,7 @@ public class Test extends ReceiverAdapter {
 
     private final int MSGS_BEFORE_CRASH = 50000;
 
-    public Test(String propsFile, int numberOfMessages, int totalMessages, String initiator) {
+    public CrashedNodeInfiniteClients(String propsFile, int numberOfMessages, int totalMessages, String initiator) {
         PROPERTIES_FILE = propsFile;
         NUMBER_MESSAGES_TO_SEND = numberOfMessages;
         TOTAL_NUMBER_OF_MESSAGES = totalMessages;

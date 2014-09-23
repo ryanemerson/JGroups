@@ -5,10 +5,14 @@ import org.jgroups.Message;
 import org.jgroups.conf.ClassConfigurator;
 import org.jgroups.logging.Log;
 import org.jgroups.logging.LogFactory;
+import org.jgroups.tests.ABService.CrashedNodeInfiniteClients;
 import org.jgroups.util.Util;
 
 import java.util.*;
-import java.util.concurrent.*;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.DelayQueue;
+import java.util.concurrent.Delayed;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Class responsible for holding messages until they are ready to deliver
@@ -297,7 +301,7 @@ public class DeliveryManager {
                         id + " | lastDelivered := " + lastDelivered.id + " | record " + record);
             rmSys.collectGarbage(id);
             profiler.messageRejected();
-            Test.msgsReceived.incrementAndGet();
+            CrashedNodeInfiniteClients.msgsReceived.incrementAndGet();
         } else {
             deliverable.add(record.message);
         }

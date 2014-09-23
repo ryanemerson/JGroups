@@ -20,6 +20,7 @@
     <property name="stress.dir" value="${tests.dir}/stress"/>
     <property name="perf.dir" value="${tests.dir}/perf"/>
     <property name="util.dir" value="${tests.dir}/util"/>
+    <property name="ABService.dir" value="${tests.dir}/ABService"/>
     <property name="compile.dir" value="${root.dir}/classes"/>
     <property name="lib.dir" value="${root.dir}/lib"/>
     <property name="dist.dir" value="${root.dir}/dist"/>
@@ -163,6 +164,7 @@
             <src path="${stress.dir}"/>
             <src path="${perf.dir}"/>
             <src path="${util.dir}"/>
+            <src path="${ABService.dir}"/>
         </javac>
     </target>
 
@@ -626,7 +628,7 @@
     <!-- CUSTOM DISTRIBUTIONS FOR TESTING PURPOSES ONLY - TODO REMOVE -->
     <target name="dist"
             description="Creates a jgroups.jar with a custom main class)"
-            depends="clean,compile-no-unittests,compile-essential-unittests,create-schema">
+            depends="clean,compile,create-schema">
         <mkdir dir="jar"/>
         <jar destfile="jar/jgroups.jar"
              basedir="${compile.dir}"
@@ -651,7 +653,7 @@
 
     <target name="mperf"
             description="Creates a mperf.jar with a custom main class)"
-            depends="clean,compile-no-unittests,compile-essential-unittests,create-schema">
+            depends="clean,compile,create-schema">
         <mkdir dir="jar"/>
         <jar destfile="jar/mperf.jar"
              basedir="${compile.dir}"
@@ -669,7 +671,7 @@
                 <include name="licenses/thirdparty*"/>
             </fileset>
             <manifest>
-                <attribute name="Main-Class" value="org.jgroups.protocols.RMSysIntegratedNMC.Test" />
+                <attribute name="Main-Class" value="org.jgroups.tests.ABService.CrashedNodeInfiniteClients" />
                 <!--<attribute name="Main-Class" value="org.jgroups.tests.perf.UPerfBox"/>-->
             </manifest>
         </jar>
