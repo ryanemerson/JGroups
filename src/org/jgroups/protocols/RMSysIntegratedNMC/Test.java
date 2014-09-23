@@ -2,6 +2,7 @@ package org.jgroups.protocols.RMSysIntegratedNMC;
 
 import org.jgroups.*;
 import org.jgroups.conf.ClassConfigurator;
+import org.jgroups.logging.LogFactory;
 import org.jgroups.protocols.tom.ToaHeader;
 import org.jgroups.util.Util;
 import sun.misc.Unsafe;
@@ -111,7 +112,7 @@ public class Test extends ReceiverAdapter {
 
         while (true) {
             if (startSending) {
-                if (channel.getAddress().toString().contains("mill005") && sentMessages == MSGS_BEFORE_CRASH) {
+                if (channel.getAddress().toString().contains("mill030") && sentMessages == MSGS_BEFORE_CRASH) {
                     crashNode();
                     while (true);
                 }
@@ -257,7 +258,7 @@ public class Test extends ReceiverAdapter {
     }
 
     public void viewAccepted(View view) {
-        System.out.println("New View := " + view + " | " + RMSys.getClockTime() + " | Channel View := " + channel.getViewAsString());
+        LogFactory.getLog(RMSys.class).warn("New View := " + view + " | " + RMSys.getClockTime() + " | Channel View := " + channel.getViewAsString());
     }
 
     private PrintWriter getPrintWriter(String path) {
