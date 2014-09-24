@@ -1,4 +1,4 @@
-package org.jgroups.tests;
+package org.jgroups.tests.ABService;
 
 import org.jgroups.JChannel;
 
