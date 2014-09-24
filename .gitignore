@@ -21,6 +21,6 @@ doc/tutorial/target
 conf/MANIFEST.MF
 target/
 lib/
-
+jar/
 out/
 
