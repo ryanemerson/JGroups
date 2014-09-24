@@ -1,7 +1,8 @@
-package org.jgroups.util;
+package org.jgroups.tests.ABService;
 
 import org.jgroups.*;
 import org.jgroups.protocols.tom.ToaHeader;
+import org.jgroups.util.Util;
 
 import java.io.BufferedWriter;
 import java.io.FileWriter;
@@ -12,7 +13,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * // TODO: Document this
+ * A test to see if the TOA protocol fails when utilised with only two destinations.
+ * Resolved in JGRP-1785.
  *
  * @author Ryan Emerson
  * @since 4.0
