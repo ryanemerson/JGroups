@@ -50,7 +50,12 @@ public class DeliveryManager {
             public void run() {
                 synchronized (deliverySet) {
                     System.out.println("---------------------------------------------------------------------------------");
-                    System.out.println(deliverySet);
+                    int i = 0;
+                    Iterator<MessageRecord> it = deliverySet.iterator();
+                    while (i < 20 && it.hasNext()) {
+                        System.out.println(it.next());
+                        i++;
+                    }
                 }
             }
         }));
