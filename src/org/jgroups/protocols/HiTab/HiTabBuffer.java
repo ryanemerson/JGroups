@@ -17,7 +17,7 @@ import java.util.concurrent.locks.ReentrantLock;
 /**
  * // TODO: Document this
  *
- * @author ryan
+ * @author Ryan Emerson
  * @since 4.0
  */
 public class HiTabBuffer {

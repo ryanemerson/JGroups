@@ -12,7 +12,7 @@ import java.util.Arrays;
 /**
  * Message Information that is associated with AbaaS requests and responses.
  *
- * @author ryan
+ * @author Ryan Emerson
  * @since 4.0
  */
 public class MessageInfo implements Comparable<MessageInfo>, SizeStreamable {

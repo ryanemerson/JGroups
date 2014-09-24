@@ -11,7 +11,7 @@ import java.io.DataOutput;
 /**
  * Class representing message ids
  *
- * @author ryan
+ * @author Ryan Emerson
  * @since 4.0
  */
 public class MessageId implements SizeStreamable {

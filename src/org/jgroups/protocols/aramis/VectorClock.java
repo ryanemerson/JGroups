@@ -12,7 +12,7 @@ import java.util.Map;
 /**
  * Class used to provide vector clocks in Aramis and Base.
  *
- * @author ryan
+ * @author Ryan Emerson
  * @since 4.0
  */
 public class VectorClock implements SizeStreamable {

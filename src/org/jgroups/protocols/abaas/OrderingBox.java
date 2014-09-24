@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * This class manages all client requests and stores each request as part of the require 'immediate predecessor' information
  * that is essential for maintaining the total order at each client.
  *
- * @author ryan
+ * @author Ryan Emerson
  * @since 4.0
  */
 public class OrderingBox {

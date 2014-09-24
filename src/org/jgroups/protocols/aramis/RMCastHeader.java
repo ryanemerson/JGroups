@@ -13,7 +13,7 @@ import java.util.Collection;
 /**
  * Header utilised by all Aramis and Base messages.  Named RMCast after the underlying broadcast protocol RMSys.
  *
- * @author ryan
+ * @author Ryan Emerson
  * @since 4.0
  */
 public class RMCastHeader extends Header {

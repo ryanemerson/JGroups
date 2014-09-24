@@ -16,7 +16,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * Probabilistic clock synchronisation
  *
- * @author ryan
+ * @author Ryan Emerson
  * @since 4.0
  */
 public class PCSynch extends Protocol {

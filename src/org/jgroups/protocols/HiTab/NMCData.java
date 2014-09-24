@@ -3,7 +3,7 @@ package org.jgroups.protocols.HiTab;
 /**
  * A class that contains the values calculated by the NMC
  *
- * @author ryan
+ * @author Ryan Emerson
  * @since 4.0
  */
 public class NMCData {

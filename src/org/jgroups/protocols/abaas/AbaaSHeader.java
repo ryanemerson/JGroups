@@ -12,7 +12,7 @@ import java.util.Collection;
 /**
  * Header file that is used to send all messages associated with the AbaaS protocol.
  *
- * @author ryan
+ * @author Ryan Emerson
  * @since 4.0
  */
 final public class AbaaSHeader extends Header {

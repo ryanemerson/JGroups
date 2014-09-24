@@ -10,7 +10,7 @@ import java.util.*;
  * A class to provide a means of reducing a views size in bytes by storing each view in a byte array, and storing past view
  * data at each node in the cluster.
  *
- * @author ryan
+ * @author Ryan Emerson
  * @since 4.0
  */
 public class ViewManager {

@@ -11,7 +11,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * Class, and associated inner classes, that are responsible for ensuring that abcast messages are delivered by client nodes
  * in the correct total order.
  *
- * @author ryan
+ * @author Ryan Emerson
  * @since 4.0
  */
 public class DeliveryManager {

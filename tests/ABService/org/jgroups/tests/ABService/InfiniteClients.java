@@ -23,7 +23,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * A test class to send abcasts between multiple nodes. This test assumes infinite clients in an AbaaS scenario (i.e
  * the ARP is always full).
  *
- * @author ryan
+ * @author Ryan Emerson
  * @since 4.0
  */
 public class InfiniteClients extends ReceiverAdapter {

@@ -13,9 +13,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * Aramis and Base, a probabilistic total order protocol that combines the performance of blocking atomic broadcast protocols,
  * such as NewTop or TOA, with the non-blocking characteristic of a new probabilistic protocol, Aramis. This is the main class
- * for the Aramis and Base protocol.  
+ * for the Aramis and Base protocol.
  *
- * @author ryan
+ * @author Ryan Emerson
  * @since 4.0
  */
 final public class Aramis extends Protocol {

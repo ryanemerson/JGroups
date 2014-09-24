@@ -11,7 +11,7 @@ import java.io.DataOutput;
 /**
  * Message Id used by all Aramis messages.
  *
- * @author ryan
+ * @author Ryan Emerson
  * @since 4.0
  */
 public class MessageId implements SizeStreamable, Comparable<MessageId> {

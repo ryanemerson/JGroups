@@ -26,7 +26,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * as specified in the variable MSGS_BEFORE_CRASH.  This test assumes infinite clients in an AbaaS scenario (i.e
  * the ARP is always full).
  *
- * @author ryan
+ * @author Ryan Emerson
  * @since 4.0
  */
 public class CrashedNodeInfiniteClients extends ReceiverAdapter {

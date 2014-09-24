@@ -3,7 +3,7 @@ package org.jgroups.protocols.HiTab;
 /**
  * // TODO: Document this
  *
- * @author ryan
+ * @author Ryan Emerson
  * @since 4.0
  */
 public class HiTabEvent {

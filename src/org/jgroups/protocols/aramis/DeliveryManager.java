@@ -17,7 +17,7 @@ import java.util.concurrent.TimeUnit;
 /**
  * Class responsible for holding messages until they are ready to be delivered.
  *
- * @author ryan
+ * @author Ryan Emerson
  * @since 4.0
  */
 public class DeliveryManager {

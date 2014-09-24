@@ -5,7 +5,7 @@ import org.jgroups.JChannel;
 /**
  * Class that provides a 'dumb' application, that simply runs a network stack.  Useful for simulating ordering box members
  *
- * @author ryan
+ * @author Ryan Emerson
  * @since 4.0
  */
 public class AbaaSBoxMember {

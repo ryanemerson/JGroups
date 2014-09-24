@@ -9,7 +9,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * Class stores records associated with each atomic broadcast message sent using Aramis and Base.
  *
- * @author ryan
+ * @author Ryan Emerson
  * @since 4.0
  */
 public class SenderManager {

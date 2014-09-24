@@ -13,7 +13,7 @@ import java.util.List;
 /**
  * // TODO: Document this
  *
- * @author ryan
+ * @author Ryan Emerson
  * @since 4.0
  */
 public class HiTabHeader extends RMCastHeader {

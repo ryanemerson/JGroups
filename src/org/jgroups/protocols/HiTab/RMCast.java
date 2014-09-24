@@ -16,7 +16,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * A protocol that handles the broadcasting of messages but provides no ordering
  *
- * @author ryan
+ * @author Ryan Emerson
  * @since 4.0
  */
 public class RMCast extends Protocol {

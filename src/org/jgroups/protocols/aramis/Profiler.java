@@ -7,7 +7,7 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * A class to profile the performance of Aramis and Base.
  *
- * @author ryan
+ * @author Ryan Emerson
  * @since 4.0
  */
 public class Profiler {

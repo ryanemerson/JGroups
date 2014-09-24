@@ -18,7 +18,7 @@ import java.util.logging.Logger;
 /**
  * Abaas protocol used to provide total ordering as an external service.
  *
- * @author ryan
+ * @author Ryan Emerson
  * @since 4.0
  */
 public class AbaaS extends Protocol {

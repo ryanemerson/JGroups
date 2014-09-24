@@ -13,7 +13,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * // TODO: Document this
  *
- * @author ryanemerson
+ * @author Ryan Emerson
  * @since 4.0
  */
 public class HiTab extends Protocol {

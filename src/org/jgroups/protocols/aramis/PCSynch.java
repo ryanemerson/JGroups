@@ -17,7 +17,7 @@ import java.util.concurrent.TimeUnit;
 /**
  * Clock synchronisation protocol based upon F.Cristains work on probabilistic clock synchronisation.
  *
- * @author ryan
+ * @author Ryan Emerson
  * @since 4.0
  */
 public class PCSynch extends Protocol {

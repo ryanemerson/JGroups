@@ -6,7 +6,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * A class to record profiling information about the AbaaS protocol
  *
- * @author ryan
+ * @author Ryan Emerson
  * @since 4.0
  */
 public class Profiler {

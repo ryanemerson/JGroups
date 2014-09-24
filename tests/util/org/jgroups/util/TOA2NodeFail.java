@@ -14,7 +14,7 @@ import java.util.Map;
 /**
  * // TODO: Document this
  *
- * @author ryan
+ * @author Ryan Emerson
  * @since 4.0
  */
 public class TOA2NodeFail extends ReceiverAdapter {
