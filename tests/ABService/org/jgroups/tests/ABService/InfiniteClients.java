@@ -3,8 +3,8 @@ package org.jgroups.tests.ABService;
 import org.jgroups.*;
 import org.jgroups.conf.ClassConfigurator;
 import org.jgroups.logging.LogFactory;
-import org.jgroups.protocols.RMSysIntegratedNMC.RMCastHeader;
-import org.jgroups.protocols.RMSysIntegratedNMC.RMSys;
+import org.jgroups.protocols.aramis.RMCastHeader;
+import org.jgroups.protocols.aramis.Aramis;
 import org.jgroups.protocols.tom.ToaHeader;
 import org.jgroups.util.Util;
 
@@ -231,7 +231,7 @@ public class InfiniteClients extends ReceiverAdapter {
     }
 
     public void viewAccepted(View view) {
-        LogFactory.getLog(RMSys.class).warn("New View := " + view + " | " + RMSys.getClockTime() + " | Channel View := " + channel.getViewAsString());
+        LogFactory.getLog(Aramis.class).warn("New View := " + view + " | " + Aramis.getClockTime() + " | Channel View := " + channel.getViewAsString());
     }
 
     private PrintWriter getPrintWriter(String path) {

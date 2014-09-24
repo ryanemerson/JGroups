@@ -1,4 +1,4 @@
-package org.jgroups.protocols.RMSysIntegratedNMC;
+package org.jgroups.protocols.aramis;
 
 import org.jgroups.*;
 import org.jgroups.annotations.Property;
@@ -105,14 +105,14 @@ public class PCSynch extends Protocol {
                 PCSynchData data = header.data;
                 switch (header.type) {
                     case PCSynchHeader.SYNCH_REQ:
-                        if(log.isTraceEnabled())
+                        if (log.isTraceEnabled())
                             log.trace("SYNCH_REQ received " + header);
 
                         sendResponse(data);
                         break;
                     case PCSynchHeader.SYNCH_RSP:
                         handleResponse(data);
-                        if(log.isTraceEnabled())
+                        if (log.isTraceEnabled())
                             log.trace("SYNCH_RSP received " + header);
                         break;
                 }

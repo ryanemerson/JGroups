@@ -2,7 +2,7 @@ package org.jgroups.protocols.DecoupledBroadcast;
 
 import org.jgroups.*;
 import org.jgroups.logging.Log;
-import org.jgroups.protocols.RMSysIntegratedNMC.RMCastHeader;
+import org.jgroups.protocols.aramis.RMCastHeader;
 import org.jgroups.stack.Protocol;
 
 import java.util.*;
@@ -32,7 +32,7 @@ public class OrderingBox {
 
     // TODO remove
     private void checkTotalOrder(Message message) {
-        if (downProtocol.getName().equals("RMSys")) {
+        if (downProtocol.getName().equals("Aramis")) {
             RMCastHeader h = (RMCastHeader) message.getHeader((short) 1008);
             RMCastHeader oldHeader = msgRecord.put(h.getId().getOriginator(), h);
             if (oldHeader != null && oldHeader.getId().getSequence() + 1 != h.getId().getSequence())

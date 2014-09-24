@@ -1,4 +1,4 @@
-package org.jgroups.protocols.RMSysIntegratedNMC;
+package org.jgroups.protocols.aramis;
 
 import org.jgroups.*;
 import org.jgroups.annotations.Property;
@@ -11,12 +11,12 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * RMSys, a probabilistic total order protocol
+ * Aramis, a probabilistic total order protocol
  *
  * @author ryan
  * @since 4.0
  */
-final public class RMSys extends Protocol {
+final public class Aramis extends Protocol {
 
     @Property(name = "initial_probe_frequency", description = "The time (in milliseconds) between each probe message that is" +
             " sent during initialisation")
@@ -60,10 +60,10 @@ final public class RMSys extends Protocol {
         return sClock != null ? sClock.getTime() : -1;
     }
 
-    public RMSys() {
+    public Aramis() {
     }
 
-    public RMSys(PCSynch clock, List<String> activeHostnames) {
+    public Aramis(PCSynch clock, List<String> activeHostnames) {
         this.clock = clock;
         this.activeHostnames = activeHostnames;
         allNodesActive = false;
@@ -156,7 +156,7 @@ final public class RMSys extends Protocol {
 
                 // TODO How to make this associated with just box members?
                 // There must be a cleaner solution then passing hostnames!
-                // Use a seperate view for those involved with RMSys i.e. boxMembers
+                // Use a seperate view for those involved with Aramis i.e. boxMembers
                 if (nmc != null)
                     nmc.setActiveNodes(activeMembers.size());
                 break;
@@ -170,7 +170,7 @@ final public class RMSys extends Protocol {
             case Event.MSG:
                 Message message = (Message) event.getArg();
                 if (message.getDest() instanceof AnycastAddress && !message.isFlagSet(Message.Flag.NO_TOTAL_ORDER)) {
-                      flowControl.addMessage(message);
+                    flowControl.addMessage(message);
 //                    sendRMCast(message);
                     return null;
                 }
@@ -223,7 +223,7 @@ final public class RMSys extends Protocol {
         // How would this work when a node is considered unresponsive?
         Collection<Address> destinations = activeMembers;
 //        if (message.getDest() == null || !(message.getDest() instanceof AnycastAddress))
-            message.setDest(new AnycastAddress(destinations)); // If null must set to Anycast Address
+        message.setDest(new AnycastAddress(destinations)); // If null must set to Anycast Address
 
         // Generate message header and store locally
         RMCastHeader header = deliveryManager.addLocalMessage(senderManager, message, localAddress, data, id, destinations);
@@ -251,7 +251,7 @@ final public class RMSys extends Protocol {
 
         if (log.isDebugEnabled())
             log.debug("Empty ack message sent ct := " + clock.getTime() +
-                      " | #Acks :=  " + header.getAcks().size() + " | Acks := " + header.getAcks());
+                    " | #Acks :=  " + header.getAcks().size() + " | Acks := " + header.getAcks());
 
         profiler.emptyAckMessageSent();
         if (senderManager.acksRequired())
@@ -449,7 +449,7 @@ final public class RMSys extends Protocol {
                         try {
                             deliver(message);
                         } catch (Throwable t) {
-                            log.error("RMSys: Exception caught while delivering message " + message + ":" + t.getMessage());
+                            log.error("Aramis: Exception caught while delivering message " + message + ":" + t.getMessage());
                         }
                     }
                 } catch (InterruptedException e) {

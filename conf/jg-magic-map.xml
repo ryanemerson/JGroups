@@ -88,7 +88,7 @@
     <!-- DECOUPLED -->
     <class id="121" name="org.jgroups.protocols.DecoupledBroadcast.DecoupledHeader"/>
 
-    <!-- RMSysIntegratedProbing -->
-    <class id="122" name="org.jgroups.protocols.RMSysIntegratedNMC.PCSynch$PCSynchHeader"/>
-    <class id="123" name="org.jgroups.protocols.RMSysIntegratedNMC.RMCastHeader"/>
+    <!-- Aramis -->
+    <class id="122" name="org.jgroups.protocols.aramis.PCSynch$PCSynchHeader"/>
+    <class id="123" name="org.jgroups.protocols.aramis.RMCastHeader"/>
 </magic-number-class-mapping>

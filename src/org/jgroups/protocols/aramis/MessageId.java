@@ -1,4 +1,4 @@
-package org.jgroups.protocols.RMSysIntegratedNMC;
+package org.jgroups.protocols.aramis;
 
 import org.jgroups.Address;
 import org.jgroups.util.Bits;
@@ -9,7 +9,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 
 /**
- * Message Id used by all RMSys messages
+ * Message Id used by all Aramis messages
  *
  * @author ryan
  * @since 4.0
@@ -92,7 +92,7 @@ public class MessageId implements SizeStreamable, Comparable<MessageId> {
 
         if (timestamp < other.timestamp)
             return -1;
-        else if(timestamp > other.timestamp)
+        else if (timestamp > other.timestamp)
             return 1;
         else
             return originator.compareTo(other.originator);

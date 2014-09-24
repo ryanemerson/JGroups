@@ -1,4 +1,4 @@
-package org.jgroups.protocols.RMSysIntegratedNMC;
+package org.jgroups.protocols.aramis;
 
 import org.jgroups.Global;
 import org.jgroups.util.Streamable;

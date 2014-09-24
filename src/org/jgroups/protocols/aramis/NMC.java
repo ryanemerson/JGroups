@@ -1,4 +1,4 @@
-package org.jgroups.protocols.RMSysIntegratedNMC;
+package org.jgroups.protocols.aramis;
 
 import org.jgroups.Address;
 import org.jgroups.logging.Log;
@@ -11,7 +11,7 @@ import java.util.*;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * A class that represents the Network Measurement Component (NMC) of RMSys
+ * A class that represents the Network Measurement Component (NMC) of Aramis
  *
  * @author ryan
  * @since 4.0
@@ -35,15 +35,15 @@ public class NMC {
     private volatile int activeNodes = 0;
     private volatile int xMax = 0;
 
-    private Log log = LogFactory.getLog(RMSys.class);
+    private Log log = LogFactory.getLog(Aramis.class);
 
     private final NMCProfiler nmcProfiler = new NMCProfiler(); // TODO remove
-    private final RMSys rmsys;
+    private final Aramis rmsys;
 
-    public NMC(PCSynch clock, RMSys rmSys, final Profiler profiler) {
+    public NMC(PCSynch clock, Aramis aramis, final Profiler profiler) {
         this.clock = clock;
         this.profiler = profiler;
-        this.rmsys = rmSys;
+        this.rmsys = aramis;
 
         // TODO remove
         Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
@@ -369,7 +369,7 @@ public class NMC {
             }
 
             String filePath = PATH + filename + "-" + name + "-" + localAddress + ".csv";
-            out = new PrintWriter(new BufferedWriter(new FileWriter(filePath,true)), true);
+            out = new PrintWriter(new BufferedWriter(new FileWriter(filePath, true)), true);
             out.print(output);
             out.flush();
             out.close();
@@ -385,35 +385,35 @@ public class NMC {
         public String toString() {
             return "NMCProfiler{" +
                     "\n\tlocalXMax{" +
-                        "\n\t\tLargest := " + Collections.max(localXMax) +
-                        "\n\t\tSmallest := " + Collections.min(localXMax) +
-                        "\n\t\tMedian := " + median(localXMax) +
-                        "\n\t\tAverage := " + average(localXMax) +
-                        "}, " +
+                    "\n\t\tLargest := " + Collections.max(localXMax) +
+                    "\n\t\tSmallest := " + Collections.min(localXMax) +
+                    "\n\t\tMedian := " + median(localXMax) +
+                    "\n\t\tAverage := " + average(localXMax) +
+                    "}, " +
                     "\n\tOmega{" +
-                        "\n\t\tLargest := " + Collections.max(localOmega) +
-                        "\n\t\tSmallest := " + Collections.min(localOmega) +
-                        "\n\t\tMedian := " + median(localOmega) +
-                        "\n\t\tAverage := " + average(localOmega) +
-                        "}, " +
+                    "\n\t\tLargest := " + Collections.max(localOmega) +
+                    "\n\t\tSmallest := " + Collections.min(localOmega) +
+                    "\n\t\tMedian := " + median(localOmega) +
+                    "\n\t\tAverage := " + average(localOmega) +
+                    "}, " +
                     "\n\tEta{" +
-                        "\n\t\tLargest := " + Collections.max(localEta) +
-                        "\n\t\tSmallest := " + Collections.min(localEta) +
-                        "\n\t\tMedian := " + median(localEta) +
-                        "\n\t\tAverage := " + average(localEta) +
-                        "}, " +
+                    "\n\t\tLargest := " + Collections.max(localEta) +
+                    "\n\t\tSmallest := " + Collections.min(localEta) +
+                    "\n\t\tMedian := " + median(localEta) +
+                    "\n\t\tAverage := " + average(localEta) +
+                    "}, " +
                     "\n\tRho{" +
-                        "\n\t\tLargest := " + Collections.max(localRho) +
-                        "\n\t\tSmallest := " + Collections.min(localRho) +
-                        "\n\t\tMedian := " + median(localRho) +
-                        "\n\t\tAverage := " + average(localRho) +
-                        "}, " +
+                    "\n\t\tLargest := " + Collections.max(localRho) +
+                    "\n\t\tSmallest := " + Collections.min(localRho) +
+                    "\n\t\tMedian := " + median(localRho) +
+                    "\n\t\tAverage := " + average(localRho) +
+                    "}, " +
                     "\n\tQ{" +
-                        "\n\t\tLargest := " + Collections.max(localQ) +
-                        "\n\t\tSmallest := " + Collections.min(localQ) +
-                        "\n\t\tMedian := " + medianDouble(localQ) +
-                        "\n\t\tAverage := " + averageDouble(localQ) +
-                        "}, " +
+                    "\n\t\tLargest := " + Collections.max(localQ) +
+                    "\n\t\tSmallest := " + Collections.min(localQ) +
+                    "\n\t\tMedian := " + medianDouble(localQ) +
+                    "\n\t\tAverage := " + averageDouble(localQ) +
+                    "}, " +
                     '}';
         }
     }

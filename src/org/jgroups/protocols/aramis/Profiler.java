@@ -1,4 +1,4 @@
-package org.jgroups.protocols.RMSysIntegratedNMC;
+package org.jgroups.protocols.aramis;
 
 import java.util.EnumMap;
 import java.util.concurrent.atomic.AtomicInteger;

@@ -1,4 +1,4 @@
-package org.jgroups.protocols.RMSysIntegratedNMC;
+package org.jgroups.protocols.aramis;
 
 import org.jgroups.Address;
 import org.jgroups.Message;
@@ -32,17 +32,18 @@ public class DeliveryManager {
     private final DelayQueue<MessageRecord> timedOutQueue = new DelayQueue<MessageRecord>();
     private final Queue<Message> messageQueue = new ConcurrentLinkedQueue<Message>();
     private final Queue<MessageId> localMsgQueue = new ConcurrentLinkedQueue<MessageId>();
-    private final Log log = LogFactory.getLog(RMSys.class);
-    private final RMSys rmSys;
+    private final Log log = LogFactory.getLog(Aramis.class);
+    private final Aramis aramis;
     private final Profiler profiler;
 
     private enum DeliveryType {V1, V2}
+
     private DeliveryType deliveryType = DeliveryType.V2;
     private volatile MessageRecord lastDelivered;
     private volatile MessageRecord lastTimeout;
 
-    public DeliveryManager(RMSys rmSys, Profiler profiler) {
-        this.rmSys = rmSys;
+    public DeliveryManager(Aramis aramis, Profiler profiler) {
+        this.aramis = aramis;
         this.profiler = profiler;
 
         Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
@@ -61,9 +62,9 @@ public class DeliveryManager {
         }));
     }
 
-    // RMSys
+    // Aramis
     public RMCastHeader addLocalMessage(SenderManager senderManager, Message message, Address localAddress, NMCData data,
-                                        short rmsysId, Collection<Address> destinations) {
+                                                                     short rmsysId, Collection<Address> destinations) {
         RMCastHeader header = senderManager.newMessageBroadcast(localAddress, data, destinations, localMsgQueue);
         message.putHeader(rmsysId, header);
         message.src(localAddress);
@@ -71,7 +72,7 @@ public class DeliveryManager {
         return header;
     }
 
-    // RMSys
+    // Aramis
     public void addMessage(Message message) {
         addMessageToQueue(message);
     }
@@ -94,7 +95,7 @@ public class DeliveryManager {
 
     private void addMessageToQueue(Message message) {
         // Copy necessary to prevent message.setDest in deliver() from affecting broadcasts of copies > 0
-        // Without this the RMSys.broadcastMessage() will throw an exception if a message has been delivered
+        // Without this the Aramis.broadcastMessage() will throw an exception if a message has been delivered
         // before all of it's copies have been broadcast, this is because the msg destination is set to a single destination in deliver()
 //        message = message.copy();
         messageQueue.add(message);
@@ -130,7 +131,7 @@ public class DeliveryManager {
         if (hasMessageExpired(record.getHeader())) {
             if (log.isInfoEnabled())
                 log.info("An old message has been sent to the DeliveryManager | Message and its records discarded | id := " + record.id);
-            rmSys.collectGarbage(record.id); // Remove records created in RMSys
+            aramis.collectGarbage(record.id); // Remove records created in Aramis
             return;
         }
 
@@ -140,7 +141,7 @@ public class DeliveryManager {
 
         calculateDeliveryTime(record);
         handleNewMessageRecord(record);
-        rmSys.handleAcks(record.getHeader());
+        aramis.handleAcks(record.getHeader());
 
         if (log.isDebugEnabled())
             log.debug("Message added | " + record + (deliverySet.isEmpty() ? "" : " | deliverySet 1st := " + deliverySet.first()));
@@ -157,7 +158,7 @@ public class DeliveryManager {
 
             Message message;
             while ((message = messageQueue.poll()) != null) {
-                if (message.src().equals(rmSys.getLocalAddress()))
+                if (message.src().equals(aramis.getLocalAddress()))
                     addLocalMessage(message);
                 else
                     addRemoteMessage(message);
@@ -196,7 +197,7 @@ public class DeliveryManager {
 
         // Set all messages with an expired deliveryTime to be deliverable and remove any blocking placeholders
         if (lastTimeout != null)
-            validPlaceholders =  updateOlderMessages(lastTimeout);
+            validPlaceholders = updateOlderMessages(lastTimeout);
 
         return validPlaceholders;
     }
@@ -204,7 +205,7 @@ public class DeliveryManager {
     private List<MessageRecord> updateOlderMessages(MessageRecord timedOutRecord) {
         List<MessageRecord> validPlaceholders = new ArrayList<MessageRecord>();
         Iterator<MessageRecord> i = deliverySet.headSet(timedOutRecord).iterator();
-        while(i.hasNext()) {
+        while (i.hasNext()) {
             MessageRecord record = i.next();
 
 //            if (!nodeIsAlive(record, timedOutRecord)) {
@@ -304,7 +305,7 @@ public class DeliveryManager {
             if (log.isWarnEnabled())
                 log.warn("Msg rejected as a msg with a newer timestamp has already been delivered | rejected msg := " +
                         id + " | lastDelivered := " + lastDelivered.id + " | record " + record);
-            rmSys.collectGarbage(id);
+            aramis.collectGarbage(id);
             profiler.messageRejected();
             CrashedNodeInfiniteClients.msgsReceived.incrementAndGet();
         } else {
@@ -317,7 +318,7 @@ public class DeliveryManager {
         deliveredMsgRecord.put(id.getOriginator(), id);
         lastDelivered = record;
 
-        int delay = (int) Math.ceil((rmSys.getClock().getTime() - record.id.getTimestamp()) / 1000000.0);
+        int delay = (int) Math.ceil((aramis.getClock().getTime() - record.id.getTimestamp()) / 1000000.0);
         // Ensure that the stored delay is not negative (occurs due to clock skew) SHOULD be irrelevant
         profiler.addDeliveryLatency(delay); // Store delivery latency in milliseconds
     }
@@ -437,7 +438,7 @@ public class DeliveryManager {
     }
 
     private void processAcks(MessageRecord record) {
-        if (record.id.getOriginator().equals(rmSys.getLocalAddress()))
+        if (record.id.getOriginator().equals(aramis.getLocalAddress()))
             return;
 
         processAcks(record.id.getOriginator(), record.getHeader().getAcks());
@@ -454,7 +455,7 @@ public class DeliveryManager {
     }
 
     private void createPlaceholder(MessageId id) {
-        if (id.getOriginator().equals(rmSys.getLocalAddress()))
+        if (id.getOriginator().equals(aramis.getLocalAddress()))
             return;
 
         if (!messageRecords.containsKey(id))
@@ -491,7 +492,7 @@ public class DeliveryManager {
         long lastDeliveredSeq = -1;
         MessageId lastDelivered = deliveredMsgRecord.get(origin);
         if (lastDelivered != null)
-            lastDeliveredSeq =  lastDelivered.getSequence();
+            lastDeliveredSeq = lastDelivered.getSequence();
 
         if (sequence <= lastDeliveredSeq)
             return;
@@ -538,10 +539,10 @@ public class DeliveryManager {
         // Takes into consideration the broadcast time of an ack and the max possible delay before an ack is piggybacked or explicitly broadcast
         delay = (2 * delay) + ackWait;
 
-        if (record.id.getOriginator().equals(rmSys.getLocalAddress()))
+        if (record.id.getOriginator().equals(aramis.getLocalAddress()))
             profiler.addDeliveryDelay(delay + 1);
 
-        delay = TimeUnit.MILLISECONDS.toNanos(delay) + rmSys.getClock().getMaximumError(); // Convert to Nanos and add epislon
+        delay = TimeUnit.MILLISECONDS.toNanos(delay) + aramis.getClock().getMaximumError(); // Convert to Nanos and add epislon
         record.deliveryTime = startTime + delay;
 
         if (lastDelivered != null && record.deliveryTime < lastDelivered.deliveryTime)
@@ -573,7 +574,7 @@ public class DeliveryManager {
         }
 
         MessageRecord(Message message) {
-            RMCastHeader header = (RMCastHeader) message.getHeader(ClassConfigurator.getProtocolId(RMSys.class));
+            RMCastHeader header = (RMCastHeader) message.getHeader(ClassConfigurator.getProtocolId(Aramis.class));
             this.id = header.getId();
             this.message = message;
             this.deliveryTime = -1;
@@ -583,7 +584,7 @@ public class DeliveryManager {
         }
 
         RMCastHeader getHeader() {
-            return message == null ? null : (RMCastHeader) message.getHeader(ClassConfigurator.getProtocolId(RMSys.class));
+            return message == null ? null : (RMCastHeader) message.getHeader(ClassConfigurator.getProtocolId(Aramis.class));
         }
 
         // Param id must be the id of the message that contained the ack
@@ -596,7 +597,7 @@ public class DeliveryManager {
         void addMessage(MessageRecord newRecord) {
             message = newRecord.message;
             deliveryTime = newRecord.deliveryTime;
-            initialiseMap((RMCastHeader) message.getHeader(ClassConfigurator.getProtocolId(RMSys.class)));
+            initialiseMap((RMCastHeader) message.getHeader(ClassConfigurator.getProtocolId(Aramis.class)));
         }
 
         boolean isPlaceholder() {
@@ -611,11 +612,11 @@ public class DeliveryManager {
         }
 
         boolean isLocal() {
-            return id.getOriginator().equals(rmSys.getLocalAddress());
+            return id.getOriginator().equals(aramis.getLocalAddress());
         }
 
         boolean isDeliverable() {
-            if (id.getTimestamp() > rmSys.getClock().getTime())
+            if (id.getTimestamp() > aramis.getClock().getTime())
                 return false;
 
             if (isPlaceholder())
@@ -639,7 +640,7 @@ public class DeliveryManager {
             // Also don't put to the map if there is already a mapping for an address, necessary in scenarios where
             // an ack(s) has been received before the actual message
             for (Address address : header.getDestinations())
-                if (!address.equals(rmSys.getLocalAddress()) && !address.equals(id.getOriginator()) && !ackRecord.containsKey(address))
+                if (!address.equals(aramis.getLocalAddress()) && !address.equals(id.getOriginator()) && !ackRecord.containsKey(address))
                     ackRecord.put(address, false);
         }
 
@@ -653,7 +654,7 @@ public class DeliveryManager {
 
         @Override
         public long getDelay(TimeUnit timeUnit) {
-            return timeUnit.convert(deliveryTime - rmSys.getClock().getTime(), TimeUnit.NANOSECONDS);
+            return timeUnit.convert(deliveryTime - aramis.getClock().getTime(), TimeUnit.NANOSECONDS);
         }
 
         @Override

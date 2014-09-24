@@ -2,8 +2,8 @@ package org.jgroups.protocols.DecoupledBroadcast;
 
 import org.jgroups.*;
 import org.jgroups.annotations.Property;
-import org.jgroups.protocols.RMSysIntegratedNMC.PCSynch;
-import org.jgroups.protocols.RMSysIntegratedNMC.RMSys;
+import org.jgroups.protocols.aramis.PCSynch;
+import org.jgroups.protocols.aramis.Aramis;
 import org.jgroups.protocols.tom.TOA;
 import org.jgroups.stack.Protocol;
 import org.jgroups.stack.ProtocolStack;
@@ -113,11 +113,11 @@ public class Decoupled extends Protocol {
             }
 
             PCSynch clock = new PCSynch(hostnames);
-            RMSys rmSys = new RMSys(clock, hostnames);
+            Aramis aramis = new Aramis(clock, hostnames);
 
             // TODO change so that Events are passed up and down the stack (temporary hack)
             getProtocolStack().insertProtocol(clock, ProtocolStack.BELOW, this.getName());
-            getProtocolStack().insertProtocol(rmSys, ProtocolStack.BELOW, this.getName());
+            getProtocolStack().insertProtocol(aramis, ProtocolStack.BELOW, this.getName());
 
             if (log.isInfoEnabled())
                 log.info("Total Order protocol := Hybrid");

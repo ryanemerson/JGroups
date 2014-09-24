@@ -1,4 +1,4 @@
-package org.jgroups.protocols.RMSysIntegratedNMC;
+package org.jgroups.protocols.aramis;
 
 import org.jgroups.Message;
 
@@ -15,7 +15,7 @@ public class FlowControl {
     private final Condition condition = lock.newCondition();
     private final AtomicInteger bucketId = new AtomicInteger();
     private final NMC nmc;
-    private final RMSys rmSys;
+    private final Aramis aramis;
 
     private BucketWrapper buckets = new BucketWrapper();
     private FCDataWrapper flowData = new FCDataWrapper();
@@ -24,8 +24,8 @@ public class FlowControl {
     private final Profiler profiler = new Profiler();
     private final boolean PROFILE_ENABLED = false;
 
-    public FlowControl(RMSys rmSys, NMC nmc) {
-        this.rmSys = rmSys;
+    public FlowControl(Aramis aramis, NMC nmc) {
+        this.aramis = aramis;
         this.nmc = nmc;
 
         if (PROFILE_ENABLED) {
@@ -116,7 +116,7 @@ public class FlowControl {
                 broadcastTime = buckets.previous.broadcastTime + delayInNanos;
                 previous = buckets.previous;
             } else
-                broadcastTime = rmSys.getClock().getTime() + delayInNanos;
+                broadcastTime = aramis.getClock().getTime() + delayInNanos;
 
             flowData.bucketDelay = bucketDelay;
         }
@@ -160,14 +160,14 @@ public class FlowControl {
         }
 
         void send() {
-            actualSendTime = rmSys.getClock().getTime();
+            actualSendTime = aramis.getClock().getTime();
             profiler.msgCount++;
 
             if (previous != null)
                 profiler.delayTotal += actualSendTime - previous.actualSendTime;
 
             for (Message message : messages)
-                rmSys.sendRMCast(message);
+                aramis.sendRMCast(message);
 
             sent = true;
             condition.signalAll();
@@ -183,7 +183,7 @@ public class FlowControl {
         }
 
         public long getDelay() {
-            long delay = broadcastTime - rmSys.getClock().getTime();
+            long delay = broadcastTime - aramis.getClock().getTime();
             return delay < 0 ? 0 : delay;
         }
 

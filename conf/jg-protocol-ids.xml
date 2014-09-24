@@ -83,8 +83,8 @@
     <!-- DECOUPLED BROADCAST -->
     <class id="1006" name="org.jgroups.protocols.DecoupledBroadcast.Decoupled"/>
 
-    <!-- RMSysIntegratedProbing -->
-    <class id="1007" name="org.jgroups.protocols.RMSysIntegratedNMC.PCSynch"/>
-    <class id="1008" name="org.jgroups.protocols.RMSysIntegratedNMC.RMSys"/>
+    <!-- Aramis -->
+    <class id="1007" name="org.jgroups.protocols.aramis.PCSynch"/>
+    <class id="1008" name="org.jgroups.protocols.aramis.Aramis"/>
 
 </protocol-ids>
