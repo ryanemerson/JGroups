@@ -646,7 +646,7 @@
                 <include name="licenses/thirdparty*"/>
             </fileset>
             <manifest>
-                <attribute name="Main-Class" value="org.jgroups.tests.DecoupledBoxMember"/>
+                <attribute name="Main-Class" value="org.jgroups.tests.AbaaSBoxMember"/>
             </manifest>
         </jar>
     </target>

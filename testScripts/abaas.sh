@@ -8,10 +8,10 @@ boxes=(csvm0067 csvm0068)
 geometry=(109x24+10+40 80x24+1060+40 65x25+5-30 65x25+631-30 65x25+1258-30)
 
 anycastRequests="true"
-#props1="decoupled_TOA_TCP.xml"
-#props2="decoupled_TOA_Box_TCP.xml"
-props1="decoupled_TOA.xml"
-props2="decoupled_TOA_Box.xml"
+#props1="abaas_TOA_TCP.xml"
+#props2="abaas_TOA_Box_TCP.xml"
+props1="abaas_TOA.xml"
+props2="abaas_TOA_Box.xml"
 command1="java -Djava.net.preferIPv4Stack=true -agentpath:/home/pg/p11/a7109534/yjp-12.0.6/bin/linux-x86-64/libyjpagent.so=monitors -jar workspace/mperf.jar -props $props1 -anycastRequests $anycastRequests -boxes"
 command2="java -Djava.net.preferIPv4Stack=true -agentpath:/home/pg/p11/a7109534/yjp-12.0.6/bin/linux-x86-64/libyjpagent.so=monitors -jar workspace/jgroups.jar -props $props2"
 control=" -control true"

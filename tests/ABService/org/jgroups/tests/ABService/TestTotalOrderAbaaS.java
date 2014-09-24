@@ -18,8 +18,8 @@ import java.util.*;
  * @author Pedro Ruivo
  * @since 3.1
  */
-public class TestToaOrderDecoupled {
-    private static final String PROPS = "decoupled_TOA_Box_TCP.xml";
+public class TestTotalOrderAbaaS {
+    private static final String PROPS = "abaas_TOA_Box_TCP.xml";
     private static final String CLUSTER = "test-toa-cluster";
     private static final String OUTPUT_FILE_SUFFIX = "-messages.txt";
     private static final String JMX_DOMAIN = "org.jgroups";
@@ -76,7 +76,7 @@ public class TestToaOrderDecoupled {
             System.exit(0);*/
         }
 
-        TestToaOrderDecoupled test = new TestToaOrderDecoupled(
+        TestTotalOrderAbaaS test = new TestTotalOrderAbaaS(
                 argumentsParser.getNumberOfNodes(),
                 argumentsParser.getNumberOfMessages(),
                 argumentsParser.getConfig());
@@ -95,7 +95,7 @@ public class TestToaOrderDecoupled {
     }
 
     private static void helpAndExit() {
-        System.out.println("usage: " + TestToaOrderDecoupled.class.getCanonicalName() + " <option>");
+        System.out.println("usage: " + TestTotalOrderAbaaS.class.getCanonicalName() + " <option>");
         System.out.println("Options:");
         System.out.println("  -h                    \tshow this message");
         System.out.println("  -nr-nodes <value>     \tnumber of nodes");
@@ -198,14 +198,14 @@ public class TestToaOrderDecoupled {
         private int expectedMembers;
         private int members = 0;
         private final List<String> messageList;
-        private final TestToaOrderDecoupled testGroupMulticastOrder;
+        private final TestTotalOrderAbaaS testGroupMulticastOrder;
 
         private long start = 0;
         private long stop = 0;
         private long receivedBytes = 0;
         private int receivedMsgs = 0;
 
-        public MyReceiver(int expectedMembers, TestToaOrderDecoupled testGroupMulticastOrder) {
+        public MyReceiver(int expectedMembers, TestTotalOrderAbaaS testGroupMulticastOrder) {
             this.expectedMembers = expectedMembers;
             this.testGroupMulticastOrder = testGroupMulticastOrder;
             this.messageList = new LinkedList<String>();
@@ -399,7 +399,7 @@ public class TestToaOrderDecoupled {
 
     // ====================== other methods ======================
 
-    public TestToaOrderDecoupled(int numberOfNodes, int numberOfMessages, String config) {
+    public TestTotalOrderAbaaS(int numberOfNodes, int numberOfMessages, String config) {
         this.numberOfNodes = numberOfNodes;
         this.numberOfMessages = numberOfMessages;
         this.config = config;

@@ -1,4 +1,4 @@
-package org.jgroups.protocols.DecoupledBroadcast;
+package org.jgroups.protocols.abaas;
 
 import org.jgroups.*;
 import org.jgroups.logging.Log;
@@ -69,7 +69,7 @@ public class OrderingBox {
         for (MessageInfo info : requests)
             requestCache.add(info.getId());
 
-        DecoupledHeader bundledHeader = DecoupledHeader.createBundledMessage(requests);
+        AbaaSHeader bundledHeader = AbaaSHeader.createBundledMessage(requests);
         sendToAllBoxMembers(bundledHeader);
 
         profiler.requestsReceived(requests.size());
@@ -80,14 +80,14 @@ public class OrderingBox {
             log.debug("Received request, send to all box members | " + messageInfo);
 
         requestCache.add(messageInfo.getId());
-        DecoupledHeader header = DecoupledHeader.createBoxOrdering(messageInfo);
+        AbaaSHeader header = AbaaSHeader.createBoxOrdering(messageInfo);
 
         sendToAllBoxMembers(header);
 
         profiler.requestReceived();
     }
 
-    private void sendToAllBoxMembers(DecoupledHeader header) {
+    private void sendToAllBoxMembers(AbaaSHeader header) {
         // AnycastAddress is ok because TOA is the protocol below, when we are box member
         // If TOA is not used, a requirement of the protocol below is that it accepts Anycast Addresses
         AnycastAddress anycastAddress = new AnycastAddress(boxMembers);
@@ -106,7 +106,7 @@ public class OrderingBox {
         profiler.totalOrderSent();
     }
 
-    public void receiveMultipleOrderings(DecoupledHeader header, Message message) {
+    public void receiveMultipleOrderings(AbaaSHeader header, Message message) {
         Collection<MessageInfo> orderings = header.getBundledMsgInfo();
         if (log.isTraceEnabled())
             log.trace("Received multiple orderings (" + orderings.size() + ")| " + orderings);
@@ -118,7 +118,7 @@ public class OrderingBox {
             receiveOrdering(info);
     }
 
-    public void receiveOrdering(DecoupledHeader header, Message message) {
+    public void receiveOrdering(AbaaSHeader header, Message message) {
         MessageInfo messageInfo  = header.getMessageInfo();
         if (log.isTraceEnabled())
             log.trace("Received Ordering message | " + messageInfo);
@@ -155,7 +155,7 @@ public class OrderingBox {
             log.trace("Send ordering response | " + messageInfo);
 
         // Send the latest version of the order list to the src of the orderRequest
-        DecoupledHeader header = DecoupledHeader.createBoxResponse(messageInfo);
+        AbaaSHeader header = AbaaSHeader.createBoxResponse(messageInfo);
         Message message = new Message(messageInfo.getId().getOriginator()).src(localAddress).putHeader(id, header);
         downProtocol.down(new Event(Event.MSG, message));
         requestCache.remove(messageInfo.getId()); // Remove old id

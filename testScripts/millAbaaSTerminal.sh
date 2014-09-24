@@ -1,7 +1,7 @@
 #!/bin/bash
 #arr=(csvm0064 csvm0065 csvm0066 csvm0067 csvm0068)
 #boxes=(csvm0067 csvm0068)
-# REMEMBER TO ADD BOX MEMBERS TO DECOUPLED CLASS!!!!!
+# REMEMBER TO ADD BOX MEMBERS TO AbaaS CLASS!!!!!
 arr=(mill001 mill009 mill010 mill012 mill013 mill014 mill015 mill016 mill017 mill018 mill030 mill031 mill032)
 boxes=(mill030 mill031 mill032)
 #outDir="workspace/output/"
@@ -9,10 +9,10 @@ outDir="/work/a7109534/"
 channelName="uperfBox"
 cleanUp="mkdir -p /work/a7109534/; rm /work/a7109534/*;"
 profiler="-agentpath:/home/pg/p11/a7109534/yjp-2013-build-13072/bin/linux-x86-64/libyjpagent.so=monitors"
-props1="decoupled_hybrid.xml"
-props2="decoupled_hybrid_box.xml"
-#props1="decoupled_TOA.xml"
-#props2="decoupled_TOA_Box.xml"
+props1="abaas_hybrid.xml"
+props2="abaas_hybrid_box.xml"
+#props1="abaas_TOA.xml"
+#props2="abaas_TOA_Box.xml"
 command1="java $profiler -Djava.net.preferIPv4Stack=true -jar workspace/mperf.jar -props $props1 -boxes"
 command2="java $profiler -Djava.net.preferIPv4Stack=true -jar workspace/jgroups.jar -props $props2 -channel $channelName"
 control=" -control true"

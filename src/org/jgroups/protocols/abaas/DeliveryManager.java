@@ -1,4 +1,4 @@
-package org.jgroups.protocols.DecoupledBroadcast;
+package org.jgroups.protocols.abaas;
 
 import org.jgroups.Address;
 import org.jgroups.Message;
@@ -78,7 +78,7 @@ public class DeliveryManager {
         return msgsToDeliver;
     }
 
-    public void addMessageToDeliver(DecoupledHeader header, Message message, boolean local) {
+    public void addMessageToDeliver(AbaaSHeader header, Message message, boolean local) {
         if (header.getMessageInfo().getOrdering() <= lastDelivered.longValue()) {
             if (log.isDebugEnabled())
                 log.debug("Message already received or Missed! | " + header.getMessageInfo().getOrdering() + " | local := " + local);
@@ -101,7 +101,7 @@ public class DeliveryManager {
     }
 
     private boolean readyToDeliver(MessageRecord record) {
-        DecoupledHeader header = record.header;
+        AbaaSHeader header = record.header;
         MessageInfo messageInfo = header.getMessageInfo();
         long thisMessagesOrder = messageInfo.getOrdering();
         long lastDelivery = lastDelivered.longValue();
@@ -129,11 +129,11 @@ public class DeliveryManager {
     }
 
     class MessageRecord implements Comparable<MessageRecord> {
-        final private DecoupledHeader header;
+        final private AbaaSHeader header;
         final private Message message;
         private volatile boolean isDeliverable;
 
-        private MessageRecord(DecoupledHeader header, Message message) {
+        private MessageRecord(AbaaSHeader header, Message message) {
             this.header = header;
             this.message = message;
             this.isDeliverable = false;

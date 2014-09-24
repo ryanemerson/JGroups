@@ -8,7 +8,7 @@ import org.jgroups.JChannel;
  * @author ryan
  * @since 4.0
  */
-public class DecoupledBoxMember {
+public class AbaaSBoxMember {
     public static void main(String[] args) throws Exception {
         String properties = "";
         String channel = "";

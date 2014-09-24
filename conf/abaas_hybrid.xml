@@ -41,7 +41,7 @@
             oob_thread_pool.rejection_policy="discard"/>
 
     <!--<PING timeout="2000"-->
-    <!--num_initial_members="20"/>-->
+            <!--num_initial_members="20"/>-->
     <FILE_PING
             timeout="2000"
             num_initial_members="20"
@@ -71,9 +71,7 @@
                 view_bundling="true"/>
     <FRAG2 frag_size="60K"  />
     <RSVP resend_interval="2000" timeout="10000"/>
-    <DecoupledBroadcast.Decoupled
-            box_member="true"
-            total_order="hybrid"
-            box_members="mill030:mill031:mill032" />
+    <abaas.AbaaS
+            box_member="false" />
     <pbcast.STATE_TRANSFER />
 </config>

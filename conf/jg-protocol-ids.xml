@@ -80,8 +80,8 @@
     <class id="1004" name="org.jgroups.protocols.HiTab.HiTab"/>
     <class id="1005" name="org.jgroups.protocols.HiTab.HiTabBundler"/>
 
-    <!-- DECOUPLED BROADCAST -->
-    <class id="1006" name="org.jgroups.protocols.DecoupledBroadcast.Decoupled"/>
+    <!-- AbaaS -->
+    <class id="1006" name="org.jgroups.protocols.abaas.AbaaS"/>
 
     <!-- Aramis -->
     <class id="1007" name="org.jgroups.protocols.aramis.PCSynch"/>

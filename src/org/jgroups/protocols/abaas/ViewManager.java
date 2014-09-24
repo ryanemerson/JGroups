@@ -1,4 +1,4 @@
-package org.jgroups.protocols.DecoupledBroadcast;
+package org.jgroups.protocols.abaas;
 
 import org.jgroups.Address;
 import org.jgroups.View;

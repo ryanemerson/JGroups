@@ -1,4 +1,4 @@
-package org.jgroups.protocols.DecoupledBroadcast;
+package org.jgroups.protocols.abaas;
 
 import org.jgroups.*;
 import org.jgroups.annotations.Property;
@@ -21,7 +21,7 @@ import java.util.logging.Logger;
  * @author ryan
  * @since 4.0
  */
-public class Decoupled extends Protocol {
+public class AbaaS extends Protocol {
 
     @Property(name = "box_member", description = "Is this node a box member")
     private boolean boxMember = false;
@@ -50,7 +50,7 @@ public class Decoupled extends Protocol {
     private final ViewManager viewManager = new ViewManager();
     private final DeliveryManager deliveryManager = new DeliveryManager(log, viewManager);
     private final Map<MessageId, Message> messageStore = Collections.synchronizedMap(new HashMap<MessageId, Message>());
-    private final BlockingQueue<DecoupledHeader> inputQueue = new ArrayBlockingQueue<DecoupledHeader>(QUEUE_CAPACITY);
+    private final BlockingQueue<AbaaSHeader> inputQueue = new ArrayBlockingQueue<AbaaSHeader>(QUEUE_CAPACITY);
     private final List<Address> boxMembers = new ArrayList<Address>();
     private View view = null;
     private OrderingBox box;
@@ -60,7 +60,7 @@ public class Decoupled extends Protocol {
     // If true then ordering requests will only be sent to one box member, otherwise all box members are used
     private final boolean singleOrderPoint = false;
 
-    public Decoupled() {
+    public AbaaS() {
     }
 
     private void logHack() {
@@ -88,7 +88,7 @@ public class Decoupled extends Protocol {
                 Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
                     @Override
                     public void run() {
-                        System.out.println("Decoupled -------\n" + profiler);
+                        System.out.println("AbaaS -------\n" + profiler);
                     }
                 }));
             }
@@ -147,32 +147,32 @@ public class Decoupled extends Protocol {
         switch (event.getType()) {
             case Event.MSG:
                 Message message = (Message) event.getArg();
-                DecoupledHeader header = (DecoupledHeader) message.getHeader(id);
+                AbaaSHeader header = (AbaaSHeader) message.getHeader(id);
                 if (header == null)
                     break;
 
                 switch (header.getType()) {
-                    case DecoupledHeader.BOX_MEMBER:
+                    case AbaaSHeader.BOX_MEMBER:
                         boxMembers.add(message.getSrc());
                         if (log.isInfoEnabled())
                             log.info("Box Member discovered | " + message.getSrc());
                         break;
-                    case DecoupledHeader.BOX_REQUEST:
+                    case AbaaSHeader.BOX_REQUEST:
                         handleOrderingRequest(header);
                         break;
-                    case DecoupledHeader.BOX_ORDERING:
+                    case AbaaSHeader.BOX_ORDERING:
                         box.receiveOrdering(header, message);
                         break;
-                    case DecoupledHeader.BUNDLED_MESSAGE:
+                    case AbaaSHeader.BUNDLED_MESSAGE:
                         box.receiveMultipleOrderings(header, message);
                         break;
-                    case DecoupledHeader.BOX_RESPONSE:
+                    case AbaaSHeader.BOX_RESPONSE:
                         handleOrderingResponse(header);
                         break;
-                    case DecoupledHeader.BROADCAST:
+                    case AbaaSHeader.BROADCAST:
                         handleBroadcast(header, message);
                         break;
-                    case DecoupledHeader.SINGLE_DESTINATION:
+                    case AbaaSHeader.SINGLE_DESTINATION:
                         handleSingleDestination(message);
                         break;
                 }
@@ -203,7 +203,7 @@ public class Decoupled extends Protocol {
         return down_prot.down(event);
     }
 
-    private void handleOrderingRequest(DecoupledHeader header) {
+    private void handleOrderingRequest(AbaaSHeader header) {
         try {
             log.trace("Request received | " + header.getMessageInfo().getId());
             inputQueue.add(header);
@@ -263,7 +263,7 @@ public class Decoupled extends Protocol {
         if (destinations.size() == 1) {
             MessageId messageId = new MessageId(localAddress, localSequence.getAndIncrement()); // Increment localSequence
             MessageInfo messageInfo = new MessageInfo(messageId, view.getViewId(), viewManager.getDestinationsAsByteArray(destinations));
-            message.putHeader(id, DecoupledHeader.createSingleDestination(messageInfo));
+            message.putHeader(id, AbaaSHeader.createSingleDestination(messageInfo));
             message.setDest(destinations.iterator().next());
             down_prot.down(new Event(Event.MSG, message));
         } else {
@@ -284,19 +284,19 @@ public class Decoupled extends Protocol {
             log.trace("Send ordering request | " + messageId + " | dest " + destinations + " | view " + view + " | byte[]" + Arrays.toString(dest));
 
         MessageInfo messageInfo = new MessageInfo(messageId, view.getViewId(), dest);
-        DecoupledHeader header = DecoupledHeader.createBoxRequest(messageInfo);
+        AbaaSHeader header = AbaaSHeader.createBoxRequest(messageInfo);
 
         Address destination = singleOrderPoint ? boxMembers.get(0) : boxMembers.get(random.nextInt(boxMembers.size())); // Select box at random;
         Message requestMessage = new Message(destination).src(localAddress).putHeader(id, header);
         down_prot.down(new Event(Event.MSG, requestMessage));
     }
 
-    private void handleOrderingResponse(DecoupledHeader responseHeader) {
+    private void handleOrderingResponse(AbaaSHeader responseHeader) {
         if (log.isTraceEnabled())
             log.trace("Ordering response received | " + responseHeader);
 
         MessageInfo messageInfo = responseHeader.getMessageInfo();
-        DecoupledHeader header = DecoupledHeader.createBroadcast(messageInfo);
+        AbaaSHeader header = AbaaSHeader.createBroadcast(messageInfo);
         Message message = messageStore.get(messageInfo.getId());
         message.putHeader(id, header);
 
@@ -310,7 +310,7 @@ public class Decoupled extends Protocol {
         boolean deliverToSelf = destinations.contains(localAddress);
         // Send the message to all destinations
         if (log.isTraceEnabled())
-            log.trace("Broadcast Message " + ((DecoupledHeader) message.getHeader(id)).getMessageInfo().getOrdering() +
+            log.trace("Broadcast Message " + ((AbaaSHeader) message.getHeader(id)).getMessageInfo().getOrdering() +
                     " to | " + destinations + " | deliverToSelf " + deliverToSelf);
 
         for (Address destination : destinations) {
@@ -322,7 +322,7 @@ public class Decoupled extends Protocol {
             down_prot.down(new Event(Event.MSG, messageCopy));
         }
 
-        DecoupledHeader header = (DecoupledHeader)message.getHeader(id);
+        AbaaSHeader header = (AbaaSHeader)message.getHeader(id);
         if (deliverToSelf) {
             message.setDest(localAddress);
             deliveryManager.addMessageToDeliver(header, message, true);
@@ -331,7 +331,7 @@ public class Decoupled extends Protocol {
         }
     }
 
-    private void handleBroadcast(DecoupledHeader header, Message message) {
+    private void handleBroadcast(AbaaSHeader header, Message message) {
         if (log.isTraceEnabled())
             log.trace("Broadcast received | " + header.getMessageInfo().getOrdering() + " | Src := " + message.getSrc());
         deliveryManager.addMessageToDeliver(header, message, false);
@@ -344,12 +344,12 @@ public class Decoupled extends Protocol {
     }
 
     private void deliverMessage(Message message) {
-        MessageId id = ((DecoupledHeader)message.getHeader(this.id)).getMessageInfo().getId();
+        MessageId id = ((AbaaSHeader)message.getHeader(this.id)).getMessageInfo().getId();
         messageStore.remove(id);
         message.setDest(localAddress);
 
         if (log.isTraceEnabled())
-            log.trace("Deliver Message | " + (DecoupledHeader) message.getHeader(this.id));
+            log.trace("Deliver Message | " + (AbaaSHeader) message.getHeader(this.id));
 
         up_prot.up(new Event(Event.MSG, message));
     }
@@ -366,7 +366,7 @@ public class Decoupled extends Protocol {
         private void handleRequests() {
             while (true) {
                 try {
-                    DecoupledHeader header = inputQueue.take();
+                    AbaaSHeader header = inputQueue.take();
                     if (BUNDLE_MSGS) {
                         int bundleSize = 0;
                         if (inputQueue.isEmpty()) {
@@ -388,7 +388,7 @@ public class Decoupled extends Protocol {
 
                 } catch (InterruptedException e) {
                     if (log.isErrorEnabled())
-                        log.error("Decoupled:handleRequests():" + e);
+                        log.error("AbaaS:handleRequests():" + e);
                     break;
                 }
             }
@@ -403,7 +403,7 @@ public class Decoupled extends Protocol {
                             deliverMessage(message);
                         } catch (Throwable t) {
                             if (log.isWarnEnabled())
-                                log.warn("Decoupled: Exception caught while delivering message " + message + ":" + t.getMessage());
+                                log.warn("AbaaS: Exception caught while delivering message " + message + ":" + t.getMessage());
                         }
                     }
                 } catch (InterruptedException e) {
@@ -416,7 +416,7 @@ public class Decoupled extends Protocol {
     final class BoxMemberAnnouncement implements Runnable {
         @Override
         public void run() {
-            final Message message = new Message(null, localAddress, new byte[0]).putHeader(id, DecoupledHeader.createBoxMember());
+            final Message message = new Message(null, localAddress, new byte[0]).putHeader(id, AbaaSHeader.createBoxMember());
             Event event = new Event(Event.MSG, message);
             down_prot.down(event);
 

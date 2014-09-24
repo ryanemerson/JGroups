@@ -11,16 +11,12 @@
     <UDP
             mcast_port="${jgroups.udp.mcast_port:45588}"
             tos="8"
-            loopback="true"
             max_bundle_size="64K"
             max_bundle_timeout="30"
-            ip_ttl="${jgroups.udp.ip_ttl:8}"
             enable_diagnostics="true"
             thread_naming_pattern="cl"
-            ip_mcast="false"
 
-            bind_port="4445"
-            port_range="10"
+            ip_mcast="false"
 
             timer_type="new3"
             timer.min_threads="4"
@@ -44,6 +40,8 @@
             oob_thread_pool.queue_max_size="100"
             oob_thread_pool.rejection_policy="discard"/>
 
+    <!--<PING timeout="2000"-->
+    <!--num_initial_members="20"/>-->
     <FILE_PING
             timeout="2000"
             num_initial_members="20"
@@ -71,15 +69,15 @@
                    max_bytes="4M"/>
     <pbcast.GMS print_local_addr="true" join_timeout="3000"
                 view_bundling="true"/>
-    <UFC max_credits="2M"
-         min_threshold="0.4"/>
-    <MFC max_credits="2M"
-         min_threshold="0.4"/>
+    <!--<UFC max_credits="2M"-->
+         <!--min_threshold="0.4"/>-->
+    <!--<MFC max_credits="2M"-->
+         <!--min_threshold="0.4"/>-->
     <FRAG2 frag_size="60K"  />
     <RSVP resend_interval="2000" timeout="10000"/>
-    <tom.TOA />
-    <DecoupledBroadcast.Decoupled
-            box_member="true" />
+    <!--tom.TOA /-->
+    <abaas.AbaaS
+            box_member="false" />
     <pbcast.STATE_TRANSFER />
     <!-- pbcast.FLUSH  /-->
 </config>

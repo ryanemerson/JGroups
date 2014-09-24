@@ -78,7 +78,7 @@
     <FRAG2 frag_size="60K"  />
     <RSVP resend_interval="2000" timeout="10000"/>
     <!--tom.TOA /-->
-    <DecoupledBroadcast.Decoupled
+    <abaas.AbaaS
             box_member="false" />
     <pbcast.STATE_TRANSFER />
     <!-- pbcast.FLUSH  /-->

@@ -1,4 +1,4 @@
-package org.jgroups.protocols.DecoupledBroadcast;
+package org.jgroups.protocols.abaas;
 
 import org.jgroups.Global;
 import org.jgroups.Header;
@@ -15,7 +15,7 @@ import java.util.Collection;
  * @author ryan
  * @since 4.0
  */
-final public class DecoupledHeader extends Header {
+final public class AbaaSHeader extends Header {
 
     public static final byte BOX_MEMBER = 1; // Announcing box Members
     public static final byte BOX_REQUEST = 2; // A request to the box
@@ -23,53 +23,53 @@ final public class DecoupledHeader extends Header {
     public static final byte BOX_ORDERING = 4; // Ordering a boxRequest
     public static final byte BROADCAST = 5; // Actual broadcsat of a message to anycast destinations
     public static final byte SINGLE_DESTINATION = 6; // Request for a missing message (shouldn't be necessary)
-    public static final byte BUNDLED_MESSAGE = 7; // A decoupled message that contains multiple requests
+    public static final byte BUNDLED_MESSAGE = 7; // A AbaaS message that contains multiple requests
 
     private byte type = 0;
     private MessageInfo messageInfo = null;
     private Collection<MessageInfo> bundledMsgInfo = null;
 
-    public static DecoupledHeader createBoxMember() {
-        return new DecoupledHeader(BOX_MEMBER);
+    public static AbaaSHeader createBoxMember() {
+        return new AbaaSHeader(BOX_MEMBER);
     }
 
-    public static DecoupledHeader createBoxRequest(MessageInfo info) {
-        return new DecoupledHeader(BOX_REQUEST, info);
+    public static AbaaSHeader createBoxRequest(MessageInfo info) {
+        return new AbaaSHeader(BOX_REQUEST, info);
     }
 
-    public static DecoupledHeader createBoxResponse(MessageInfo info) {
-        return new DecoupledHeader(BOX_RESPONSE, info);
+    public static AbaaSHeader createBoxResponse(MessageInfo info) {
+        return new AbaaSHeader(BOX_RESPONSE, info);
     }
 
-    public static DecoupledHeader createBoxOrdering(MessageInfo info) {
-        return new DecoupledHeader(BOX_ORDERING, info);
+    public static AbaaSHeader createBoxOrdering(MessageInfo info) {
+        return new AbaaSHeader(BOX_ORDERING, info);
     }
 
-    public static DecoupledHeader createBroadcast(MessageInfo info) {
-        return new DecoupledHeader(BROADCAST, info);
+    public static AbaaSHeader createBroadcast(MessageInfo info) {
+        return new AbaaSHeader(BROADCAST, info);
     }
 
-    public static DecoupledHeader createSingleDestination(MessageInfo info) {
-        return new DecoupledHeader(SINGLE_DESTINATION, info);
+    public static AbaaSHeader createSingleDestination(MessageInfo info) {
+        return new AbaaSHeader(SINGLE_DESTINATION, info);
     }
 
-    public static DecoupledHeader createBundledMessage(Collection<MessageInfo> requestHeaders) {
-        return new DecoupledHeader(BUNDLED_MESSAGE, requestHeaders);
+    public static AbaaSHeader createBundledMessage(Collection<MessageInfo> requestHeaders) {
+        return new AbaaSHeader(BUNDLED_MESSAGE, requestHeaders);
     }
 
-    public DecoupledHeader() {
+    public AbaaSHeader() {
     }
 
-    public DecoupledHeader(byte type) {
+    public AbaaSHeader(byte type) {
         this.type = type;
     }
 
-    public DecoupledHeader(byte type, MessageInfo messageInfo) {
+    public AbaaSHeader(byte type, MessageInfo messageInfo) {
         this.type = type;
         this.messageInfo = messageInfo;
     }
 
-    public DecoupledHeader(byte type, Collection<MessageInfo> bundledMsgInfo) {
+    public AbaaSHeader(byte type, Collection<MessageInfo> bundledMsgInfo) {
         this.type = type;
         this.bundledMsgInfo = bundledMsgInfo;
     }
@@ -111,7 +111,7 @@ final public class DecoupledHeader extends Header {
 
     @Override
     public String toString() {
-        return "DecoupledHeader{" +
+        return "AbaaSHeader{" +
                 "type=" + type2String(type) +
                 ", messageInfo=" + messageInfo +
                 '}';
@@ -135,7 +135,7 @@ final public class DecoupledHeader extends Header {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
 
-        DecoupledHeader that = (DecoupledHeader) o;
+        AbaaSHeader that = (AbaaSHeader) o;
 
         if (type != that.type) return false;
         if (bundledMsgInfo != null ? !bundledMsgInfo.equals(that.bundledMsgInfo) : that.bundledMsgInfo != null)

@@ -85,8 +85,8 @@
     <class id="119"  name="org.jgroups.tests.perf.MPerfTransSim$MPerfHeader"/>
     <class id="120" name="org.jgroups.protocols.HiTab.MessageRejectionHeader"/>
 
-    <!-- DECOUPLED -->
-    <class id="121" name="org.jgroups.protocols.DecoupledBroadcast.DecoupledHeader"/>
+    <!-- AbaaS -->
+    <class id="121" name="org.jgroups.protocols.abaas.AbaaSHeader"/>
 
     <!-- Aramis -->
     <class id="122" name="org.jgroups.protocols.aramis.PCSynch$PCSynchHeader"/>

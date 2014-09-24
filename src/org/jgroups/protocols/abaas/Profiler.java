@@ -1,10 +1,10 @@
-package org.jgroups.protocols.DecoupledBroadcast;
+package org.jgroups.protocols.abaas;
 
 import java.util.EnumMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * A class to record profiling information about the decoupled protocol
+ * A class to record profiling information about the AbaaS protocol
  *
  * @author ryan
  * @since 4.0
