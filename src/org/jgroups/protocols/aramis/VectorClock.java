@@ -9,6 +9,12 @@ import java.io.DataOutput;
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * Class used to provide vector clocks in Aramis and Base.
+ *
+ * @author ryan
+ * @since 4.0
+ */
 public class VectorClock implements SizeStreamable {
     private MessageId lastBroadcast;
     private Map<Address, MessageId> messagesReceived;

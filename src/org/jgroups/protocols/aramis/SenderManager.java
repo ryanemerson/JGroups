@@ -6,6 +6,12 @@ import org.jgroups.util.Util;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
+/**
+ * Class stores records associated with each atomic broadcast message sent using Aramis and Base.
+ *
+ * @author ryan
+ * @since 4.0
+ */
 public class SenderManager {
     private final PCSynch clock;
     private final int numberOfAcks;

@@ -7,7 +7,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 
 /**
- * A class that contains the values calculated by the NMC
+ * A class that contains the values calculated by the NMC.
  *
  * @author ryan
  * @since 4.0

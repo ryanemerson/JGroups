@@ -11,7 +11,7 @@ import java.util.*;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * A class that represents the Network Measurement Component (NMC) of Aramis
+ * A class that represents the Network Measurement Component (NMC) of Aramis.
  *
  * @author ryan
  * @since 4.0

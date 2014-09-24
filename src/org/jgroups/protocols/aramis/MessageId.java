@@ -9,7 +9,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 
 /**
- * Message Id used by all Aramis messages
+ * Message Id used by all Aramis messages.
  *
  * @author ryan
  * @since 4.0

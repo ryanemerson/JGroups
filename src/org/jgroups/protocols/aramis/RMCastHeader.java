@@ -11,7 +11,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 
 /**
- * // TODO: Document this
+ * Header utilised by all Aramis and Base messages.  Named RMCast after the underlying broadcast protocol RMSys.
  *
  * @author ryan
  * @since 4.0

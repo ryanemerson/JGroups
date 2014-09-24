@@ -6,6 +6,13 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
+/**
+ * This class provides a bespoke FlowControl mechanism for Aramis and Base that utilises the values collected by Aramis's
+ * NMC to provide a means of flow control.
+ *
+ * @author ryan
+ * @since 4.0
+ */
 public class FlowControl {
 
     private final int BUCKET_SIZE = 1;

@@ -15,7 +15,7 @@ import java.util.concurrent.Delayed;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Class responsible for holding messages until they are ready to deliver
+ * Class responsible for holding messages until they are ready to be delivered.
  *
  * @author ryan
  * @since 4.0

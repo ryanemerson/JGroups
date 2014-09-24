@@ -5,7 +5,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * // TODO: Document this
+ * A class to profile the performance of Aramis and Base.
  *
  * @author ryan
  * @since 4.0
