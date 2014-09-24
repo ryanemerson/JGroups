@@ -6,6 +6,7 @@ import org.jgroups.conf.ClassConfigurator;
 import org.jgroups.logging.Log;
 import org.jgroups.logging.LogFactory;
 import org.jgroups.tests.ABService.CrashedNodeInfiniteClients;
+import org.jgroups.tests.ABService.InfiniteClients;
 import org.jgroups.util.Util;
 
 import java.util.*;
@@ -54,7 +55,9 @@ public class DeliveryManager {
                     int i = 0;
                     Iterator<MessageRecord> it = deliverySet.iterator();
                     while (i < 20 && it.hasNext()) {
-                        System.out.println(it.next());
+                        MessageRecord record = it.next();
+                        System.out.println(record);
+                        System.out.println(record.isDeliverablePrint());
                         i++;
                     }
                 }
@@ -307,7 +310,11 @@ public class DeliveryManager {
                         id + " | lastDelivered := " + lastDelivered.id + " | record " + record);
             aramis.collectGarbage(id);
             profiler.messageRejected();
+
+            // Hacks to make each test know that a message has been rejected.  Necessary so that each experiment will
+            // terminate when x number of messages, minus the number of rejections, has been received.
             CrashedNodeInfiniteClients.msgsReceived.incrementAndGet();
+            InfiniteClients.msgsReceived.incrementAndGet();
         } else {
             deliverable.add(record.message);
         }
@@ -624,7 +631,7 @@ public class DeliveryManager {
 
             if (!isLocal()) {
                 MessageId latestLocalMsg = localMsgQueue.peek();
-                if (latestLocalMsg != null && id.getTimestamp() >= latestLocalMsg.getTimestamp())
+                if (latestLocalMsg != null && id.getTimestamp() > latestLocalMsg.getTimestamp())
                     return false;
             }
 
@@ -632,6 +639,37 @@ public class DeliveryManager {
             if (previous != null && id.getSequence() != previous.getSequence() + 1)
                 return false;
 
+            return timedOut || allAcksReceived();
+        }
+
+        boolean isDeliverablePrint() {
+
+            if (id.getTimestamp() > aramis.getClock().getTime()) {
+                long t = aramis.getClock().getTime();
+                System.out.println("This timestamp is > clock.time() | " + t + " | diff := " + (t - id.getTimestamp()) + "ns");
+                return false;
+            }
+
+            if (isPlaceholder()) {
+                System.out.println("isPlaceholder := true");
+                return false;
+            }
+
+            if (!isLocal()) {
+                MessageId latestLocalMsg = localMsgQueue.peek();
+                if (latestLocalMsg != null && id.getTimestamp() > latestLocalMsg.getTimestamp()) {
+                    System.out.println("!isLocal && latestLocal < id.getTimestamp() | localMsg := " + latestLocalMsg);
+                    return false;
+                }
+            }
+
+            MessageId previous = deliveredMsgRecord.get(id.getOriginator());
+            if (previous != null && id.getSequence() != previous.getSequence() + 1) {
+                System.out.println("This message's prior message has not been delivered | previous := " + previous);
+                return false;
+            }
+
+            System.out.println("We've reached the end | timedOut := " + timedOut + " | allAcksReceived := " + allAcksReceived());
             return timedOut || allAcksReceived();
         }
 

@@ -53,7 +53,7 @@ public class InfiniteClients extends ReceiverAdapter {
         new InfiniteClients(propsFile, numberOfMessages, totalMessages, initiator).run();
     }
 
-    private final AtomicInteger msgsReceived = new AtomicInteger();
+    public static final AtomicInteger msgsReceived = new AtomicInteger();
     private final String PROPERTIES_FILE;
     private final int NUMBER_MESSAGES_TO_SEND;
     private int TOTAL_NUMBER_OF_MESSAGES;
