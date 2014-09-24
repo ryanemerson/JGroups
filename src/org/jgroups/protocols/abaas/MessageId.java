@@ -9,7 +9,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 
 /**
- * // TODO: Document this
+ * Class representing message ids
  *
  * @author ryan
  * @since 4.0

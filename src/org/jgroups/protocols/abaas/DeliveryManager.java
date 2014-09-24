@@ -8,7 +8,8 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * // TODO: Document this
+ * Class, and associated inner classes, that are responsible for ensuring that abcast messages are delivered by client nodes
+ * in the correct total order.
  *
  * @author ryan
  * @since 4.0

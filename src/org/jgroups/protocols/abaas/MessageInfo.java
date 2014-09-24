@@ -10,7 +10,7 @@ import java.io.DataOutput;
 import java.util.Arrays;
 
 /**
- * // TODO: Document this
+ * Message Information that is associated with AbaaS requests and responses.
  *
  * @author ryan
  * @since 4.0

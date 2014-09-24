@@ -9,7 +9,8 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * // TODO: Document this
+ * This class manages all client requests and stores each request as part of the require 'immediate predecessor' information
+ * that is essential for maintaining the total order at each client.
  *
  * @author ryan
  * @since 4.0

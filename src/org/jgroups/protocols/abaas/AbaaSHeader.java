@@ -10,7 +10,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 
 /**
- * // TODO: Document this
+ * Header file that is used to send all messages associated with the AbaaS protocol.
  *
  * @author ryan
  * @since 4.0
