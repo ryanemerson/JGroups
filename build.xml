@@ -21,6 +21,7 @@
     <property name="perf.dir" value="${tests.dir}/perf"/>
     <property name="util.dir" value="${tests.dir}/util"/>
     <property name="ABService.dir" value="${tests.dir}/ABService"/>
+    <property name="ProbingValidation.dir" value="${tests.dir}/ProbingValidation"/>
     <property name="compile.dir" value="${root.dir}/classes"/>
     <property name="lib.dir" value="${root.dir}/lib"/>
     <property name="dist.dir" value="${root.dir}/dist"/>
@@ -165,6 +166,7 @@
             <src path="${perf.dir}"/>
             <src path="${util.dir}"/>
             <src path="${ABService.dir}"/>
+            <src path="${ProbingValidation.dir}"/>
         </javac>
     </target>
 
@@ -678,13 +680,42 @@
         </jar>
     </target>
 
-    <target name="scpDeploy" depends="dist,mperf"
+    <target name="probing_validation"
+            description="Creates a probingValidation.jar for executing probing validation)"
+            depends="clean,compile,create-schema">
+        <mkdir dir="jar"/>
+        <jar destfile="jar/probingValidation.jar"
+             basedir="${compile.dir}"
+             includes="org/jgroups/**">
+            <fileset dir="${conf.dir}" includes="*.dtd, *.xml, jg-messages*.properties" excludes="*-service.xml"/>
+            <fileset dir="${compile.dir}/schema">
+                <include name="*.xsd"/>
+            </fileset>
+            <fileset dir="${root.dir}">
+                <include name="INSTALL.html"/>
+                <include name="LICENSE"/>
+                <include name="README"/>
+            </fileset>
+            <fileset dir="${lib.dir}">
+                <include name="licenses/thirdparty*"/>
+            </fileset>
+            <manifest>
+                <attribute name="Main-Class" value="org.jgroups.tests.probing_validation.ExperimentMain"/>
+            </manifest>
+        </jar>
+    </target>
+
+    <target name="scpDeploy" depends="dist,mperf, probing_validation"
             description="Deploy generated jar files to a remote host using scp">
         <scp file="jar/jgroups.jar"
              todir="a7109534@csvm0065.ncl.ac.uk:workspace"
              keyfile="${user.home}/.ssh/id_rsa"
              trust="true"/>
         <scp file="jar/mperf.jar"
+             todir="a7109534@csvm0065.ncl.ac.uk:workspace"
+             keyfile="${user.home}/.ssh/id_rsa"
+             trust="true"/>
+        <scp file="jar/probingValidation.jar"
              todir="a7109534@csvm0065.ncl.ac.uk:workspace"
              keyfile="${user.home}/.ssh/id_rsa"
              trust="true"/>
