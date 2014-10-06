@@ -19,10 +19,10 @@ public class ProbingHeader extends Header {
     public static final byte PROBING_PAST = 1;
     public static final byte PROBING_PRESENT = 2;
 
-    private byte type;
-    private Address originator;
-    private int timePeriod;
-    private long timeSent;
+    private byte type = 0;
+    private Address originator = null;
+    private int timePeriod = -1;
+    private long timeSent = -1;
 
     public ProbingHeader() {}
 
@@ -60,9 +60,9 @@ public class ProbingHeader extends Header {
 
     @Override
     public void writeTo(DataOutput out) throws Exception {
-        out.write(type);
+        out.writeByte(type);
         Util.writeAddress(originator, out);
-        out.write(timePeriod);
+        out.writeInt(timePeriod);
         Bits.writeLong(timeSent, out);
     }
 

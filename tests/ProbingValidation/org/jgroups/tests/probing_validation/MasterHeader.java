@@ -23,10 +23,10 @@ public class MasterHeader extends Header {
     public static final byte PAST_LATENCIES = 2;
     public static final byte PRESENT_LATENCIES = 3;
 
-    private byte type;
+    private byte type = 0;
     private int timePeriod = -1;
-    private Collection<Address> destinations;
-    private List<LatencyTime> latencyTimes;
+    private Collection<Address> destinations = new ArrayList<Address>();
+    private List<LatencyTime> latencyTimes = new ArrayList<LatencyTime>();
 
     public static MasterHeader startProbingMessage(int timePeriod, Collection<Address> destinations) {
         return new MasterHeader(START_PROBING, timePeriod, destinations, new ArrayList<LatencyTime>());
@@ -69,8 +69,8 @@ public class MasterHeader extends Header {
 
     @Override
     public void writeTo(DataOutput out) throws Exception {
-        out.write(type);
-        out.write(timePeriod);
+        out.writeByte(type);
+        out.writeInt(timePeriod);
         Util.writeAddresses(destinations, out);
         writeLatencyTimes(out);
     }
@@ -79,7 +79,7 @@ public class MasterHeader extends Header {
     public void readFrom(DataInput in) throws Exception {
         type = in.readByte();
         timePeriod = in.readInt();
-        destinations.addAll(Util.readAddresses(in, ArrayList.class));
+        destinations = (Collection<Address>) Util.readAddresses(in, ArrayList.class);
         latencyTimes = readLatencyTimes(in);
     }
 
