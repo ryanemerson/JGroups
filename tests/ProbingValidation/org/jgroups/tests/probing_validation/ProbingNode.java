@@ -44,7 +44,7 @@ public class ProbingNode  extends ReceiverAdapter {
         channel.setReceiver(this);
         channel.connect("validation");
 
-        ClassConfigurator.add(PROBING_HEADER_ID, MasterHeader.class); // Add Header to magic map without adding to file
+        ClassConfigurator.add(PROBING_HEADER_ID, ProbingHeader.class); // Add Header to magic map without adding to file
         ClassConfigurator.add(MASTER_HEADER_ID, MasterHeader.class); // Add Header to magic map without adding to file
 
         while (true) {}
