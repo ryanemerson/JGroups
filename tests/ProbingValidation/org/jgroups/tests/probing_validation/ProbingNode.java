@@ -55,14 +55,18 @@ public class ProbingNode  extends ReceiverAdapter {
     }
 
     public void receive(Message msg) {
+        System.out.println("Receive msg | " + msg);
+
         MasterHeader masterHeader = (MasterHeader) msg.getHeader(MASTER_HEADER_ID);
         if (masterHeader != null) {
+            System.out.println("Receive Master Request | " + masterHeader);
             handleMasterRequest(msg, masterHeader);
             return;
         }
 
         ProbingHeader probe = (ProbingHeader) msg.getHeader(PROBING_HEADER_ID);
         if (probe != null) {
+            System.out.println("Receive Probe | " + probe);
             Address localAddress = channel.getAddress();
 
             if (probe.getOriginator().equals(channel.getAddress())) {
@@ -75,7 +79,7 @@ public class ProbingNode  extends ReceiverAdapter {
                     sendResponseToMaster(header);
                 }
             } else {
-                sendResponseToProbingNode(probe);
+                sendResponseToProbingNode(msg, probe);
             }
         }
     }
@@ -94,8 +98,9 @@ public class ProbingNode  extends ReceiverAdapter {
         return latencies.size() == NUMBER_OF_ROUNDS * (NUMBER_OF_PROBING_NODES - 1);
     }
 
-    private void sendResponseToProbingNode(ProbingHeader header) {
-        sendMessage(createMessageAddHeader(header.getOriginator(), PROBING_HEADER_ID, header));
+    private void sendResponseToProbingNode(Message message, ProbingHeader probe) {
+        message.setDest(probe.getOriginator());
+        sendMessage(message);
     }
 
     private void sendResponseToMaster(MasterHeader header) {
@@ -104,7 +109,7 @@ public class ProbingNode  extends ReceiverAdapter {
     }
 
     private Message createMessageAddHeader(Address destination, short id, Header header) {
-        Message message = new Message(destination);
+        Message message = new Message(destination, new byte[2000]);
         message.putHeader(id, header);
         return message;
     }
