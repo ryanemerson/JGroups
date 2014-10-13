@@ -76,6 +76,7 @@
     <!--<MFC max_credits="2M"-->
          <!--min_threshold="0.4"/>-->
     <RSVP resend_interval="2000" timeout="10000"/>
-    <aramis.Aramis />
+    <aramis.Aramis
+            rho_optimisation="true"/>
     <pbcast.STATE_TRANSFER />
 </config>

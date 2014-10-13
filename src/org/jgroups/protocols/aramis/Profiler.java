@@ -24,6 +24,7 @@ public class Profiler {
         EMPTY_ACK_MESSAGES_SENT,
         EMPTY_ACK_MESSAGES_RECEIVED,
         FIRST_COPY_NOT_0,
+        COPY_GREATER_THAN_0_SENT,
         MESSAGES_DISSEMINATED // Actually records the number of copies disseminated
     }
 
@@ -104,6 +105,13 @@ public class Profiler {
             return;
 
         counters.get(Counter.MESSAGES_SENT).incrementAndGet();
+    }
+
+    public void copyGreaterThanZero() {
+        if (!profileEnabled)
+            return;
+
+        counters.get(Counter.COPY_GREATER_THAN_0_SENT).incrementAndGet();
     }
 
     public void messageReceived(boolean firstCopyAbsent) {

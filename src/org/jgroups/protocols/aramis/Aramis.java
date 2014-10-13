@@ -20,13 +20,16 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 final public class Aramis extends Protocol {
 
+    @Property(name = "rho_optimisation", description = "Should rho > 0 be sent if a message has already been delivered")
+    private boolean rhoOptimisationEnabled = false;
+
     @Property(name = "initial_probe_frequency", description = "The time (in milliseconds) between each probe message that is" +
             " sent during initialisation")
-    private final int initialProbeFrequency = 1; // Time between each probe during initial probe period
+    private int initialProbeFrequency = 1; // Time between each probe during initial probe period
 
     @Property(name = "initial_probe_count", description = "The number of probes that should be sent by this node" +
             " before message sending can occur")
-    private final int initialProbeCount = 1000; // Time between each probe during initial probe period
+    private int initialProbeCount = 1000; // Time between each probe during initial probe period
 
     @Property(name = "minimum_nodes", description = "The minimum number of nodes allowed in a cluster")
     private int minimumNodes = 2;
@@ -196,6 +199,13 @@ final public class Aramis extends Protocol {
     public void collectGarbage(MessageId id) {
         messageRecords.remove(id);
         receivedMessages.remove(id);
+
+        if (rhoOptimisationEnabled) {
+//            Cancel any pending future tasks associated with the message id
+            Future future = responsiveTasks.get(id);
+            if (future != null)
+                future.cancel(false);
+        }
         responsiveTasks.remove(id);
     }
 
@@ -538,8 +548,10 @@ final public class Aramis extends Protocol {
 //                return;
 //            }
 
-            if (header.getCopy() > 0)
+            if (header.getCopy() > 0) {
                 message.setFlag(Message.Flag.OOB); // Send copies > 0 OOB to ensure that messages aren't disseminated unnecessarily
+                profiler.copyGreaterThanZero();
+            }
 
             broadcastMessage(message);
             executeAgain();
@@ -551,7 +563,7 @@ final public class Aramis extends Protocol {
         private void executeAgain() {
             RMCastHeader header = (RMCastHeader) message.getHeader(headerId);
             if (header.getCopy() < header.getCopyTotal())
-                timer.schedule(nextCopy(), delay, TimeUnit.MILLISECONDS);
+                responsiveTasks.put(header.getId(), timer.schedule(nextCopy(), delay, TimeUnit.MILLISECONDS));
         }
     }
 
@@ -582,8 +594,10 @@ final public class Aramis extends Protocol {
             if (log.isTraceEnabled())
                 log.trace("Disseminating message := " + header);
 
-            if (header.getCopy() > 0)
+            if (header.getCopy() > 0) {
                 message.setFlag(Message.Flag.OOB); // Send copies > 0 OOB to ensure that messages aren't disseminated unnecessarily
+                profiler.copyGreaterThanZero();
+            }
 
             message.setDest(new AnycastAddress(header.getDestinations()));
             broadcastMessage(message);
@@ -598,7 +612,7 @@ final public class Aramis extends Protocol {
         // 6 times faster than using DynamicInterval.
         public void executeAgain() {
             if (record.largestCopyReceived < header.getCopyTotal() && record.broadcastLeader.equals(localAddress))
-                timer.schedule(new MessageDisseminator(record, header, delay), delay, TimeUnit.MILLISECONDS);
+                responsiveTasks.put(header.getId(), timer.schedule(new MessageDisseminator(record, header, delay), delay, TimeUnit.MILLISECONDS));
         }
     }
 
