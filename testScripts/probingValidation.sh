@@ -5,7 +5,7 @@ geometry=109x24+10+40
 outDir="/work/a7109534/"
 props="ProbingValidation.xml"
 probingNodes=5
-numberOfRounds=100
+numberOfRounds=5
 roundDuration=1000
 cleanUp="mkdir -p /work/a7109534/; rm /work/a7109534/*;"
 command="java -Djava.net.preferIPv4Stack=true -jar workspace/probingValidation.jar -p $props -pn $probingNodes -rd $roundDuration -nr $numberOfRounds"
