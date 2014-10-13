@@ -55,31 +55,34 @@ public class ProbingNode  extends ReceiverAdapter {
     }
 
     public void receive(Message msg) {
-        System.out.println("Receive msg | " + msg);
+        synchronized (this) {
+            MasterHeader masterHeader = (MasterHeader) msg.getHeader(MASTER_HEADER_ID);
+            if (masterHeader != null) {
+                System.out.println("Receive Master Request | " + masterHeader);
+                handleMasterRequest(msg, masterHeader);
+                return;
+            }
 
-        MasterHeader masterHeader = (MasterHeader) msg.getHeader(MASTER_HEADER_ID);
-        if (masterHeader != null) {
-            System.out.println("Receive Master Request | " + masterHeader);
-            handleMasterRequest(msg, masterHeader);
-            return;
-        }
+            ProbingHeader probe = (ProbingHeader) msg.getHeader(PROBING_HEADER_ID);
+            if (probe != null) {
+                System.out.println("Receive Probe | Src := " + msg.getSrc() + " | " + probe);
+                Address localAddress = channel.getAddress();
 
-        ProbingHeader probe = (ProbingHeader) msg.getHeader(PROBING_HEADER_ID);
-        if (probe != null) {
-            System.out.println("Receive Probe | " + probe);
-            Address localAddress = channel.getAddress();
+                if (probe.getOriginator().equals(localAddress)) {
+                    List<LatencyTime> latencies = probe.isPresent() ? presentLatencies : pastLatencies;
+                    latencies.add(new LatencyTime(localAddress, (System.nanoTime() - probe.getTimeSent())));
 
-            if (probe.getOriginator().equals(channel.getAddress())) {
-                List<LatencyTime> latencies = probe.isPresent() ? presentLatencies : pastLatencies;
-                latencies.add(new LatencyTime(localAddress, (System.nanoTime() - probe.getTimeSent())));
+                    System.out.println("Response received from " + msg.getSrc() + " | probes received := " + latencies.size());
 
-                if (allProbesReceived(latencies)) {
-                    byte type = probe.isPresent() ? MasterHeader.PRESENT_LATENCIES : MasterHeader.PAST_LATENCIES;
-                    MasterHeader header = MasterHeader.probingComplete(type, probe.getTimePeriod(), latencies);
-                    sendResponseToMaster(header);
+                    if (allProbesReceived(latencies)) {
+                        System.out.println("All probes received! | past := " + !probe.isPresent());
+                        byte type = probe.isPresent() ? MasterHeader.PRESENT_LATENCIES : MasterHeader.PAST_LATENCIES;
+                        MasterHeader header = MasterHeader.probingComplete(type, probe.getTimePeriod(), latencies);
+                        sendResponseToMaster(header);
+                    }
+                } else {
+                    sendResponseToProbingNode(msg, probe);
                 }
-            } else {
-                sendResponseToProbingNode(msg, probe);
             }
         }
     }
@@ -99,19 +102,17 @@ public class ProbingNode  extends ReceiverAdapter {
     }
 
     private void sendResponseToProbingNode(Message message, ProbingHeader probe) {
-        message.setDest(probe.getOriginator());
-        sendMessage(message);
+        sendMessage(new Message(message.getSrc(), message.getBuffer()).putHeader(PROBING_HEADER_ID, probe));
+        System.out.println("Send probe back to " + probe.getOriginator() + " | " + message);
     }
 
     private void sendResponseToMaster(MasterHeader header) {
-        System.out.println("Send response to master");
-        sendMessage(createMessageAddHeader(masterNode, MASTER_HEADER_ID, header));
+        System.out.println("Send response to master | tp := " + header.getTimePeriod() + " | period := " + MasterHeader.type2String(header.getType()));
+        sendMessage(createMessageAddHeader(MASTER_HEADER_ID, header).dest(masterNode));
     }
 
-    private Message createMessageAddHeader(Address destination, short id, Header header) {
-        Message message = new Message(destination, new byte[2000]);
-        message.putHeader(id, header);
-        return message;
+    private Message createMessageAddHeader(short id, Header header) {
+        return new Message().setBuffer(new byte[2000]).putHeader(id, header);
     }
 
     private void sendMessage(Message message) {
@@ -134,17 +135,20 @@ public class ProbingNode  extends ReceiverAdapter {
             while (round < NUMBER_OF_ROUNDS * 2) {
                 System.out.println("Start probing | Round := " + round);
 
-                byte probeType = round <= (NUMBER_OF_ROUNDS - 1) ? ProbingHeader.PROBING_PAST : ProbingHeader.PROBING_PRESENT;
+                byte probeType = round == 1 || round <= (NUMBER_OF_ROUNDS - 1) ? ProbingHeader.PROBING_PAST : ProbingHeader.PROBING_PRESENT;
                 broadcastProbe(new ProbingHeader(probeType, channel.getAddress(), request.getTimePeriod(), System.nanoTime()));
 
                 Util.sleep(ROUND_DURATION);
+                round++;
             }
         }
 
         private void broadcastProbe(ProbingHeader header) {
+            System.out.println("--- Broadcast Probe | " + header);
+            Message message = createMessageAddHeader(PROBING_HEADER_ID, header);
             for (Address address : request.getDestinations()) {
                 if (!address.equals(channel.getAddress()))
-                    sendMessage(createMessageAddHeader(address, PROBING_HEADER_ID, header));
+                    sendMessage(message.copy().dest(address));
             }
         }
     }

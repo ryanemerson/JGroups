@@ -23,7 +23,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class MasterNode extends ReceiverAdapter {
 
     private final short MASTER_HEADER_ID;
-    private final AtomicInteger timePeriod = new AtomicInteger();
+    private final AtomicInteger timePeriod = new AtomicInteger(1);
     private final String PROPERTIES_FILE;
     private final int NUMBER_OF_PROBING_NODES;
     private PrintStream resultsFile;
@@ -35,7 +35,7 @@ public class MasterNode extends ReceiverAdapter {
         this.NUMBER_OF_PROBING_NODES = numberOfProbingNodes;
 
         try {
-            resultsFile = new PrintStream(new FileOutputStream("results.txt"));
+            resultsFile = new PrintStream(new FileOutputStream("/work/a7109534/results.txt"));
         } catch (IOException e) {
             System.out.println(e);
             System.exit(0);
@@ -60,12 +60,19 @@ public class MasterNode extends ReceiverAdapter {
     }
 
     public void receive(Message msg) {
-        System.out.println("Latencies received from " + msg.getSrc());
-        MasterHeader header = (MasterHeader) msg.getHeader(MASTER_HEADER_ID);
+        synchronized (this) {
+            System.out.println("Latencies received from " + msg.getSrc());
+            MasterHeader header = (MasterHeader) msg.getHeader(MASTER_HEADER_ID);
 
-        String identifier = header.getType() == MasterHeader.PAST_LATENCIES ? "G" : "P";
-        for (LatencyTime latency : header.getLatencyTimes())
-            printLatency(identifier, header.getTimePeriod(), latency);
+            if (header.getType() == MasterHeader.PAST_LATENCIES)
+                System.out.println("Past latencies received | tp :=" + header.getTimePeriod());
+            else
+                System.out.println("Present latencies received | tp :=" + header.getTimePeriod());
+
+            String identifier = header.getType() == MasterHeader.PAST_LATENCIES ? "G" : "P";
+            for (LatencyTime latency : header.getLatencyTimes())
+                printLatency(identifier, header.getTimePeriod(), latency);
+        }
     }
 
     private void printLatency(String identifier, int timePeriod, LatencyTime latency) {

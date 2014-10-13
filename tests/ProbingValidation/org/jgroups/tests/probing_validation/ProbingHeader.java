@@ -73,4 +73,25 @@ public class ProbingHeader extends Header {
         timePeriod = in.readInt();
         timeSent = Bits.readLong(in);
     }
+
+    @Override
+    public String toString() {
+        return "ProbingHeader{" +
+                "type=" + type2String(type) +
+                ", originator=" + originator +
+                ", timePeriod=" + timePeriod +
+                ", timeSent=" + timeSent +
+                '}';
+    }
+
+    private static String type2String(byte t) {
+        switch (t) {
+            case PROBING_PAST:
+                return "PROBING_PAST";
+            case PROBING_PRESENT:
+                return "PROBING_PRESENT";
+            default:
+                return "UNDEFINED(" + t + ")";
+        }
+    }
 }

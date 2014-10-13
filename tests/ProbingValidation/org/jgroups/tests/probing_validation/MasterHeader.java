@@ -93,7 +93,7 @@ public class MasterHeader extends Header {
                 '}';
     }
 
-        private static String type2String(byte t) {
+    public static String type2String(byte t) {
         switch (t) {
             case START_PROBING:
                 return "START_PROBING";
