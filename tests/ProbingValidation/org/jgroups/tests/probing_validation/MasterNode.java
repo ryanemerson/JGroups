@@ -6,9 +6,7 @@ import org.jgroups.conf.ClassConfigurator;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
-import java.util.Collection;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -89,7 +87,7 @@ public class MasterNode extends ReceiverAdapter {
             try {
                 for (int i = 0; i < requestsToSend; i++)
                     sendRequest(selectDestinations());
-
+                usedDestinations.clear();
             } catch (IllegalArgumentException e) {
                 System.out.println(e);
             } catch (Exception e) {
@@ -98,9 +96,13 @@ public class MasterNode extends ReceiverAdapter {
 
         private Collection<Address> selectDestinations() {
             Set<Address> destinations = new HashSet<Address>();
-            for (Address address : channel.getView())
-                if (!address.equals(channel.getAddress()) && !usedDestinations.contains(address) && destinations.size() < NUMBER_OF_PROBING_NODES)
+            List<Address> randomisedView = new ArrayList<Address>(channel.getView().getMembers());
+            Collections.shuffle(randomisedView);
+            for (Address address : randomisedView)
+                if (!address.equals(channel.getAddress()) && !usedDestinations.contains(address) && destinations.size() < NUMBER_OF_PROBING_NODES) {
                     destinations.add(address);
+                    usedDestinations.add(address);
+                }
 
             if (destinations.size() < NUMBER_OF_PROBING_NODES)
                 throw new IllegalArgumentException("Number of probing nodes must be > " + NUMBER_OF_PROBING_NODES +
