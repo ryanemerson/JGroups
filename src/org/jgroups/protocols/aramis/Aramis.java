@@ -509,7 +509,7 @@ final public class Aramis extends Protocol {
             Header header = RMCastHeader.createEmptyProbeHeader(messageId, localAddress, nmc.getData(), destinations);
             Message message = new Message().putHeader(id, header);
             message.setDest(new AnycastAddress(destinations));
-            message.setBuffer(new byte[1024]);
+            message.setBuffer(new byte[1000]);
             return new MessageBroadcaster(message, 0, 0, 0, id);
         }
 
