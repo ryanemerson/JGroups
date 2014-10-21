@@ -21,7 +21,7 @@ public class NMC {
     private double reliabilityProb = 0.9999;
     private int epochSize = 100; // The number of latencies received before NMC values are calculated
     private int recentPastSize = 1000; // The number of latencies that defines the recent past
-    private double qThreshold = 1.05; // The threshold for calculating Q
+    private double qThreshold = .95; // The threshold for calculating Q
     private double etaProbability = 0.99;
     private double alpha = 0.9; // The value alpha that is used to update xMax
     private int xrcSampleSize = 10; // The minimum number of values we use to calculate R
@@ -199,13 +199,13 @@ public class NMC {
                     dFlag = true;
                 }
 
-                if (tempLatencies[yy] > 0 && latency * qThreshold > maxLatency)
+                if (tempLatencies[yy] > 0 && latency > maxLatency * qThreshold)
                     exceedQThreshold++;
             }
         }
         addXMax(maxLatency);
 
-        double q = exceedQThreshold / numberOfLatencies;
+        double q = exceedQThreshold / (double) numberOfLatencies;
         int rho = calculateRho(q);
         int eta = (int) Math.ceil(-1 * d * Math.log(1 - etaProbability)); // Calculate 1 - e - Np / d = 0.99
         int omega = eta - d;
@@ -232,28 +232,14 @@ public class NMC {
         return (int) Math.ceil(value / 1000000d);
     }
 
-    // Calculated based upon this nodes notion of view size
     private int calculateRho(double q) {
-        int numberOfNodes = activeNodes;
-
-        // S RHO
-        int rhoS = 0;
+        int rho = 0;
         double rhoProbability = 0.0;
         while (rhoProbability < reliabilityProb && rhoProbability <= 1.0) {
-            rhoS++;
-            double x = 1 - Math.pow(q, rhoS + 2);
-            rhoProbability = Math.pow(x, numberOfNodes - 2);
+            rho++; // Ensures that rho is always > 0 as it will always be executed at least once.
+            rhoProbability = 1.0 - Math.pow(q, rho + 1);
         }
-
-        // D RHO
-        int rhoD = 0;
-        double rhoProbability1 = 0.0;
-        while (rhoProbability1 < reliabilityProb && rhoProbability1 <= 1.0) {
-            rhoD++;
-            double x = 1 - Math.pow(q, rhoD + 1);
-            rhoProbability1 = Math.pow(x, numberOfNodes - 1);
-        }
-        return Math.max(rhoS, rhoD);
+        return rho;
     }
 
     private class ExceedsXrcResult {
