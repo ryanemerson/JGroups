@@ -24,7 +24,7 @@ public class PCSynch extends Protocol {
 
     @Property(name = "synch_frequency", description = "The amount of time between each round of clock synchronisation" +
             "Specificed in minutes")
-    private long synchFrequency = 7;
+    private long synchFrequency = 15;
 
     @Property(name = "attempt_duration", description = "The maximum amount of time between each clock synch request " +
             "Specified in milliseconds")

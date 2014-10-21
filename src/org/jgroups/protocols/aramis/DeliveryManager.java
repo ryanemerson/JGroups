@@ -58,11 +58,28 @@ public class DeliveryManager {
                         MessageRecord record = it.next();
                         System.out.println(record);
                         System.out.println(record.isDeliverablePrint());
+                        MessageId temp = localMsgQueue.poll();
+                        MessageRecord r = checkDeliverySet(temp);
+                        System.out.println("LOCAL QUEUE | [" + i + "]" + temp +
+                                " | In MessageRecords := " + messageRecords.containsKey(temp) +
+                                " | index in DS := " + (r != null ? deliverySet.headSet(r).size() : -1) +
+                                " In deliverySet := " + r);
                         i++;
                     }
                 }
             }
         }));
+    }
+
+    // TODO remove
+    private MessageRecord checkDeliverySet(MessageId id) {
+        if (id == null)
+            return null;
+
+        for (MessageRecord r : deliverySet)
+            if (r.id.equals(id))
+                return r;
+        return null;
     }
 
     // Aramis
@@ -211,16 +228,8 @@ public class DeliveryManager {
         while (i.hasNext()) {
             MessageRecord record = i.next();
 
-//            if (!nodeIsAlive(record, timedOutRecord)) {
-//                i.remove();
-//                messageRecords.remove(record.id);
-//                removeReceivedSeq(record.id);
-//                if (log.isDebugEnabled())
-//                    log.debug("Placeholder removed from the delivery set forever | " + record.id);
-//            }
             // If ph is > then the last received msg contained in this msg's vc then remove it and add it to valid phs
             // Provision for phs that are greater than timedOutRecord - Reduces blocking
-//            else if (record.isPlaceholder() && placeholderIsIgnorable(timedOutRecord, record)) {
             if (record.isPlaceholder() && placeholderIsIgnorable(timedOutRecord, record)) {
                 if (log.isDebugEnabled())
                     log.debug("Future placeholder ignored during delivery | " + record.id);
@@ -257,16 +266,6 @@ public class DeliveryManager {
             }
 
             if (record.isPlaceholder() && lastTimeout != null) {
-//                if (!nodeIsAlive(record, lastTimeout)) {
-//                    i.remove(); // Remove from the deliverySet forever
-//                    messageRecords.remove(record.id);
-//                    removeReceivedSeq(record.id);
-//
-//                    if (log.isInfoEnabled())
-//                        log.info("Placeholder REMOVED from the delivery set forever | " + record.id);
-//                    continue;
-//                }
-
                 // If ph is > then the last received msg contained in this msg's vc then ignore it this time
                 // Provision for handling phs that are greater than lastTimeout - Reduces blocking
                 if (placeholderIsIgnorable(lastTimeout, record)) {
@@ -629,8 +628,8 @@ public class DeliveryManager {
                 return false;
 
             if (!isLocal()) {
-                MessageId latestLocalMsg = localMsgQueue.peek();
-                if (latestLocalMsg != null && id.getTimestamp() > latestLocalMsg.getTimestamp())
+                MessageId oldestLocalMsg = localMsgQueue.peek();
+                if (oldestLocalMsg != null && id.getTimestamp() > oldestLocalMsg.getTimestamp())
                     return false;
             }
 
@@ -655,9 +654,9 @@ public class DeliveryManager {
             }
 
             if (!isLocal()) {
-                MessageId latestLocalMsg = localMsgQueue.peek();
-                if (latestLocalMsg != null && id.getTimestamp() > latestLocalMsg.getTimestamp()) {
-                    System.out.println("!isLocal && latestLocal < id.getTimestamp() | localMsg := " + latestLocalMsg);
+                MessageId oldestLocalMsg = localMsgQueue.peek();
+                if (oldestLocalMsg != null && id.getTimestamp() > oldestLocalMsg.getTimestamp()) {
+                    System.out.println("!isLocal && latestLocal < id.getTimestamp() | localMsg := " + oldestLocalMsg);
                     return false;
                 }
             }

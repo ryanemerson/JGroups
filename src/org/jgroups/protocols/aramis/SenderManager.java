@@ -49,7 +49,7 @@ public class SenderManager {
         }
     }
 
-    public RMCastHeader newMessageBroadcast(Address localAddress, NMCData data, Collection<Address> destinations, Queue localMsgQueue) {
+    public RMCastHeader newMessageBroadcast(Address localAddress, NMCData data, Collection<Address> destinations, Queue<MessageId> localMsgQueue) {
         synchronized (receivedMessages) {
             MessageId messageId = new MessageId(clock.getTime(), localAddress, sequence.getAndIncrement());
             localMsgQueue.add(messageId);
