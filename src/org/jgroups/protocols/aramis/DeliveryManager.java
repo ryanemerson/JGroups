@@ -540,17 +540,16 @@ public class DeliveryManager {
         RMCastHeader header = record.getHeader();
         NMCData data = header.getNmcData();
 
-        long startTime = header.getId().getTimestamp();
-        long ackWait = (2 * data.getEta()) + data.getOmega();
-        long delay = Math.max(data.getCapD(), data.getXMax() + data.getCapS());
+        long delay = header.getDestinations().size() > 2 ? data.getCapS() + data.getCapD() : data.getCapD();
         // Takes into consideration the broadcast time of an ack and the max possible delay before an ack is piggybacked or explicitly broadcast
+        long ackWait = (2 * data.getEta()) + data.getOmega(); // Must be the same as the ackWait used in Aramis.class
         delay = (2 * delay) + ackWait;
 
         if (record.id.getOriginator().equals(aramis.getLocalAddress()))
-            profiler.addDeliveryDelay(delay + 1);
+            profiler.addDeliveryDelay(delay);
 
         delay = TimeUnit.MILLISECONDS.toNanos(delay) + aramis.getClock().getMaximumError(); // Convert to Nanos and add epislon
-        record.deliveryTime = startTime + delay;
+        record.deliveryTime = header.getId().getTimestamp() + delay;
 
         if (lastDelivered != null && record.deliveryTime < lastDelivered.deliveryTime)
             record.deliveryTime = lastDelivered.deliveryTime + 1;

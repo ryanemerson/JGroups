@@ -208,11 +208,9 @@ public class NMC {
         double q = exceedQThreshold / numberOfLatencies;
         int rho = calculateRho(q);
         int eta = (int) Math.ceil(-1 * d * Math.log(1 - etaProbability)); // Calculate 1 - e - Np / d = 0.99
-//        int eta = xMax; // Eta as xMax, increases the deliveryDelay and responsiveness provisions
-//        eta = Math.max(eta, xMax);
         int omega = eta - d;
         int capD = xMax + (rho * eta);
-        int capS = xMax + ((rho + 2) * eta) + omega;
+        int capS = xMax + (2 * eta) + omega; // 2 * eta includes the max possible random wait used by a disseminating node
         nmcData = new NMCData(eta, rho, omega, capD, capS, xMax, clock.getTime()); // Create a timestamped NMCData
 
         if (log.isDebugEnabled())
