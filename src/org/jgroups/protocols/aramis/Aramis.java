@@ -291,6 +291,7 @@ final public class Aramis extends Protocol {
             MessageRecord newRecord = new MessageRecord(header);
             MessageRecord oldRecord = (MessageRecord) ((ConcurrentHashMap) messageRecords).putIfAbsent(header.getId(), newRecord);
             if (oldRecord == null) {
+                handleAcks(header); // Handle acks ASAP so that other nodes know about the message via VectorClocks ASAP
                 Message message = (Message) event.getArg();
                 deliveryManager.addMessage(message); // Add to the delivery manager if this is the first time RMCast has received M
                 receivedMessages.put(header.getId(), message); // Store actual message, need for retransmission

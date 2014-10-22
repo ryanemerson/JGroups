@@ -161,7 +161,6 @@ public class DeliveryManager {
 
         calculateDeliveryTime(record);
         handleNewMessageRecord(record);
-        aramis.handleAcks(record.getHeader());
 
         if (log.isDebugEnabled())
             log.debug("Message added | " + record + (deliverySet.isEmpty() ? "" : " | deliverySet 1st := " + deliverySet.first()));
