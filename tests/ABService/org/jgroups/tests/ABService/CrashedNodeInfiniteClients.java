@@ -7,10 +7,8 @@ import org.jgroups.protocols.aramis.Aramis;
 import org.jgroups.protocols.aramis.RMCastHeader;
 import org.jgroups.protocols.tom.ToaHeader;
 import org.jgroups.util.Util;
-import sun.misc.Unsafe;
 
 import java.io.*;
-import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -35,6 +33,8 @@ public class CrashedNodeInfiniteClients extends ReceiverAdapter {
         String initiator = "";
         int numberOfMessages = 100000; // #Msgs to be executed by this node
         int totalMessages = 1000000; // #Msgs to be sent by the whole cluster
+        int msgsBeforeCrash = 50000; // #Msgs to be sent before crash
+        boolean crashingNode = false; // Is this the node that will crash
         for (int i = 0; i < args.length; i++) {
             if("-config".equals(args[i])) {
                 propsFile = args[++i];
@@ -52,8 +52,16 @@ public class CrashedNodeInfiniteClients extends ReceiverAdapter {
                 initiator = args[++i];
                 continue;
             }
+            if("-msgs-crash".equals(args[i])) {
+                msgsBeforeCrash = Integer.parseInt(args[++i]);
+                continue;
+            }
+            if("-crash".equals(args[i])) {
+                crashingNode = true;
+                continue;
+            }
         }
-        new CrashedNodeInfiniteClients(propsFile, numberOfMessages, totalMessages, initiator).run();
+        new CrashedNodeInfiniteClients(propsFile, numberOfMessages, totalMessages, msgsBeforeCrash, initiator, crashingNode).run();
     }
 
     // Remember to incremement this in the delivery manager when messages are rejected
@@ -72,7 +80,6 @@ public class CrashedNodeInfiniteClients extends ReceiverAdapter {
     private int count = 1;
     private boolean startSending = false;
     private int completeMsgsReceived = 0;
-//    private int msgsReceived = 0;
     private long startTime;
     private boolean allMessagesReceived = false;
     private Future lastOutputFuture;
@@ -80,13 +87,17 @@ public class CrashedNodeInfiniteClients extends ReceiverAdapter {
     private Map<Address, RMCastHeader> msgRecord = new HashMap<Address, RMCastHeader>();
     private boolean checkMissingSeq = false;
 
-    private final int MSGS_BEFORE_CRASH = 50000;
+    private final int MSGS_BEFORE_CRASH;
+    private final boolean CRASHING_NODE;
 
-    public CrashedNodeInfiniteClients(String propsFile, int numberOfMessages, int totalMessages, String initiator) {
+    public CrashedNodeInfiniteClients(String propsFile, int numberOfMessages, int totalMessages, int msgsBeforeCrash,
+                                      String initiator, boolean crashingNode) {
         PROPERTIES_FILE = propsFile;
         NUMBER_MESSAGES_TO_SEND = numberOfMessages;
         TOTAL_NUMBER_OF_MESSAGES = totalMessages;
+        MSGS_BEFORE_CRASH = msgsBeforeCrash;
         INITIATOR = initiator;
+        CRASHING_NODE = crashingNode;
     }
 
     public void run() throws Exception {
@@ -116,25 +127,13 @@ public class CrashedNodeInfiniteClients extends ReceiverAdapter {
 
         while (true) {
             if (startSending) {
-                if (channel.getAddress().toString().contains("mill030") && sentMessages == MSGS_BEFORE_CRASH) {
-                    crashNode();
-                    while (true);
-                }
+                if (CRASHING_NODE && sentMessages == MSGS_BEFORE_CRASH)
+                    Runtime.getRuntime().halt(-1);
 
                 AnycastAddress anycastAddress = new AnycastAddress(channel.getView().getMembers());
                 final Message message = new Message(anycastAddress, sentMessages);
                 message.putHeader(id, TestHeader.createTestMsg(sentMessages + 1));
                 message.setBuffer(new byte[1000]);
-//                threadPool.execute(new Runnable() {
-//                    @Override
-//                    public void run() {
-//                        try {
-//                            channel.send(message);
-//                        } catch (Exception e) {
-//                            System.out.println(e);
-//                        }
-//                    }
-//                });
                 channel.send(message);
                 sentMessages++;
 
@@ -153,20 +152,6 @@ public class CrashedNodeInfiniteClients extends ReceiverAdapter {
         System.exit(0);
     }
 
-    private void crashNode() throws Exception {
-        System.out.println("Crash Node");
-        getUnsafe().getByte(0);
-//        Field theUnsafe = Unsafe.class.getDeclaredField("theUnsafe");
-//        theUnsafe.setAccessible(true);
-//        theUnsafe.get(null).getByte(0);
-    }
-
-    private static Unsafe getUnsafe() throws NoSuchFieldException, IllegalAccessException {
-        Field theUnsafe = Unsafe.class.getDeclaredField("theUnsafe");
-        theUnsafe.setAccessible(true);
-        return (Unsafe) theUnsafe.get(null);
-    }
-
     public void sendStartMessage(JChannel channel) throws Exception {
         sendStatusMessage(channel, new TestHeader(TestHeader.START_SENDING));
     }
@@ -176,7 +161,6 @@ public class CrashedNodeInfiniteClients extends ReceiverAdapter {
     }
 
     private void sendStatusMessage(JChannel channel, TestHeader header) throws Exception {
-//        Message message = new Message(new AnycastAddress(channel.getView().getMembers()));
         Message message = new Message(null);
         message.putHeader(id, header);
         message.setFlag(Message.Flag.NO_TOTAL_ORDER);
