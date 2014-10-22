@@ -211,12 +211,15 @@ public class NMC {
         int omega = eta - d;
         int capD = xMax + (rho * eta);
         int capS = xMax + (2 * eta) + omega; // 2 * eta includes the max possible random wait used by a disseminating node
-        nmcData = new NMCData(eta, rho, omega, capD, capS, xMax, clock.getTime()); // Create a timestamped NMCData
+
+        // MessageCopies hard coded to 1 to reduce total message copies, true rho value still used for calculating delivery delays
+        nmcData = new NMCData(eta, 1, omega, capD, capS, xMax, clock.getTime()); // Create a timestamped NMCData
 
         if (log.isDebugEnabled())
             log.debug("NMCData recorded | " + nmcData);
 
         nmcProfiler.add(nmcData);
+        nmcProfiler.addRho(rho);
         nmcProfiler.addQ(q);
     }
 
@@ -272,7 +275,10 @@ public class NMC {
         void add(NMCData data) {
             localOmega.add(data.getOmega());
             localEta.add(data.getEta());
-            localRho.add(data.getMessageCopies());
+        }
+
+        void addRho(int rho) {
+            localRho.add(rho);
         }
 
         void addQ(double q) {
