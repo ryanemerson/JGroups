@@ -2,18 +2,14 @@
 import os
 from collections import defaultdict
 
-hosts = {'mill001', 'mill004', 'mill005'}
+hosts = {'mill028', 'mill029', 'mill030'}
 user = 'a7109534'
 file_location = '/work/a7109534/'
-#file_location = '/home/ryan/workspace/JGroups'
-#file_location = '/home/pg/p11/a7109534/'
 file_wildcard = '*'
 extension = ".csv"
 get_file = file_location + file_wildcard + extension
 destination = '.'
 number_of_rounds = 18
-
-os.system("rm xMax*")
 
 host_files = defaultdict(list)
 for file in os.listdir(destination):

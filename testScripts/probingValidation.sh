@@ -1,11 +1,11 @@
 #!/bin/bash
-#arr=(mill001 mill002 mill003 mill004 mill005 mill006 mill007 mill008 mill009 mill010 mill011 mill012 mill013 mill014 mill017 mill018 mill019 mill020 mill021 mill022 mill023)
-arr=(mill001 mill002 mill004 mill006 mill007 mill008)
-geometry=109x24+10+40
+arr=(mill001 mill004 mill005 mill007 mill009 mill010 mill011 mill013 mill014 mill017 mill019 mill020 mill021 mill024 mill026 mill027 mill028 mill029 mill031 mill032 mill035)
+#arr=(mill001 mill002 mill004 mill006 mill007 mill008)
+geometry=109x26+3476+-8
 outDir="/work/a7109534/"
 props="ProbingValidation.xml"
 probingNodes=5
-numberOfRounds=5
+numberOfRounds=400
 roundDuration=1000
 cleanUp="mkdir -p /work/a7109534/; rm /work/a7109534/*;"
 command="java -Djava.net.preferIPv4Stack=true -jar workspace/probingValidation.jar -p $props -pn $probingNodes -rd $roundDuration -nr $numberOfRounds"

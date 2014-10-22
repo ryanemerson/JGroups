@@ -1,2 +1,2 @@
 #!/bin/bash
-rm *.err *.out output.txt
+rm *.err *.out *.txt *.csv
