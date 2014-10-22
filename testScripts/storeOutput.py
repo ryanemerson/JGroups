@@ -3,7 +3,7 @@ import os
 import argparse
 import shutil
 
-OUTPUT_DIR = '/home/ryan/Dropbox/PhD/Results/CloudCom/Box Simulation/Arimis and Base/'
+OUTPUT_DIR = '/home/a7109534/Dropbox/PhD/Results/DSN/Box Simulation/Aramis and Base/'
 FOLDER_NAME = 'Experiment'
 EXT_TO_MOVE = 'csv'
 
@@ -22,7 +22,7 @@ args = parser.parse_args()
 newPath = OUTPUT_DIR + FOLDER_NAME + str(args.integer) + '/'
 if not os.path.exists(newPath):
     os.makedirs(newPath)
-    files = [f for f in os.listdir('.') if os.path.isfile(f) and f.endswith(EXT_TO_MOVE)]
+    files = [f for f in os.listdir('.') if os.path.isfile(f) and f.endswith(EXT_TO_MOVE) or f.endswith('.txt')]
     for f in files:
         shutil.move(f,newPath)
 else:
