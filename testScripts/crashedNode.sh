@@ -21,6 +21,7 @@ for ((i = 0; i < ${#arr[@]}; i++));do
    if [ $i -eq $lastNode ]; then
 	   command="$command -crash"
    fi
+   output=" 2>&1 | tee $outDir${arr[$i]}.txt"
    gnome-terminal --geometry=${geometry[$i]} --title "${arr[$i]}" -x bash -c "ssh -t -o ConnectTimeout=1  a7109534@${arr[$i]}.ncl.ac.uk '$createDir; $command$output; bash'" > output.txt 2>&1
    sleep 0.5;
 done
