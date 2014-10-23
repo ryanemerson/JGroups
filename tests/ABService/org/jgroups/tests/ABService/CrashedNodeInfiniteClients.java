@@ -7,8 +7,10 @@ import org.jgroups.protocols.aramis.Aramis;
 import org.jgroups.protocols.aramis.RMCastHeader;
 import org.jgroups.protocols.tom.ToaHeader;
 import org.jgroups.util.Util;
+import sun.misc.Unsafe;
 
 import java.io.*;
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -127,8 +129,10 @@ public class CrashedNodeInfiniteClients extends ReceiverAdapter {
 
         while (true) {
             if (startSending) {
-                if (CRASHING_NODE && sentMessages == MSGS_BEFORE_CRASH)
-                    Runtime.getRuntime().halt(-1);
+                if (CRASHING_NODE && sentMessages == MSGS_BEFORE_CRASH) {
+                    crashNode();
+                    while (true);
+                }
 
                 AnycastAddress anycastAddress = new AnycastAddress(channel.getView().getMembers());
                 final Message message = new Message(anycastAddress, sentMessages);
@@ -150,6 +154,17 @@ public class CrashedNodeInfiniteClients extends ReceiverAdapter {
 
         System.out.println("Test Finished");
         System.exit(0);
+    }
+
+    private void crashNode() throws Exception {
+        System.out.println("Crash Node");
+        getUnsafe().getByte(0);
+    }
+
+    private static Unsafe getUnsafe() throws NoSuchFieldException, IllegalAccessException {
+        Field theUnsafe = Unsafe.class.getDeclaredField("theUnsafe");
+        theUnsafe.setAccessible(true);
+        return (Unsafe) theUnsafe.get(null);
     }
 
     public void sendStartMessage(JChannel channel) throws Exception {
