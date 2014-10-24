@@ -240,7 +240,7 @@ public class NMC {
         double rhoProbability = 0.0;
         while (rhoProbability < reliabilityProb && rhoProbability <= 1.0) {
             rho++; // Ensures that rho is always > 0 as it will always be executed at least once.
-            rhoProbability = 1.0 - Math.pow(q, rho + 1);
+            rhoProbability = Math.pow(1.0 - Math.pow(q, rho + 1), activeNodes - 1);
         }
         return rho;
     }
