@@ -49,8 +49,10 @@ public class Profiler {
     private final EnumMap<DeliveryLatency, AtomicInteger> deliveryLatencies = new EnumMap<DeliveryLatency, AtomicInteger>(DeliveryLatency.class);
     private final AtomicLong averageProbeLatency = new AtomicLong();
     private final AtomicLong averageDeliveryLatency = new AtomicLong();
-    private final AtomicLong averageDeliveryDelay = new AtomicLong();
     private final boolean profileEnabled;
+
+    private double averageDeliveryDelay = -1;
+    private long previousDelay = -1;
 
     public Profiler(boolean profileEnabled) {
         this.profileEnabled = profileEnabled;
@@ -204,11 +206,21 @@ public class Profiler {
             smallest.set(latency);
     }
 
-    private void calculateAverageDelay(double delay) {
-        double average = Double.longBitsToDouble(averageDeliveryDelay.longValue());
-        average = (average + delay) / 2;
-        long longAverage = Double.doubleToLongBits(average); // No AtomicDouble class, so long used instead
-        averageDeliveryDelay.set(longAverage);
+    // Doesn't use AtomicLong like other methods as this method is now accessed by a single thread.
+    // Other methods not changed as no real benefit at this point.
+    private void calculateAverageDelay(long delay) {
+        if (previousDelay == delay)
+            return;
+
+        // If first time method is called
+        if (previousDelay == -1) {
+            averageDeliveryDelay = delay;
+            previousDelay = delay;
+            return;
+        }
+
+        averageDeliveryDelay = (averageDeliveryDelay + delay) / 2.0;
+        previousDelay = delay;
     }
 
     private void calculateAverageLatency(int latency, boolean deliveryLatency) {
@@ -248,7 +260,7 @@ public class Profiler {
     public String toString() {
         double averageProbe = Math.round(Double.longBitsToDouble(averageProbeLatency.longValue()) * 100.0) / 100.0;
         double averageDelivery = Math.round(Double.longBitsToDouble(averageDeliveryLatency.longValue()) * 100.0) / 100.0;
-        double averageDeliveryD = Math.round(Double.longBitsToDouble(averageDeliveryDelay.longValue()) * 100.0) / 100.0;
+        double averageDeliveryD = Math.round(averageDeliveryDelay * 100.0) / 100.0;
         return "Profiler{" +
                 "\nCounters=" + counters +
                 ",\nProbe Latencies=" + probeLatencies +
