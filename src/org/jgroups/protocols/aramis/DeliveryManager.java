@@ -679,6 +679,14 @@ public class DeliveryManager {
                     ackRecord.put(address, false);
         }
 
+        long getActualDeliveryDelay(TimeUnit timeUnit) {
+            return timeUnit.convert(getCalculatedDeliveryDelay(TimeUnit.NANOSECONDS) + (aramis.getClock().getTime() - deliveryTime), TimeUnit.NANOSECONDS);
+        }
+
+        long getCalculatedDeliveryDelay(TimeUnit timeUnit) {
+            return timeUnit.convert(deliveryTime - id.getTimestamp(), TimeUnit.NANOSECONDS);
+        }
+
         @Override
         public int compareTo(Delayed delayed) {
             if (this == delayed)
@@ -715,6 +723,8 @@ public class DeliveryManager {
                     ", isPlaceholder()=" + isPlaceholder() +
                     ", isDeliverable()=" + isDeliverable() +
                     ", delay()=" + getDelay(TimeUnit.MILLISECONDS) + "ms" +
+                    ", actualDeliveryDelay()=" + getActualDeliveryDelay(TimeUnit.MILLISECONDS) + "ms" +
+                    ", calculatedDeliveryDelay()=" + getCalculatedDeliveryDelay(TimeUnit.MILLISECONDS) + "ms" +
                     ", timedOut=" + timedOut +
                     (deliveredMsgRecord.get(id.getOriginator()) == null ? "" : ", lastDeliveredThisNode=" + deliveredMsgRecord.get(id.getOriginator()).getSequence()) +
                     (getHeader() == null ? "" : ", vectorClock=" + getHeader().getVectorClock()) + "}";
