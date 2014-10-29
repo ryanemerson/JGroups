@@ -546,7 +546,7 @@ public class DeliveryManager {
         if (record.id.getOriginator().equals(aramis.getLocalAddress()))
             profiler.addDeliveryDelay(delay);
 
-        delay = TimeUnit.MILLISECONDS.toNanos(delay) + aramis.getClock().getMaximumError(); // Convert to Nanos and add epislon
+        delay = TimeUnit.MILLISECONDS.toNanos(delay) + (2 * aramis.getClock().getMaximumError()); // Convert to Nanos and add epislon
         record.deliveryTime = header.getId().getTimestamp() + delay;
 
         if (lastDelivered != null && record.deliveryTime < lastDelivered.deliveryTime)
