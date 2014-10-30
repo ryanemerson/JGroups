@@ -11,7 +11,6 @@ import org.jgroups.util.Util;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.DelayQueue;
 import java.util.concurrent.Delayed;
 import java.util.concurrent.TimeUnit;
 
@@ -30,18 +29,13 @@ public class DeliveryManager {
     // Sequences that have been received but not yet delivered
     private final Map<Address, Set<Long>> receivedSeqRecord = new HashMap<Address, Set<Long>>();
     private final Map<Address, VectorClock> receivedVectorClocks = new HashMap<Address, VectorClock>();
-    private final DelayQueue<MessageRecord> timedOutQueue = new DelayQueue<MessageRecord>();
     private final Queue<Message> messageQueue = new ConcurrentLinkedQueue<Message>();
     private final Queue<MessageId> localMsgQueue = new ConcurrentLinkedQueue<MessageId>();
     private final Log log = LogFactory.getLog(Aramis.class);
     private final Aramis aramis;
     private final Profiler profiler;
 
-    private enum DeliveryType {V1, V2}
-
-    private DeliveryType deliveryType = DeliveryType.V2;
     private volatile MessageRecord lastDelivered;
-    private volatile MessageRecord lastTimeout;
 
     public DeliveryManager(Aramis aramis, Profiler profiler) {
         this.aramis = aramis;
@@ -126,7 +120,6 @@ public class DeliveryManager {
 
         calculateDeliveryTime(record);
         addRecordToDeliverySet(record);
-        updateDeliveryTimes(record);
         storeVectorClock(record);
 
         if (log.isDebugEnabled())
@@ -170,7 +163,7 @@ public class DeliveryManager {
         final List<Message> deliverable = new ArrayList<Message>();
         synchronized (deliverySet) {
             // Prevents the thread from constantly running
-            if (messageQueue.isEmpty() && (timedOutQueue.isEmpty() || timedOutQueue.peek().getDelay(TimeUnit.NANOSECONDS) > 0)) {
+            if (messageQueue.isEmpty() && deliverySet.isEmpty()) {
                 Util.sleep(1);
                 return deliverable;
             }
@@ -183,124 +176,29 @@ public class DeliveryManager {
                     addRemoteMessage(message);
             }
 
-            switch (deliveryType) {
-                case V1:
-                    // OLD APPROACH
-                    processDeliverySetV1(deliverable); // Deliver messages that can be delivered under normal conditions
-                    List<MessageRecord> validPlaceholders = processTimeoutQueueV1(); // Make messages with an expired timeout deliverable and remove any blocking placeholders
-                    processDeliverySetV1(deliverable); // Deliver expired messages
-                    deliverySet.addAll(validPlaceholders); // Re-add the 'valid' placeholders
-                    break;
-                case V2:
-                    // NEW APPROACH
-                    processTimeoutQueueV2(); // Get the newest timedout message
-                    processDeliverySetV2(deliverable); // Deliver normal and timedout messages
-                    break;
-            }
+            processDeliverySet(deliverable); // Deliver normal and timedout messages
             return deliverable;
         }
     }
 
-    // ------------------- Version 1 of delivery conditions ------------------------------- //
-    private void processDeliverySetV1(List<Message> deliverable) {
-        MessageRecord record;
-        while (!deliverySet.isEmpty() && (record = deliverySet.first()).isDeliverable()) {
-            deliverySet.remove(record);
-            processMessageRecord(record, deliverable);
-        }
-    }
-
-    private List<MessageRecord> processTimeoutQueueV1() {
-        List<MessageRecord> validPlaceholders = new ArrayList<MessageRecord>();
-        MessageRecord lastTimeout = processTimeoutQueue();
-
-        // Set all messages with an expired deliveryTime to be deliverable and remove any blocking placeholders
-        if (lastTimeout != null)
-            validPlaceholders = updateOlderMessages(lastTimeout);
-
-        return validPlaceholders;
-    }
-
-    private List<MessageRecord> updateOlderMessages(MessageRecord timedOutRecord) {
-        List<MessageRecord> validPlaceholders = new ArrayList<MessageRecord>();
-        Iterator<MessageRecord> i = deliverySet.headSet(timedOutRecord).iterator();
-        while (i.hasNext()) {
-            MessageRecord record = i.next();
-
-            // If ph is > then the last received msg contained in this msg's vc then remove it and add it to valid phs
-            // Provision for phs that are greater than timedOutRecord - Reduces blocking
-            if (record.isPlaceholder() && placeholderIsIgnorable(timedOutRecord, record)) {
-                if (log.isDebugEnabled())
-                    log.debug("Future placeholder ignored during delivery | " + record.id);
-                i.remove();
-                validPlaceholders.add(record);
-            }
-        }
-        return validPlaceholders;
-    }
-
-    // *********************** VERSION 2 of delivery conditions ************************************** //
-
-    private void processTimeoutQueueV2() {
-        lastTimeout = processTimeoutQueue();
-    }
-
-    private void processDeliverySetV2(List<Message> deliverable) {
-        if (deliverySet.isEmpty() || (lastTimeout == null && !deliverySet.first().isDeliverable()))
-            return;
-
+    private void processDeliverySet(List<Message> deliverable) {
         MessageRecord record;
         Iterator<MessageRecord> i = deliverySet.iterator();
         while (i.hasNext()) {
             record = i.next();
-
             if (record.isDeliverable()) {
                 i.remove();
                 processMessageRecord(record, deliverable);
-
-                if (lastTimeout != null && lastTimeout.equals(record))
-                    lastTimeout = null;
-
                 continue;
-            }
-
-            if (record.isPlaceholder() && lastTimeout != null) {
-                // If ph is > then the last received msg contained in this msg's vc then ignore it this time
-                // Provision for handling phs that are greater than lastTimeout - Reduces blocking
-                if (placeholderIsIgnorable(lastTimeout, record)) {
-                    if (log.isDebugEnabled())
-                        log.debug("Future placeholder ignored during delivery | " + record.id);
-                    continue;
-                }
             }
             break;
         }
-    }
-
-    // -------------- Start of common methods ------------------------ //
-
-    private MessageRecord processTimeoutQueue() {
-        MessageRecord record;
-        MessageRecord lastTimeout = null;
-        while ((record = timedOutQueue.poll()) != null) {
-
-            record.timedOut = true;
-            lastTimeout = record;
-
-            if (!record.allAcksReceived()) {
-                if (log.isInfoEnabled())
-                    log.info("Msg timedOut, mark ready to deliver | record := " + record);
-                profiler.messageTimedOut();
-            }
-        }
-        return lastTimeout;
     }
 
     private void processMessageRecord(MessageRecord record, Collection<Message> deliverable) {
         MessageId id = record.id;
         messageRecords.remove(id);
         removeReceivedSeq(id);
-        timedOutQueue.remove(record);
 
         if (lastDelivered != null && id.getTimestamp() < lastDelivered.id.getTimestamp()) {
             if (log.isWarnEnabled())
@@ -328,62 +226,6 @@ public class DeliveryManager {
         profiler.addDeliveryLatency(delay); // Store delivery latency in milliseconds
     }
 
-    private boolean placeholderIsIgnorable(MessageRecord timedOutRecord, MessageRecord placeholder) {
-        MessageId id = timedOutRecord.id;
-        VectorClock vc = timedOutRecord.getHeader().getVectorClock();
-        Address phOrigin = placeholder.id.getOriginator();
-
-        try {
-            if (id.compareLocalOrder(placeholder.id) < 0)
-                return true; // return true if id seq < ph
-        } catch (IllegalArgumentException e) {
-        }
-
-        MessageId vcMsg = null;
-        try {
-            vcMsg = vc.getMessagesReceived().get(phOrigin);
-            if (vcMsg != null && vcMsg.compareLocalOrder(placeholder.id) <= 0)
-                return true; // return true if vc msg < ph
-        } catch (IllegalArgumentException e) {
-        }
-
-        // If timedout record created the placeholder, then it is safe to ignore the ph as the timedout record must come before the ph
-        return timedOutRecord.getHeader().getAcks().contains(placeholder.id);
-    }
-
-    private boolean nodeIsAlive(MessageRecord currentRecord, MessageRecord timedOutRecord) {
-        MessageId id = currentRecord.id;
-
-        // If cr is <= to timedOutRecord, then we know the origin is still alive (or that the missing msgs have been broadcast and are waiting to arrive)
-        if (id.getTimestamp() != -1 && id.compareTo(timedOutRecord.id) <= 0) // Handles normal ph and actual records
-            return true;
-
-        // If the currentRecord is a seq ph then we know that this msg is on it's way as a subsequent msg has been
-        // received by this node or another node (we know of Seq from the vectorClock) therefore the msg will eventually arrive
-        // as if the node has crashed during transmission, another node will complete the broadcast of at least one message copy
-        if (currentRecord.isPlaceholder() && id.getTimestamp() == -1)
-            return true;
-
-        // Check if a newer message from the current records origin is known in the vector clocks
-        for (Address address : receivedVectorClocks.keySet())
-            if (newerMsgExists(currentRecord, address))
-                return true;
-
-        return false; // no evidence that the currentRecords origin is still alive
-    }
-
-    private boolean newerMsgExists(MessageRecord record, Address host) {
-        Address origin = record.id.getOriginator();
-        VectorClock vc = receivedVectorClocks.get(host);
-        if (vc == null)
-            return false; // Node might be alive however we have yet to receive any msgs so we have to say no
-
-        // If an ack is missing from node x and the vc from x has not received a message > record.id
-        // Then the node is classed as being crashed
-        MessageId lastReceived = vc.getMessagesReceived().get(origin);
-        return lastReceived != null && lastReceived.compareTo(record.id) > 0;
-    }
-
     private void handleNewMessageRecord(MessageRecord record) {
         MessageRecord existingRecord = messageRecords.get(record.id);
         if (existingRecord == null) {
@@ -397,13 +239,11 @@ public class DeliveryManager {
                 deliverySet.remove(placeholderRecord);
             }
             addRecordToDeliverySet(record);
-            updateDeliveryTimes(record);
         } else {
             if (log.isTraceEnabled())
                 log.trace("Message added to existing record | " + existingRecord);
 
             existingRecord.addMessage(record);
-            updateDeliveryTimes(existingRecord);
         }
     }
 
@@ -412,10 +252,6 @@ public class DeliveryManager {
             log.fatal("Record := " + record.id + " | not added to delivery set | addRecordToDeliverySet");
         messageRecords.put(record.id, record);
         getReceivedSeqRecord(record.id.getOriginator()).add(record.id.getSequence());
-    }
-
-    private void updateDeliveryTimes(MessageRecord record) {
-        timedOutQueue.add(record);
     }
 
     private void processVectorClock(MessageRecord record) {
@@ -619,6 +455,20 @@ public class DeliveryManager {
             return id.getOriginator().equals(aramis.getLocalAddress());
         }
 
+        boolean isTimedOut() {
+            if (getDelay(TimeUnit.NANOSECONDS) > 0)
+                return false;
+
+            if (!timedOut) {
+                timedOut = true; // Ensures that the log output only occurs once!
+                profiler.messageTimedOut();
+
+                if (log.isInfoEnabled())
+                    log.info("Msg timedOut, mark ready to deliver | record := " + this.toStringDeliverable());
+            }
+            return true;
+        }
+
         boolean isDeliverable() {
             if (id.getTimestamp() > aramis.getClock().getTime())
                 return false;
@@ -636,7 +486,8 @@ public class DeliveryManager {
             if (previous != null && id.getSequence() != previous.getSequence() + 1)
                 return false;
 
-            return timedOut || allAcksReceived();
+            // Deliverable if all acks have been received or if this record has timedout.
+            return allAcksReceived() || isTimedOut();
         }
 
         boolean isDeliverablePrint() {
@@ -666,8 +517,8 @@ public class DeliveryManager {
                 return false;
             }
 
-            System.out.println("We've reached the end | timedOut := " + timedOut + " | allAcksReceived := " + allAcksReceived());
-            return timedOut || allAcksReceived();
+            System.out.println("We've reached the end | timedOut := " + timedOut + " | allAcksReceived := " + allAcksReceived() + " | delay <= 0 := " + (getDelay(TimeUnit.NANOSECONDS) <= 0));
+            return allAcksReceived() || getDelay(TimeUnit.NANOSECONDS) <= 0;
         }
 
         void initialiseMap(RMCastHeader header) {
@@ -722,6 +573,21 @@ public class DeliveryManager {
                     ", ackRecord=" + ackRecord +
                     ", isPlaceholder()=" + isPlaceholder() +
                     ", isDeliverable()=" + isDeliverable() +
+                    ", delay()=" + getDelay(TimeUnit.MILLISECONDS) + "ms" +
+                    ", actualDeliveryDelay()=" + getActualDeliveryDelay(TimeUnit.MILLISECONDS) + "ms" +
+                    ", calculatedDeliveryDelay()=" + getCalculatedDeliveryDelay(TimeUnit.MILLISECONDS) + "ms" +
+                    ", timedOut=" + timedOut +
+                    (deliveredMsgRecord.get(id.getOriginator()) == null ? "" : ", lastDeliveredThisNode=" + deliveredMsgRecord.get(id.getOriginator()).getSequence()) +
+                    (getHeader() == null ? "" : ", vectorClock=" + getHeader().getVectorClock()) + "}";
+        }
+
+        public String toStringDeliverable() {
+            return "\nMessageRecord{" +
+                    "id=" + id +
+                    ", deliveryTime=" + deliveryTime +
+                    ", ackRecord=" + ackRecord +
+                    ", isPlaceholder()=" + isPlaceholder() +
+                    ", isDeliverable()=" + isDeliverablePrint() +
                     ", delay()=" + getDelay(TimeUnit.MILLISECONDS) + "ms" +
                     ", actualDeliveryDelay()=" + getActualDeliveryDelay(TimeUnit.MILLISECONDS) + "ms" +
                     ", calculatedDeliveryDelay()=" + getCalculatedDeliveryDelay(TimeUnit.MILLISECONDS) + "ms" +

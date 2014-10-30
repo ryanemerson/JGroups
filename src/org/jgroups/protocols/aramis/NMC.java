@@ -8,6 +8,7 @@ import java.io.BufferedWriter;
 import java.io.FileWriter;
 import java.io.PrintWriter;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
@@ -131,7 +132,8 @@ public class NMC {
     }
 
     private void addXMax(int maxLatency) {
-        xMax = (int) Math.ceil(((1 - alpha) * xMax) + (alpha * maxLatency));
+        xMax = maxLatency; // Don't use a 'buffer' function
+//        xMax = (int) Math.ceil(((1 - alpha) * xMax) + (alpha * maxLatency));
         profiler.addLocalXmax(xMax); // Store local xMax
 
         nmcProfiler.localXMax.add(xMax);
@@ -152,7 +154,7 @@ public class NMC {
         int rplSize = recentPastLatencies.size();
         if (rplSize == recentPastSize) {
             int startIndex = rplSize - epochSize;
-            recentPastLatencies.subList(startIndex, rplSize - 1).clear(); // Remove outdated latencies
+            recentPastLatencies.subList(startIndex, rplSize).clear(); // Remove outdated latencies
         }
         recentPastLatencies.addAll(0, currentLatencies);
         currentLatencies.clear();
@@ -199,8 +201,9 @@ public class NMC {
                     dFlag = true;
                 }
 
-                if (tempLatencies[yy] > 0 && latency > maxLatency * qThreshold)
-                    exceedQThreshold++;
+//                if (tempLatencies[yy] > 0 && latency > maxLatency * qThreshold)
+                if (tempLatencies[yy] > 0 && latency * 1.05 > maxLatency)
+                    exceedQThreshold += tempLatencies[yy];
             }
         }
         addXMax(maxLatency);
@@ -214,6 +217,14 @@ public class NMC {
 
         // MessageCopies hard coded to 1 to reduce total message copies, true rho value still used for calculating delivery delays
         nmcData = new NMCData(eta, 1, omega, capD, capS, xMax, clock.getTime()); // Create a timestamped NMCData
+//        System.out.println(nmcData + " | rho := " + rho + " | q := " + q);
+
+//        if (rho > 10) {
+//            List<Integer> tempList = new ArrayList<Integer>(recentPastLatencies);
+//            Collections.sort(tempList);
+//            System.out.println("Q := " + q + " | rho := " + rho + " | exceedQThreshold := " + exceedQThreshold + " | numberOfLatencies := " + numberOfLatencies +
+//                    " | deliveryDelay := " + TimeUnit.NANOSECONDS.toMillis(calculateDeliveryTime(nmcData)) + " | " + tempList + "\n" + nmcData);
+//        }
 
         if (log.isDebugEnabled())
             log.debug("NMCData recorded | " + nmcData);
@@ -221,6 +232,15 @@ public class NMC {
         nmcProfiler.add(nmcData);
         nmcProfiler.addRho(rho);
         nmcProfiler.addQ(q);
+    }
+
+    // TODO remove
+    private long calculateDeliveryTime(NMCData data) {
+        long delay = data.getCapS() + data.getCapD();
+        long ackWait = (2 * data.getEta()) + data.getOmega();
+        delay = (2 * delay) + ackWait;
+
+        return TimeUnit.MILLISECONDS.toNanos(delay) + (2 * 1000000); // Convert to Nanos and add epislon
     }
 
     // Forces decimals to always round up, pessimistic!
@@ -242,7 +262,8 @@ public class NMC {
             rho++; // Ensures that rho is always > 0 as it will always be executed at least once.
             rhoProbability = Math.pow(1.0 - Math.pow(q, rho + 1), activeNodes - 1);
         }
-        return rho;
+//        return rho < 2 ? 2 : rho; // Rho artificially set to a minimum value of 2
+        return rho; // Uncomment to use calculated rho that can have the minimum rho value for reliable multicast (rho = 1)
     }
 
     private class ExceedsXrcResult {
