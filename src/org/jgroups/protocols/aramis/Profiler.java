@@ -25,7 +25,9 @@ public class Profiler {
         EMPTY_ACK_MESSAGES_RECEIVED,
         FIRST_COPY_NOT_0,
         COPY_GREATER_THAN_0_SENT,
-        MESSAGES_DISSEMINATED // Actually records the number of copies disseminated
+        MESSAGES_DISSEMINATED, // Actually records the number of copies disseminated
+        ACK_PLACEHOLDERS, // Number of placeholders created because of acks
+        SEQ_PLACEHOLDERS // Number of placeholders created based upon missing sequence numbers
     }
 
     private static enum ProbeLatency {
@@ -172,6 +174,20 @@ public class Profiler {
             return;
 
         counters.get(Counter.MESSAGES_DISSEMINATED).incrementAndGet();
+    }
+
+    public void ackPlaceholderCreated() {
+        if (!profileEnabled)
+            return;
+
+        counters.get(Counter.ACK_PLACEHOLDERS).incrementAndGet();
+    }
+
+    public void seqPlaceholderCreated() {
+        if (!profileEnabled)
+            return;
+
+        counters.get(Counter.SEQ_PLACEHOLDERS).incrementAndGet();
     }
 
     public void messageDelivered() {

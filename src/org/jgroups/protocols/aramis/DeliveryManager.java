@@ -28,7 +28,6 @@ public class DeliveryManager {
     private final Map<Address, MessageId> deliveredMsgRecord = Collections.synchronizedMap(new HashMap<Address, MessageId>());
     // Sequences that have been received but not yet delivered
     private final Map<Address, Set<Long>> receivedSeqRecord = new HashMap<Address, Set<Long>>();
-    private final Map<Address, VectorClock> receivedVectorClocks = new HashMap<Address, VectorClock>();
     private final Queue<Message> messageQueue = new ConcurrentLinkedQueue<Message>();
     private final Queue<MessageId> localMsgQueue = new ConcurrentLinkedQueue<MessageId>();
     private final Log log = LogFactory.getLog(Aramis.class);
@@ -120,7 +119,6 @@ public class DeliveryManager {
 
         calculateDeliveryTime(record);
         addRecordToDeliverySet(record);
-        storeVectorClock(record);
 
         if (log.isDebugEnabled())
             log.debug("Local Message added | " + record + (deliverySet.isEmpty() ? "" : " | deliverySet 1st := " + deliverySet.first()));
@@ -248,6 +246,7 @@ public class DeliveryManager {
     }
 
     private void addRecordToDeliverySet(MessageRecord record) {
+        record.insertionTime = aramis.getClock().getTime();
         if (!deliverySet.add(record))
             log.fatal("Record := " + record.id + " | not added to delivery set | addRecordToDeliverySet");
         messageRecords.put(record.id, record);
@@ -255,7 +254,6 @@ public class DeliveryManager {
     }
 
     private void processVectorClock(MessageRecord record) {
-        storeVectorClock(record);
         processVectorClock(record.getHeader().getVectorClock());
     }
 
@@ -265,17 +263,11 @@ public class DeliveryManager {
             // Necessary to check for missing sequences from the sending node.
             // Without this, seq placeholders wont be made in situations where there are only two sending nodes
             checkForMissingSequences(vc.getLastBroadcast());
+
+            // Check for missing sequences using last received values in the vector clock
+            for (MessageId lastReceived : vc.getMessagesReceived().values())
+                checkForMissingSequences(lastReceived);
         }
-    }
-
-    private void storeVectorClock(MessageRecord record) {
-        Address origin = record.id.getOriginator();
-        VectorClock existingVC = receivedVectorClocks.get(origin);
-        VectorClock vectorClock = record.getHeader().getVectorClock();
-
-        if (existingVC == null || existingVC.getLastBroadcast() == null ||
-                existingVC.getLastBroadcast().compareTo(vectorClock.getLastBroadcast()) < 0)
-            receivedVectorClocks.put(origin, vectorClock);
     }
 
     private void processAcks(MessageRecord record) {
@@ -323,6 +315,8 @@ public class DeliveryManager {
         if (log.isTraceEnabled())
             log.trace("Normal Placeholder created := " + placeholderRecord);
 
+        profiler.ackPlaceholderCreated();
+
         if (ack)
             placeholderRecord.addAck(ackSource);
     }
@@ -350,6 +344,8 @@ public class DeliveryManager {
 
                 if (log.isTraceEnabled())
                     log.trace("seqPlaceholder added to the delivery set | " + seqPlaceholder);
+
+                profiler.seqPlaceholderCreated();
             }
         }
     }
@@ -395,6 +391,8 @@ public class DeliveryManager {
         volatile long deliveryTime;
         volatile boolean timedOut;
         volatile Map<Address, Boolean> ackRecord;
+
+        volatile long insertionTime;
 
         MessageRecord(Address origin, long sequence) {
             this.id = new MessageId(-1, origin, sequence);
@@ -571,6 +569,7 @@ public class DeliveryManager {
                     "id=" + id +
                     ", deliveryTime=" + deliveryTime +
                     ", ackRecord=" + ackRecord +
+                    ", insertionTime=" + insertionTime +
                     ", isPlaceholder()=" + isPlaceholder() +
                     ", isDeliverable()=" + isDeliverable() +
                     ", delay()=" + getDelay(TimeUnit.MILLISECONDS) + "ms" +
@@ -586,6 +585,7 @@ public class DeliveryManager {
                     "id=" + id +
                     ", deliveryTime=" + deliveryTime +
                     ", ackRecord=" + ackRecord +
+                    ", insertionTime=" + insertionTime +
                     ", isPlaceholder()=" + isPlaceholder() +
                     ", isDeliverable()=" + isDeliverablePrint() +
                     ", delay()=" + getDelay(TimeUnit.MILLISECONDS) + "ms" +
