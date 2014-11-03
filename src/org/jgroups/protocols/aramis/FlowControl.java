@@ -1,7 +1,11 @@
 package org.jgroups.protocols.aramis;
 
 import org.jgroups.Message;
+import org.jgroups.logging.Log;
+import org.jgroups.logging.LogFactory;
+import org.jgroups.util.Util;
 
+import java.io.IOException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
@@ -21,6 +25,7 @@ public class FlowControl {
     private final ReentrantLock lock = new ReentrantLock(false);
     private final Condition condition = lock.newCondition();
     private final AtomicInteger bucketId = new AtomicInteger();
+    private final Log log = LogFactory.getLog(Aramis.class);
     private final NMC nmc;
     private final Aramis aramis;
 
@@ -57,7 +62,8 @@ public class FlowControl {
                     bucket.send();
                     bucket.clear();
                 } catch (InterruptedException e) {
-                    System.out.println("Delay Exception: " + e);
+                    if (log.isDebugEnabled())
+                        log.debug("Delay Exception: " + e);
                 }
             }
         } finally {
@@ -83,8 +89,18 @@ public class FlowControl {
             messages[messageIndex++] = message;
 
             if (isFull()) {
-                calculateBroadcastRate();
-                calculateBroadcastTime();
+                boolean messageSent = false;
+                while (!messageSent) {
+                    try {
+                        calculateBroadcastRate();
+                        calculateBroadcastTime();
+                        messageSent = true;
+                    } catch (IOException e) {
+                        if (log.isInfoEnabled())
+                            log.info("Exception thrown: " + e + "\n retry message in 1 ms");
+                        Util.sleep(1);
+                    }
+                }
 
                 buckets.cycle();
                 return true;
@@ -103,7 +119,7 @@ public class FlowControl {
                 flowData.broadcastRate = 0.0;
         }
 
-        void calculateBroadcastTime() {
+        void calculateBroadcastTime() throws IOException {
             boolean newDelta = calculateDelta();
             double bucketDelay = newDelta ? flowData.delta * BUCKET_SIZE : flowData.bucketDelay;
 
@@ -129,8 +145,11 @@ public class FlowControl {
         }
 
         // returns true if a new delta value is calculated, false if the old value is still relevant
-        boolean calculateDelta() {
+        boolean calculateDelta() throws IOException {
             NMCData newNMCData = nmc.getData();
+            if (newNMCData == null)
+                throw new IOException("NMCData returned by nmc.getData() is null.  Initial probe period not complete");
+
             if (newNMCData.equals(nmcData)) {
                 try {
                     // If the exponential result is different to the previous then it means that the number of latencies
