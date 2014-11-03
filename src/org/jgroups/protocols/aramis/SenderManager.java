@@ -80,12 +80,18 @@ public class SenderManager {
                 MessageId oldId = vectorClock.getMessagesReceived().get(destination);
                 boolean oldTime = receivedId.getTimestamp() <= id.getTimestamp();
 
-                if (oldTime && (oldId == null || receivedId.getTimestamp() > oldId.getTimestamp()))
-                    vectorClock.getMessagesReceived().put(destination, receivedId);
-                else if (oldTime)
-                    oldIds.add(receivedId); // Not the most recent id before this ids timestamp so remove
-                else
-                    break; // Time of message is after this id.timestamp so exit the loop
+
+                // Only compare received messages from the current destination
+                // Vector clock is meant to show the latest message received from each remote destination
+                // As well as the previous message to be broadcast by this node.
+                if (receivedId.getOriginator().equals(destination)) {
+                    if (oldTime && (oldId == null || receivedId.getTimestamp() > oldId.getTimestamp()))
+                        vectorClock.getMessagesReceived().put(destination, receivedId);
+                    else if (oldTime)
+                        oldIds.add(receivedId); // Not the most recent id before this ids timestamp so remove
+                    else
+                        break; // Time of message is after this id.timestamp so exit the loop
+                }
             }
         }
         // Remove all of the ids from the set that are older then the current messages timestamp
