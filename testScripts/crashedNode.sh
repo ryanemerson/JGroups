@@ -16,7 +16,7 @@ for ((i = 0; i < ${#arr[@]}; i++));do
        let "numberOfMessages+=1"
    fi
 
-   command="java $jvmArgs -Djava.net.preferIPv4Stack=true -agentpath:/home/pg/p11/a7109534/yjp-2013-build-13072/bin/linux-x86-64/libyjpagent.so=monitors -jar workspace/mperf.jar -config $config -nr-messages $numberOfMessages -t-messages $totalMessages -initiator $initiator -msgs-crash $msgsBeforeCrash"
+   command="java $jvmArgs -Djava.net.preferIPv4Stack=true -agentpath:/home/pg/p11/a7109534/yjp-2013-build-13072/bin/linux-x86-64/libyjpagent.so=monitors -jar workspace/mperf.jar -config $config -nr-messages $numberOfMessages -t-messages $totalMessages -initiator $initiator -msgs-crash $msgsBeforeCrash -nodes ${#arr[@]}"
    
    if [ $i -eq $lastNode ]; then
 	   command="$command -crash"

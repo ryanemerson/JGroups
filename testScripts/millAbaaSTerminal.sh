@@ -14,7 +14,7 @@ props2="abaas_hybrid_box.xml"
 #props1="abaas_TOA.xml"
 #props2="abaas_TOA_Box.xml"
 command1="java $profiler -Djava.net.preferIPv4Stack=true -jar workspace/mperf.jar -props $props1 -boxes"
-command2="java $profiler -Djava.net.preferIPv4Stack=true -jar workspace/jgroups.jar -props $props2 -channel $channelName"
+command2="java $profiler -Djava.net.preferIPv4Stack=true -jar workspace/jgroups.jar -props $props2 -channel $channelName -nodes ${#boxes[@]}"
 control=" -control true"
 output="| tee $outDir'results.out'"
 

@@ -36,7 +36,9 @@ public class CrashedNodeInfiniteClients extends ReceiverAdapter {
         int numberOfMessages = 100000; // #Msgs to be executed by this node
         int totalMessages = 1000000; // #Msgs to be sent by the whole cluster
         int msgsBeforeCrash = 50000; // #Msgs to be sent before crash
+        int minimumNumberOfNodes = -1;
         boolean crashingNode = false; // Is this the node that will crash
+
         for (int i = 0; i < args.length; i++) {
             if("-config".equals(args[i])) {
                 propsFile = args[++i];
@@ -62,7 +64,16 @@ public class CrashedNodeInfiniteClients extends ReceiverAdapter {
                 crashingNode = true;
                 continue;
             }
+            if("-nodes".equals(args[i])) {
+                minimumNumberOfNodes = Integer.parseInt(args[++i]);
+                continue;
+            }
         }
+
+        // Hack to ensure that the Aramis protocol does not start until at least minimumNumberOfNodes have joined the current view
+        if (minimumNumberOfNodes > 0)
+            Aramis.minimumNodes = minimumNumberOfNodes;
+
         new CrashedNodeInfiniteClients(propsFile, numberOfMessages, totalMessages, msgsBeforeCrash, initiator, crashingNode).run();
     }
 

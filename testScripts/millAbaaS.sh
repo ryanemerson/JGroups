@@ -9,7 +9,7 @@ anycastRequests="true"
 props1="abaas_TOA_TCP.xml"
 props2="abaas_TOA_Box_TCP.xml"
 command1="java -Djava.net.preferIPv4Stack=true -jar workspace/mperf.jar -props $props1 -anycastRequests $anycastRequests -boxes"
-command2="java -Djava.net.preferIPv4Stack=true -jar workspace/jgroups.jar -props $props2"
+command2="java -Djava.net.preferIPv4Stack=true -jar workspace/jgroups.jar -props $props2 -nodes ${#boxes[@]}"
 control=" -control true"
 
 if [[ $# < 1 ]]; then

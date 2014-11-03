@@ -16,7 +16,7 @@ for ((i = 0; i < ${#arr[@]}; i++));do
    if [ $i -eq $lastNode ] && [ $(($totalMessages%${#arr[@]})) -ne 0 ]; then
        let "numberOfMessages+=1"
    fi
-   command="java $jvmArgs -Djava.net.preferIPv4Stack=true -agentpath:/home/pg/p11/a7109534/yjp-2013-build-13072/bin/linux-x86-64/libyjpagent.so=monitors -jar workspace/mperf.jar -config $config -nr-messages $numberOfMessages -t-messages $totalMessages -initiator $initiator"
+   command="java $jvmArgs -Djava.net.preferIPv4Stack=true -agentpath:/home/pg/p11/a7109534/yjp-2013-build-13072/bin/linux-x86-64/libyjpagent.so=monitors -jar workspace/mperf.jar -config $config -nr-messages $numberOfMessages -t-messages $totalMessages -initiator $initiator -nodes ${#arr[@]}"
    output=" 2>&1 | tee $outDir${arr[$i]}.txt"
    gnome-terminal --geometry=${geometry[$i]} --title "${arr[$i]}" -x bash -c "ssh -t -o ConnectTimeout=1  a7109534@${arr[$i]}.ncl.ac.uk '$createDir; $command$output; bash'" > output.txt 2>&1
    sleep 0.5;

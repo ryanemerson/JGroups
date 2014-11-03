@@ -32,6 +32,7 @@ public class InfiniteClients extends ReceiverAdapter {
         String initiator = "";
         int numberOfMessages = 100000; // #Msgs to be executed by this node
         int totalMessages = 1000000; // #Msgs to be sent by the whole cluster
+        int minimumNumberOfNodes = -1;
         for (int i = 0; i < args.length; i++) {
             if("-config".equals(args[i])) {
                 propsFile = args[++i];
@@ -49,7 +50,16 @@ public class InfiniteClients extends ReceiverAdapter {
                 initiator = args[++i];
                 continue;
             }
+            if("-nodes".equals(args[i])) {
+                minimumNumberOfNodes = Integer.parseInt(args[++i]);
+                continue;
+            }
         }
+
+        // Hack to ensure that the Aramis protocol does not start until at least minimumNumberOfNodes have joined the current view
+        if (minimumNumberOfNodes > 0)
+            Aramis.minimumNodes = minimumNumberOfNodes;
+
         new InfiniteClients(propsFile, numberOfMessages, totalMessages, initiator).run();
     }
 

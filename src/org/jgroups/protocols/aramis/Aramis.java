@@ -20,6 +20,9 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 final public class Aramis extends Protocol {
 
+    @Property(name = "minimum_nodes", description = "The minimum number of nodes allowed in a cluster")
+    public static int minimumNodes = 2; // Static hack to allow experiments to dynamically change the value.
+
     @Property(name = "rho_optimisation", description = "Should rho > 0 be sent if a message has already been delivered")
     private boolean rhoOptimisationEnabled = false;
 
@@ -30,9 +33,6 @@ final public class Aramis extends Protocol {
     @Property(name = "initial_probe_count", description = "The number of probes that should be sent by this node" +
             " before message sending can occur")
     private int initialProbeCount = 1000; // Time between each probe during initial probe period
-
-    @Property(name = "minimum_nodes", description = "The minimum number of nodes allowed in a cluster")
-    private int minimumNodes = 2;
 
     @Property(name = "max_acks_per_message", description = "The maximum number of messages that can be acked in one message")
     private int numberOfAcks = 10;
