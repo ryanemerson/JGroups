@@ -59,6 +59,7 @@ public class DeliveryManager {
                                 " In deliverySet := " + r);
                         i++;
                     }
+                    System.out.println("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@");
                 }
             }
         }));
@@ -202,6 +203,7 @@ public class DeliveryManager {
             if (log.isWarnEnabled())
                 log.warn("Msg rejected as a msg with a newer timestamp has already been delivered | rejected msg := " +
                         id + " | lastDelivered := " + lastDelivered.id + " | record " + record);
+//                        + " | nextInSet := " + getNextRecordFromOrigin(record) + "\n ****** " + vectorCheckOutput(record.getHeader()));
             aramis.collectGarbage(id);
             profiler.messageRejected();
 
@@ -266,7 +268,8 @@ public class DeliveryManager {
 
             // Check for missing sequences using last received values in the vector clock
             for (MessageId lastReceived : vc.getMessagesReceived().values())
-                checkForMissingSequences(lastReceived);
+                if (!lastReceived.getOriginator().equals(aramis.getLocalAddress())) // Ignore local messages as they are handled by the local queue
+                    checkForMissingSequences(lastReceived);
         }
     }
 
@@ -321,22 +324,20 @@ public class DeliveryManager {
             placeholderRecord.addAck(ackSource);
     }
 
-    private void checkForMissingSequences(MessageId lastBroadcast) {
-        Address origin = lastBroadcast.getOriginator();
-        long sequence = lastBroadcast.getSequence();
-        long lastDeliveredSeq = -1;
+    private void checkForMissingSequences(MessageId knownMessage) {
+        Address origin = knownMessage.getOriginator();
+        long sequence = knownMessage.getSequence();
         MessageId lastDelivered = deliveredMsgRecord.get(origin);
-        if (lastDelivered != null)
-            lastDeliveredSeq = lastDelivered.getSequence();
 
+        if (lastDelivered == null)
+            return;
+
+        long lastDeliveredSeq = lastDelivered.getSequence();
         if (sequence <= lastDeliveredSeq)
             return;
 
         Set<Long> receivedSet = getReceivedSeqRecord(origin);
-        for (long missingSeq = sequence; missingSeq > lastDeliveredSeq; missingSeq--) {
-            // Stops the last broadcast from being added again (last broadcast is always processed first in vc)
-            if (missingSeq == sequence)
-                continue;
+        for (long missingSeq = sequence - 1; missingSeq > lastDeliveredSeq; missingSeq--) {
 
             if (!receivedSet.contains(missingSeq)) {
                 MessageRecord seqPlaceholder = new MessageRecord(origin, missingSeq);
@@ -380,10 +381,49 @@ public class DeliveryManager {
 
         delay = TimeUnit.MILLISECONDS.toNanos(delay) + (2 * aramis.getClock().getMaximumError()); // Convert to Nanos and add epislon
         record.deliveryTime = header.getId().getTimestamp() + delay;
-
-        if (lastDelivered != null && record.deliveryTime < lastDelivered.deliveryTime)
-            record.deliveryTime = lastDelivered.deliveryTime + 1;
     }
+
+    private long getCalculatedDeliveryDelay(MessageRecord record) {
+        RMCastHeader header = record.getHeader();
+        NMCData data = header.getNmcData();
+
+        long delay = header.getDestinations().size() > 2 ? data.getCapS() + data.getCapD() : data.getCapD();
+        // Takes into consideration the broadcast time of an ack and the max possible delay before an ack is piggybacked or explicitly broadcast
+        long ackWait = (2 * data.getEta()) + data.getOmega(); // Must be the same as the ackWait used in Aramis.class
+        delay = (2 * delay) + ackWait;
+
+        return TimeUnit.MILLISECONDS.toNanos(delay) + (2 * aramis.getClock().getMaximumError()); // Convert to Nanos and add epislon
+    }
+  /*
+    Debug methods
+    private String vectorCheckOutput(RMCastHeader header) {
+        VectorClock vc = header.getVectorClock();
+        String s = "";
+        for (MessageId id : vc.getMessagesReceived().values())
+            s += id + " | --- inQueue:= " + doesQueueContainTimedOutRecord(id);
+        return s;
+    }
+
+    private boolean doesQueueContainTimedOutRecord(MessageId id) {
+        synchronized (messageQueue) {
+            List<MessageId> ids = new ArrayList<MessageId>();
+            for (Message m : messageQueue)
+                ids.add(((RMCastHeader) m.getHeader(ClassConfigurator.getProtocolId(Aramis.class))).getId());
+
+            return ids.contains(id);
+        }
+    }
+
+    private MessageRecord getNextRecordFromOrigin(MessageRecord record) {
+        Iterator<MessageRecord> i = deliverySet.tailSet(record, false).iterator();
+        while (i.hasNext()) {
+            MessageRecord r = i.next();
+            if (r.id.getOriginator().equals(record.id.getOriginator()))
+                return r;
+        }
+        return null;
+    }
+    */
 
     final class MessageRecord implements Delayed {
         final MessageId id;
@@ -461,13 +501,23 @@ public class DeliveryManager {
                 timedOut = true; // Ensures that the log output only occurs once!
                 profiler.messageTimedOut();
 
-                if (log.isInfoEnabled())
-                    log.info("Msg timedOut, mark ready to deliver | record := " + this.toStringDeliverable());
+                if (log.isInfoEnabled()) {
+                    MessageRecord nextRecord = deliverySet.higher(this);
+                    MessageId nextId = nextRecord == null ? null : nextRecord.id;
+                    log.info("Msg timedOut, mark ready to deliver | record := " + this.toStringDeliverable() +
+                            " | \n" + getHeader().getNmcData() + " | delay := " + DeliveryManager.this.getCalculatedDeliveryDelay(this));
+//                            + " | next := " + nextId + " | ^^^^^^^^^^^^^ \n" + vectorCheckOutput(this.getHeader()));
+                }
             }
             return true;
         }
 
         boolean isDeliverable() {
+            // Necessary to ensure that no remote messages are missed when a local message timesout!
+            // i.e. A remote message exists in the local message's vc but not in the deliverySet
+            if (!messageQueue.isEmpty())
+                return false;
+
             if (id.getTimestamp() > aramis.getClock().getTime())
                 return false;
 
@@ -489,6 +539,10 @@ public class DeliveryManager {
         }
 
         boolean isDeliverablePrint() {
+            if (!messageQueue.isEmpty()) {
+                System.out.println("MessageQueue is not empty! Can't deliver message");
+                return false;
+            }
 
             if (id.getTimestamp() > aramis.getClock().getTime()) {
                 long t = aramis.getClock().getTime();
@@ -580,6 +634,7 @@ public class DeliveryManager {
                     (getHeader() == null ? "" : ", vectorClock=" + getHeader().getVectorClock()) + "}";
         }
 
+        // Method for debugging!
         public String toStringDeliverable() {
             return "\nMessageRecord{" +
                     "id=" + id +
