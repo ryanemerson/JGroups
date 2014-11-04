@@ -41,6 +41,7 @@ final public class Aramis extends Protocol {
     private final Map<MessageId, Message> receivedMessages = new ConcurrentHashMap<MessageId, Message>();
     private final Map<MessageId, Future> responsiveTasks = new ConcurrentHashMap<MessageId, Future>();
 
+    private Random random = new Random();
     private PCSynch clock = null;
     private NMC nmc = null;
     private DeliveryManager deliveryManager = null;
@@ -382,8 +383,10 @@ final public class Aramis extends Protocol {
         final NMCData data = header.getNmcData(); // Use included NMC data to ensure that the values relate to this message
         record.largestCopyReceived = header.getCopy();
         record.broadcastLeader = header.getDisseminator();
-        // Set Timeout 2 for n + w
-        final int timeout = data.getEta() + data.getOmega();
+
+        // Set Timeout 2 for n + w + random
+        final int randomWait = random.nextInt(data.getEta() + 1);
+        final int timeout = data.getEta() + data.getOmega() + randomWait;
         // If there is already a responsiveness timeout in progress (Executing), do nothing
         // Otherwise cancel the timeout and start a new one
         Future oldTask = responsiveTasks.get(record.id);
@@ -391,36 +394,20 @@ final public class Aramis extends Protocol {
             // Final check before creating the task ensuring another thread hasn't completed the broadcast of this message
             if (record.largestCopyReceived >= header.getCopyTotal())
                 return;
-            Runnable r = new Runnable() {
+            // Store this task so that it can be used by the above if statement when the method is called again
+            createResponsiveTask(header, new Runnable() {
                 @Override
                 public void run() {
                     if (record.largestCopyReceived < header.getCopyTotal()) {
-                        record.broadcastLeader = null;
-                        Random r = new Random();
-                        int eta = data.getEta();
-                        final int ran = r.nextInt(eta < 1 ? eta + 1 : eta) + 1; // +1 makes 0 exclusive and eta inclusive
+                        if (log.isTraceEnabled())
+                            log.trace("Responsiveness timeout expired ( " + (timeout + randomWait) + "ms) ... " +
+                                    "Starting to disseminate message | " + record.id);
 
-                        Runnable newTask = new Runnable() {
-                            public void run() {
-                                // Check to see if we still need to start disseminating
-                                if (record.largestCopyReceived < header.getCopyTotal()) {
-                                    if (log.isTraceEnabled())
-                                        log.trace("Responsiveness timeout expired ( " + (timeout + ran) + "ms) ... " +
-                                                "Starting to disseminate message | " + record.id);
-
-                                    record.broadcastLeader = localAddress;
-                                    timer.execute(new MessageDisseminator(record, header, data.getEta()));
-                                }
-                            }
-                        };
-                        // Set the responsivenes task to be this newTask.
-                        // Allows this newTask to be cancelled if this method is called by a subsequent message copy
-                        createResponsiveTask(header, newTask, ran);
+                        record.broadcastLeader = localAddress;
+                        timer.execute(new MessageDisseminator(record, header, data.getEta()));
                     }
                 }
-            };
-            // Store this task so that it can be used by the above if statement when the method is called again
-            createResponsiveTask(header, r, timeout);
+            }, timeout);
         }
     }
 
