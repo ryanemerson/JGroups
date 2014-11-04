@@ -377,9 +377,6 @@ final public class Aramis extends Protocol {
     }
 
     private void responsivenessTimeout(final MessageRecord record, final RMCastHeader header) {
-        if (deliveryManager.hasMessageExpired(header))
-            return;
-
         final NMCData data = header.getNmcData(); // Use included NMC data to ensure that the values relate to this message
         record.largestCopyReceived = header.getCopy();
         record.broadcastLeader = header.getDisseminator();
@@ -412,9 +409,6 @@ final public class Aramis extends Protocol {
     }
 
     private void createResponsiveTask(RMCastHeader header, Runnable r, int timeout) {
-        if (deliveryManager.hasMessageExpired(header))
-            return;
-
         Future task = timer.schedule(r, timeout, TimeUnit.MILLISECONDS);
         responsiveTasks.put(header.getId(), task);
     }
