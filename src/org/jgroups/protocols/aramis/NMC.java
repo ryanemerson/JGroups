@@ -258,7 +258,7 @@ public class NMC {
     private int calculateRho(double q) {
         int rho = 0;
         double rhoProbability = 0.0;
-        while (rhoProbability < reliabilityProb && rhoProbability <= 1.0) {
+        while (q != 1 && rhoProbability < reliabilityProb && rhoProbability <= 1.0) {
             rho++; // Ensures that rho is always > 0 as it will always be executed at least once.
             rhoProbability = Math.pow(1.0 - Math.pow(q, rho + 1), activeNodes - 1);
         }
