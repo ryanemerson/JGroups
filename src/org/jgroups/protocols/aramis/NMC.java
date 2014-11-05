@@ -19,17 +19,17 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 public class NMC {
 
-    private double reliabilityProb = 0.9999;
-    private int epochSize = 100; // The number of latencies received before NMC values are calculated
-    private int recentPastSize = 1000; // The number of latencies that defines the recent past
-    private double qThreshold = .95; // The threshold for calculating Q
-    private double etaProbability = 0.99;
-    private double alpha = 0.9; // The value alpha that is used to update xMax
-    private int xrcSampleSize = 10; // The minimum number of values we use to calculate R
+    private final double ETA_PROBABILITY = 0.99;
+    private final double RELIABILITY_PROBABILITY = 0.9999;
+    private final double MAX_Q_VALUE = 0.05;
+    private final double Q_MULTIPLIER = 1 + MAX_Q_VALUE; // The threshold for calculating Q
+    private final int XRC_SAMPLE_SIZE = 10; // The minimum number of values we use to calculate R
+    private final int RECENT_PAST_SIZE = 1000; // The number of latencies that defines the recent past
+    private final int EPOCH_SIZE = 100; // The number of latencies received before NMC values are calculated
 
     private final PCSynch clock;
     private final Profiler profiler;
-    private final List<Integer> currentLatencies = new ArrayList<Integer>(epochSize);
+    private final List<Integer> currentLatencies = new ArrayList<Integer>(EPOCH_SIZE);
     private final List<Integer> recentPastLatencies = Collections.synchronizedList(new ArrayList<Integer>());
     private final ReentrantLock lock = new ReentrantLock(false);
     private NMCData nmcData;
@@ -71,7 +71,7 @@ public class NMC {
 
     public boolean initialProbesReceived() {
         int rplSize = recentPastLatencies.size();
-        return rplSize > 0 && rplSize % epochSize == 0;
+        return rplSize > 0 && rplSize % EPOCH_SIZE == 0;
     }
 
     public void receiveProbe(RMCastHeader header) {
@@ -104,7 +104,7 @@ public class NMC {
         for (Integer i : exceeds.latencies)
             total += i - xMax;
 
-        double divisor = Math.max(xrcSampleSize, exceeds.latencies.size());
+        double divisor = Math.max(XRC_SAMPLE_SIZE, exceeds.latencies.size());
         double marginalPeakAverage = total / divisor;
 
         return (xMax + marginalPeakAverage) / xMax;
@@ -133,17 +133,15 @@ public class NMC {
 
     private void addXMax(int maxLatency) {
         xMax = maxLatency; // Don't use a 'buffer' function
-//        xMax = (int) Math.ceil(((1 - alpha) * xMax) + (alpha * maxLatency));
         profiler.addLocalXmax(xMax); // Store local xMax
-
         nmcProfiler.localXMax.add(xMax);
     }
 
     private void addLatency(int latency) {
-        if (currentLatencies.size() < epochSize)
+        if (currentLatencies.size() < EPOCH_SIZE)
             currentLatencies.add(latency);
 
-        if (currentLatencies.size() % epochSize == 0) {
+        if (currentLatencies.size() % EPOCH_SIZE == 0) {
             addCurrentLatenciesToRecentPast();
             calculateNMCValues();
         }
@@ -152,8 +150,8 @@ public class NMC {
 
     private void addCurrentLatenciesToRecentPast() {
         int rplSize = recentPastLatencies.size();
-        if (rplSize == recentPastSize) {
-            int startIndex = rplSize - epochSize;
+        if (rplSize == RECENT_PAST_SIZE) {
+            int startIndex = rplSize - EPOCH_SIZE;
             recentPastLatencies.subList(startIndex, rplSize).clear(); // Remove outdated latencies
         }
         recentPastLatencies.addAll(0, currentLatencies);
@@ -201,30 +199,21 @@ public class NMC {
                     dFlag = true;
                 }
 
-//                if (tempLatencies[yy] > 0 && latency > maxLatency * qThreshold)
-                if (tempLatencies[yy] > 0 && latency * 1.05 > maxLatency)
+                if (tempLatencies[yy] > 0 && latency * Q_MULTIPLIER > maxLatency)
                     exceedQThreshold += tempLatencies[yy];
             }
         }
         addXMax(maxLatency);
 
-        double q = exceedQThreshold / (double) numberOfLatencies;
+        double q = calculateQ(exceedQThreshold, numberOfLatencies);
         int rho = calculateRho(q);
-        int eta = (int) Math.ceil(-1 * d * Math.log(1 - etaProbability)); // Calculate 1 - e - Np / d = 0.99
+        int eta = (int) Math.ceil(-1 * d * Math.log(1 - ETA_PROBABILITY)); // Calculate 1 - e - Np / d = 0.99
         int omega = eta - d;
         int capD = xMax + (rho * eta);
         int capS = xMax + (2 * eta) + omega; // 2 * eta includes the max possible random wait used by a disseminating node
 
         // MessageCopies hard coded to 1 to reduce total message copies, true rho value still used for calculating delivery delays
         nmcData = new NMCData(eta, 1, omega, capD, capS, xMax, clock.getTime()); // Create a timestamped NMCData
-//        System.out.println(nmcData + " | rho := " + rho + " | q := " + q);
-
-//        if (rho > 10) {
-//            List<Integer> tempList = new ArrayList<Integer>(recentPastLatencies);
-//            Collections.sort(tempList);
-//            System.out.println("Q := " + q + " | rho := " + rho + " | exceedQThreshold := " + exceedQThreshold + " | numberOfLatencies := " + numberOfLatencies +
-//                    " | deliveryDelay := " + TimeUnit.NANOSECONDS.toMillis(calculateDeliveryTime(nmcData)) + " | " + tempList + "\n" + nmcData);
-//        }
 
         if (log.isDebugEnabled())
             log.debug("NMCData recorded | " + nmcData);
@@ -255,10 +244,24 @@ public class NMC {
         return (int) Math.ceil(value / 1000000d);
     }
 
+    private double calculateQ(int exceedMaxLatency, int numberOfLatencies) {
+        double q = exceedMaxLatency / (double) numberOfLatencies;
+
+        if (q > MAX_Q_VALUE) {
+            double powerOfValue = ((1.0 / activeNodes) - 1.0);
+            q = 1 - Math.pow(RELIABILITY_PROBABILITY, powerOfValue);
+        }
+        return q;
+    }
+
     private int calculateRho(double q) {
+        if (q == 1)
+            throw new IllegalArgumentException("CalculateRho(double q), q cannot be equal to 1 as it results in an infinite loop!" +
+            "Check yo self before you wreck yo self!");
+
         int rho = 0;
         double rhoProbability = 0.0;
-        while (q != 1 && rhoProbability < reliabilityProb && rhoProbability <= 1.0) {
+        while (rhoProbability < RELIABILITY_PROBABILITY && rhoProbability <= 1.0) {
             rho++; // Ensures that rho is always > 0 as it will always be executed at least once.
             rhoProbability = Math.pow(1.0 - Math.pow(q, rho + 1), activeNodes - 1);
         }
