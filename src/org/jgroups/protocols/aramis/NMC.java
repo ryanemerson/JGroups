@@ -159,49 +159,23 @@ public class NMC {
     }
 
     private void calculateNMCValues() {
-        if (log.isTraceEnabled())
-            log.trace("Calculate NMC values");
+        List<Integer> latencies = new ArrayList<Integer>(recentPastLatencies);
+        Collections.sort(latencies);
 
-        int maxLatency = 0; // Largest latency encountered
-        int numberOfLatencies = recentPastLatencies.size();
-        Map<Integer, int[]> latencyMap = new HashMap<Integer, int[]>();
-        for (int latency : recentPastLatencies) {
-            maxLatency = latency > maxLatency ? latency : maxLatency;
-
-            int latencyKey = (int) Math.floor(latency / 100) * 100;
-            int latencyValue = latency % 100; // Get last two digits of latency
-            if (latencyMap.containsKey(latencyKey)) {
-                latencyMap.get(latencyKey)[latencyValue]++;
-            } else {
-                int[] array = new int[100];
-                array[latencyValue]++;
-                latencyMap.put(latencyKey, array);
-            }
-        }
-        int d = 0;
-        int processedLatencies = 0; // Number of latencies that have been processed thus far
+        int numberOfLatencies = latencies.size();
+        int maxLatency = latencies.get(numberOfLatencies - 1); // Ordered ascending, so last index is the largest latency
+        int d = -1;
         int exceedQThreshold = 0;
-        boolean dFlag = false;
+        int count = 1;
 
-        List<Integer> keys = new ArrayList<Integer>(latencyMap.keySet());
-        Collections.sort(keys); // Ensure that keys are iterated in ascending order
-        CLOOP:
-        for (Integer key : keys) {
-            int[] tempLatencies = latencyMap.get(key);
-            for (int yy = 0; yy < tempLatencies.length; yy++) {
-                int latency = key + yy;
-                if (latency > maxLatency)
-                    break CLOOP;
+        for (int i : latencies) {
+            if (count >= numberOfLatencies * 0.693 && d < 0)
+                d = i;
 
-                processedLatencies += tempLatencies[yy];
-                if (processedLatencies >= numberOfLatencies * 0.693 && !dFlag) {
-                    d = latency;
-                    dFlag = true;
-                }
+            if (i * Q_MULTIPLIER > maxLatency)
+                exceedQThreshold++;
 
-                if (tempLatencies[yy] > 0 && latency * Q_MULTIPLIER > maxLatency)
-                    exceedQThreshold += tempLatencies[yy];
-            }
+            count++;
         }
         addXMax(maxLatency);
 
@@ -212,7 +186,6 @@ public class NMC {
         int capD = xMax + (rho * eta);
         int capS = xMax + (2 * eta) + omega; // 2 * eta includes the max possible random wait used by a disseminating node
 
-        // MessageCopies hard coded to 1 to reduce total message copies, true rho value still used for calculating delivery delays
         nmcData = new NMCData(eta, 1, omega, capD, capS, xMax, clock.getTime()); // Create a timestamped NMCData
 
         if (log.isDebugEnabled())
