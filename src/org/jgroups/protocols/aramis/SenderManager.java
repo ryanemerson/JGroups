@@ -1,7 +1,6 @@
 package org.jgroups.protocols.aramis;
 
 import org.jgroups.Address;
-import org.jgroups.Message;
 import org.jgroups.util.Util;
 
 import java.util.*;
@@ -50,15 +49,12 @@ public class SenderManager {
         }
     }
 
-    public RMCastHeader newMessageBroadcast(Message message, short headerId, Address localAddress, NMCData data, Collection<Address> destinations, Queue<Message> localMsgQueue) {
+    public RMCastHeader newMessageBroadcast(Address localAddress, NMCData data, Collection<Address> destinations, Queue<MessageId> localMsgQueue) {
         synchronized (receivedMessages) {
             MessageId messageId = new MessageId(clock.getTime(), localAddress, sequence.getAndIncrement());
-            RMCastHeader header =  RMCastHeader.createBroadcastHeader(messageId, localAddress, 0, data, destinations,
+            localMsgQueue.add(messageId);
+            return RMCastHeader.createBroadcastHeader(messageId, localAddress, 0, data, destinations,
                     getLatestVectorClock(messageId, destinations), getIdsToAck());
-            message.putHeader(headerId, header);
-            message.src(localAddress);
-            localMsgQueue.add(message);
-            return header;
         }
     }
 

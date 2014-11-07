@@ -29,6 +29,7 @@ public class DeliveryManager {
     // Sequences that have been received but not yet delivered
     private final Map<Address, Set<Long>> receivedSeqRecord = new HashMap<Address, Set<Long>>();
     private final Queue<Message> messageQueue = new ConcurrentLinkedQueue<Message>();
+    private final Queue<MessageId> localMsgQueue = new ConcurrentLinkedQueue<MessageId>();
     private final Log log = LogFactory.getLog(Aramis.class);
     private final Aramis aramis;
     private final Profiler profiler;
@@ -50,6 +51,12 @@ public class DeliveryManager {
                         MessageRecord record = it.next();
                         System.out.println(record);
                         System.out.println(record.isDeliverablePrint());
+                        MessageId temp = localMsgQueue.poll();
+                        MessageRecord r = checkDeliverySet(temp);
+                        System.out.println("LOCAL QUEUE | [" + i + "]" + temp +
+                                " | In MessageRecords := " + messageRecords.containsKey(temp) +
+                                " | index in DS := " + (r != null ? deliverySet.headSet(r).size() : -1) +
+                                " In deliverySet := " + r);
                         i++;
                     }
                     System.out.println("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@");
@@ -71,17 +78,21 @@ public class DeliveryManager {
 
     // Aramis
     public RMCastHeader addLocalMessage(SenderManager senderManager, Message message, Address localAddress, NMCData data,
-                                                                     short headerId, Collection<Address> destinations) {
-        return senderManager.newMessageBroadcast(message, headerId, localAddress, data, destinations, messageQueue);
+                                                                     short rmsysId, Collection<Address> destinations) {
+        RMCastHeader header = senderManager.newMessageBroadcast(localAddress, data, destinations, localMsgQueue);
+        message.putHeader(rmsysId, header);
+        message.src(localAddress);
+        addMessageToQueue(message);
+        return header;
     }
 
     // Aramis
     public void addMessage(Message message) {
-        messageQueue.add(message);
+        addMessageToQueue(message);
     }
 
     public void processEmptyAckMessage(Message message) {
-        messageQueue.add(message);
+        addMessageToQueue(message);
     }
 
     public boolean hasMessageExpired(RMCastHeader header) {
@@ -94,6 +105,14 @@ public class DeliveryManager {
                     " therefore this message is ignored | header copy := " + header.getCopy());
 
         return result;
+    }
+
+    private void addMessageToQueue(Message message) {
+        // Copy necessary to prevent message.setDest in deliver() from affecting broadcasts of copies > 0
+        // Without this the Aramis.broadcastMessage() will throw an exception if a message has been delivered
+        // before all of it's copies have been broadcast, this is because the msg destination is set to a single destination in deliver()
+//        message = message.copy();
+        messageQueue.add(message);
     }
 
     private void addLocalMessage(Message message) {
@@ -195,6 +214,9 @@ public class DeliveryManager {
         } else {
             deliverable.add(record.message);
         }
+
+        if (record.isLocal())
+            localMsgQueue.poll();
 
         deliveredMsgRecord.put(id.getOriginator(), id);
         lastDelivered = record;
@@ -502,6 +524,12 @@ public class DeliveryManager {
             if (isPlaceholder())
                 return false;
 
+            if (!isLocal()) {
+                MessageId oldestLocalMsg = localMsgQueue.peek();
+                if (oldestLocalMsg != null && id.getTimestamp() > oldestLocalMsg.getTimestamp())
+                    return false;
+            }
+
             MessageId previous = deliveredMsgRecord.get(id.getOriginator());
             if (previous != null && id.getSequence() != previous.getSequence() + 1)
                 return false;
@@ -525,6 +553,14 @@ public class DeliveryManager {
             if (isPlaceholder()) {
                 System.out.println("isPlaceholder := true");
                 return false;
+            }
+
+            if (!isLocal()) {
+                MessageId oldestLocalMsg = localMsgQueue.peek();
+                if (oldestLocalMsg != null && id.getTimestamp() > oldestLocalMsg.getTimestamp()) {
+                    System.out.println("!isLocal && latestLocal < id.getTimestamp() | localMsg := " + oldestLocalMsg);
+                    return false;
+                }
             }
 
             MessageId previous = deliveredMsgRecord.get(id.getOriginator());
