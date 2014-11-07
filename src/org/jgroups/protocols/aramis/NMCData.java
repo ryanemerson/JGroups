@@ -24,11 +24,19 @@ public class NMCData implements Streamable {
     public NMCData() {
     }
 
-    public NMCData(NMCData data, int xMax, long timestamp) {
-        this(data.eta, data.messageCopies, data.omega, data.capD, data.capS, xMax, timestamp);
+    // Convert NANOSECOND parameters to millisecond to reduce object size during transmission
+    public NMCData(long eta, int messageCopies, long omega, long capD, long capS, long xMax, long timestamp) {
+        this.eta = convertToMilli(eta);
+        this.messageCopies = messageCopies;
+        this.omega = convertToMilli(omega);
+        this.capD = convertToMilli(capD);
+        this.capS = convertToMilli(capS);
+        this.xMax = convertToMilli(xMax);
+        this.timestamp = timestamp;
     }
 
-    public NMCData(int eta, int messageCopies, int omega, int capD, int capS, int xMax, long timestamp) {
+    // Original
+    public NMCData(int eta, int messageCopies, int omega, int capD, int capS, int xMax, long timestamp, boolean flag) {
         this.eta = eta;
         this.messageCopies = messageCopies;
         this.omega = omega;
@@ -38,8 +46,17 @@ public class NMCData implements Streamable {
         this.timestamp = timestamp;
     }
 
-    public NMCData(int eta, int messageCopies, int omega, int capD, int capS, int xMax) {
-        this(eta, messageCopies, omega, capD, capS, xMax, -1);
+    // Forces decimals to always round up, pessimistic!
+    private int convertToMilli(long value) {
+//        return (int) TimeUnit.NANOSECONDS.toMillis(value);
+        if (value < 1000000)
+            return 1;
+
+        long result = value / 1000000;
+        if (result > Integer.MAX_VALUE)
+            throw new IllegalArgumentException("The calculated long value is greater than Iteger.MAX_VALUE | " +
+                    "input := " + value + " | calculated value := " + result);
+        return (int) Math.ceil(value / 1000000d);
     }
 
     public int getEta() {

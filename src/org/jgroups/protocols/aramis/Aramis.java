@@ -108,7 +108,8 @@ final public class Aramis extends Protocol {
         if (activeMembers.size() > 0)
             nmc.setActiveNodes(activeMembers.size());
 
-        nmc = new NMC(clock, this, profiler);
+//        nmc = new IntegerNMC(clock, this, profiler);
+        nmc = new LongNMC(clock, this, profiler);
         deliveryManager = new DeliveryManager(this, profiler);
         senderManager = new SenderManager(clock, numberOfAcks);
         flowControl = new FlowControl(this, nmc);
