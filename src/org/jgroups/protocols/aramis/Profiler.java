@@ -298,7 +298,7 @@ public class Profiler {
         return "Profiler{" +
                 "\nCounters=" + counters +
                 ",\nProbe Latencies=" + enumNanoOutput(probeLatencies) +
-                ",\nAverage ProbeLatency=" + convertToMilli(averageProbeLatency) + "ms" +
+                ",\nAverage ProbeLatency=" + convertToMilli(Double.longBitsToDouble(averageProbeLatency.longValue())) + "ms" +
                 ",\nDelivery Latencies=" + deliveryLatencies +
                 ",\nAverage DeliveryLatency=" + averageDeliveryLatency + "ms" +
                 ",\nAverage DeliveryDelay=" +  averageDeliveryDelay + "ms" +
@@ -307,6 +307,10 @@ public class Profiler {
 
     private double convertToMilli(AtomicLong atomicLong) {
         return convertToMilli(atomicLong.longValue());
+    }
+
+    private double convertToMilli(double value) {
+        return Math.round(value / 1e+6 * 100.0) / 100.0;
     }
 
     private double convertToMilli(long value) {
