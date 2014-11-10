@@ -1,6 +1,7 @@
 package org.jgroups.protocols.aramis;
 
 import java.util.EnumMap;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -35,8 +36,6 @@ public class Profiler {
         LARGEST,
         LARGEST_XMAX,
         SMALLEST_XMAX,
-        LARGEST_GLOBAL_XMAX,
-        SMALLEST_GLOBAL_XMAX
     }
 
     private static enum DeliveryLatency {
@@ -47,54 +46,62 @@ public class Profiler {
     }
 
     private final EnumMap<Counter, AtomicInteger> counters = new EnumMap<Counter, AtomicInteger>(Counter.class);
-    private final EnumMap<ProbeLatency, AtomicInteger> probeLatencies = new EnumMap<ProbeLatency, AtomicInteger>(ProbeLatency.class);
-    private final EnumMap<DeliveryLatency, AtomicInteger> deliveryLatencies = new EnumMap<DeliveryLatency, AtomicInteger>(DeliveryLatency.class);
+    private final EnumMap<ProbeLatency, AtomicLong> probeLatencies = new EnumMap<ProbeLatency, AtomicLong>(ProbeLatency.class);
+    private final EnumMap<DeliveryLatency, AtomicLong> deliveryLatencies = new EnumMap<DeliveryLatency, AtomicLong>(DeliveryLatency.class);
     private final AtomicLong averageProbeLatency = new AtomicLong();
-    private final AtomicLong averageDeliveryLatency = new AtomicLong();
     private final boolean profileEnabled;
+    private boolean longNMC = false;
 
-    private double averageDeliveryDelay = -1;
-    private long previousDelay = -1;
+    private final AtomicLong deliveryDelayTotal = new AtomicLong();
+    private final AtomicLong deliveryDelayCount = new AtomicLong();
+    private final AtomicLong deliveryLatencyTotal = new AtomicLong();
+    private final AtomicLong deliveryLatencyCount = new AtomicLong();
 
     public Profiler(boolean profileEnabled) {
         this.profileEnabled = profileEnabled;
 
         if (profileEnabled) {
             initialiseEnum(Counter.class, counters);
-            initialiseEnum(ProbeLatency.class, probeLatencies);
-            initialiseEnum(DeliveryLatency.class, deliveryLatencies);
+            initialiseEnumWithLong(ProbeLatency.class, probeLatencies);
+            initialiseEnumWithLong(DeliveryLatency.class, deliveryLatencies);
         }
+    }
+
+    public void longNMCUsed() {
+        longNMC = true;
     }
 
     public void addDeliveryDelay(long delay) {
         if (!profileEnabled)
             return;
 
-        AtomicInteger smallest = deliveryLatencies.get(DeliveryLatency.SMALLEST_DELIVERY_DELAY);
-        if (smallest.intValue() == 0 || delay < smallest.intValue())
-            smallest.set((int) delay);
+        AtomicLong smallest = deliveryLatencies.get(DeliveryLatency.SMALLEST_DELIVERY_DELAY);
+        if (smallest.longValue() == 0 || delay < smallest.longValue())
+            smallest.set(delay);
 
-        AtomicInteger largest = deliveryLatencies.get(DeliveryLatency.LARGEST_DELIVERY_DELAY);
-        if (delay > largest.intValue())
-            largest.set((int) delay);
+        AtomicLong largest = deliveryLatencies.get(DeliveryLatency.LARGEST_DELIVERY_DELAY);
+        if (delay > largest.longValue())
+            largest.set(delay);
 
-        calculateAverageDelay(delay);
+        // Used for calculating average
+        deliveryDelayTotal.addAndGet(delay);
+        deliveryDelayCount.incrementAndGet();
     }
 
-    public void addDeliveryLatency(int latency) {
+    public void addDeliveryLatency(long latency) {
         addLatency(latency, true);
+
+        // Used for calculating average
+        deliveryLatencyTotal.addAndGet(latency);
+        deliveryLatencyCount.incrementAndGet();
     }
 
-    public void addProbeLatency(int latency) {
+    public void addProbeLatency(long latency) {
         addLatency(latency, false);
     }
 
-    public void addLocalXmax(int xMax) {
-        addXMax(xMax, true);
-    }
-
-    public void addGlobalXmax(int xMax) {
-        addXMax(xMax, false);
+    public void addLocalXmax(long xMax) {
+        addXMax(xMax);
     }
 
     public void probeReceieved() {
@@ -197,73 +204,59 @@ public class Profiler {
         counters.get(Counter.MESSAGES_DELIVERED).incrementAndGet();
     }
 
-    private void addLatency(int latency, boolean deliveryLatency) {
+    private void addLatency(long latency, boolean deliveryLatency) {
         if (!profileEnabled)
             return;
 
         checkLargestLatency(latency, deliveryLatency);
         checkSmallestLatency(latency, deliveryLatency);
-        calculateAverageLatency(latency, deliveryLatency);
+
+        if (!deliveryLatency)
+            calculateAverageProbeLatency(latency);
     }
 
-    private void checkLargestLatency(int latency, boolean deliveryLatency) {
-        AtomicInteger largest = deliveryLatency ? deliveryLatencies.get(DeliveryLatency.LARGEST) :
+    private void checkLargestLatency(long latency, boolean deliveryLatency) {
+        AtomicLong largest = deliveryLatency ? deliveryLatencies.get(DeliveryLatency.LARGEST) :
                 probeLatencies.get(ProbeLatency.LARGEST);
 
-        if (latency > largest.intValue())
+        if (latency > largest.longValue())
             largest.set(latency);
     }
 
-    private void checkSmallestLatency(int latency, boolean deliveryLatency) {
-        AtomicInteger smallest = deliveryLatency ? deliveryLatencies.get(DeliveryLatency.SMALLEST) :
+    private void checkSmallestLatency(long latency, boolean deliveryLatency) {
+        AtomicLong smallest = deliveryLatency ? deliveryLatencies.get(DeliveryLatency.SMALLEST) :
                 probeLatencies.get(ProbeLatency.SMALLEST);
 
-        if (smallest.intValue() == 0 || latency < smallest.intValue())
+        if (smallest.longValue() == 0 || latency < smallest.longValue())
             smallest.set(latency);
     }
 
-    // Doesn't use AtomicLong like other methods as this method is now accessed by a single thread.
-    // Other methods not changed as no real benefit at this point.
-    private void calculateAverageDelay(long delay) {
-        if (previousDelay == delay)
-            return;
-
-        // If first time method is called
-        if (previousDelay == -1) {
-            averageDeliveryDelay = delay;
-            previousDelay = delay;
-            return;
-        }
-
-        averageDeliveryDelay = (averageDeliveryDelay + delay) / 2.0;
-        previousDelay = delay;
-    }
-
-    private void calculateAverageLatency(int latency, boolean deliveryLatency) {
-        AtomicLong averageLatency = deliveryLatency ? averageDeliveryLatency : averageProbeLatency;
-        double average = Double.longBitsToDouble(averageLatency.longValue());
+    // We don't count the total as probe latencies are stored in nanoseconds, and we don't want the MAX LONG size to be
+    // reached on large experiments.
+    private void calculateAverageProbeLatency(long latency) {
+        double average = Double.longBitsToDouble(averageProbeLatency.longValue());
         average = (average + latency) / 2;
         long longAverage = Double.doubleToLongBits(average); // No AtomicDouble class, so long used instead
-        averageLatency.set(longAverage);
+        averageProbeLatency.set(longAverage);
     }
 
-    private void addXMax(int xMax, boolean local) {
+    private void addXMax(long xMax) {
         if (!profileEnabled)
             return;
 
-        checkLargestXmax(xMax, local);
-        checkSmallestXmax(xMax, local);
+        checkLargestXmax(xMax);
+        checkSmallestXmax(xMax);
     }
 
-    private void checkLargestXmax(int newXMax, boolean local) {
-        AtomicInteger xMax = local ? probeLatencies.get(ProbeLatency.LARGEST_XMAX) : probeLatencies.get(ProbeLatency.LARGEST_GLOBAL_XMAX);
-        if (newXMax > xMax.intValue())
+    private void checkLargestXmax(long newXMax) {
+        AtomicLong xMax = probeLatencies.get(ProbeLatency.LARGEST_XMAX);
+        if (newXMax > xMax.longValue())
             xMax.set(newXMax);
     }
 
-    private void checkSmallestXmax(int newXMax, boolean local) {
-        AtomicInteger xMax = local ? probeLatencies.get(ProbeLatency.SMALLEST_XMAX) : probeLatencies.get(ProbeLatency.SMALLEST_GLOBAL_XMAX);
-        if (xMax.intValue() == 0 || newXMax < xMax.intValue())
+    private void checkSmallestXmax(long newXMax) {
+        AtomicLong xMax = probeLatencies.get(ProbeLatency.SMALLEST_XMAX);
+        if (xMax.longValue() == 0 || newXMax < xMax.longValue())
             xMax.set(newXMax);
     }
 
@@ -272,18 +265,59 @@ public class Profiler {
             map.put(constant, new AtomicInteger());
     }
 
+    private <T extends Enum<T>> void initialiseEnumWithLong(Class<T> enumType, EnumMap<T, AtomicLong> map) {
+        for (T constant : enumType.getEnumConstants())
+            map.put(constant, new AtomicLong());
+    }
+
     @Override
     public String toString() {
+        if (longNMC)
+            return nanoOutput();
+
+        return milliOutput();
+    }
+
+    private String milliOutput() {
         double averageProbe = Math.round(Double.longBitsToDouble(averageProbeLatency.longValue()) * 100.0) / 100.0;
-        double averageDelivery = Math.round(Double.longBitsToDouble(averageDeliveryLatency.longValue()) * 100.0) / 100.0;
-        double averageDeliveryD = Math.round(averageDeliveryDelay * 100.0) / 100.0;
+        double averageDeliveryLatency = Math.round((Double.longBitsToDouble(deliveryLatencyTotal.get()) / Double.longBitsToDouble(deliveryLatencyCount.get())) * 100.0) / 100.0;
+        double averageDeliveryDelay = Math.round((Double.longBitsToDouble(deliveryDelayTotal.get()) / Double.longBitsToDouble(deliveryDelayCount.get())) * 100.0) / 100.0;
         return "Profiler{" +
                 "\nCounters=" + counters +
                 ",\nProbe Latencies=" + probeLatencies +
                 ",\nAverage ProbeLatency=" + averageProbe + "ms" +
                 ",\nDelivery Latencies=" + deliveryLatencies +
-                ",\nAverage DeliveryLatency=" + averageDelivery + "ms" +
-                ",\nAverage DeliveryDelay=" + averageDeliveryD + "ms" +
+                ",\nAverage DeliveryLatency=" + averageDeliveryLatency + "ms" +
+                ",\nAverage DeliveryDelay=" + averageDeliveryDelay + "ms" +
                 '}';
+    }
+
+    private String nanoOutput() {
+        double averageDeliveryLatency = Math.round((Double.longBitsToDouble(deliveryLatencyTotal.get()) / Double.longBitsToDouble(deliveryLatencyCount.get())) * 100.0) / 100.0;
+        double averageDeliveryDelay = Math.round((Double.longBitsToDouble(deliveryDelayTotal.get()) / Double.longBitsToDouble(deliveryDelayCount.get())) * 100.0) / 100.0;
+        return "Profiler{" +
+                "\nCounters=" + counters +
+                ",\nProbe Latencies=" + enumNanoOutput(probeLatencies) +
+                ",\nAverage ProbeLatency=" + convertToMilli(averageProbeLatency) + "ms" +
+                ",\nDelivery Latencies=" + deliveryLatencies +
+                ",\nAverage DeliveryLatency=" + averageDeliveryLatency + "ms" +
+                ",\nAverage DeliveryDelay=" +  averageDeliveryDelay + "ms" +
+                '}';
+    }
+
+    private double convertToMilli(AtomicLong atomicLong) {
+        return convertToMilli(atomicLong.longValue());
+    }
+
+    private double convertToMilli(long value) {
+        double valueInMilli = value / 1e+6;
+        return Math.round(valueInMilli * 100.0) / 100.0;
+    }
+
+    private <T extends Enum<T>> String enumNanoOutput(EnumMap<T, AtomicLong> enumMap) {
+        String output = "{";
+        for (Map.Entry<T, AtomicLong> entry : enumMap.entrySet())
+            output += entry.getKey() + "=" + convertToMilli(entry.getValue()) + ", ";
+        return output.substring(0, output.length() - 2) + "}";
     }
 }

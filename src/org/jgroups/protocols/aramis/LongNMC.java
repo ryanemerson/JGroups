@@ -49,6 +49,8 @@ public class LongNMC implements NMC {
         this.profiler = profiler;
         this.rmsys = aramis;
 
+        profiler.longNMCUsed(); // Probably a better way to do this.
+
         // TODO remove
         Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
             @Override
@@ -134,8 +136,8 @@ public class LongNMC implements NMC {
 
     private void addXMax(long maxLatency) {
         xMax = maxLatency; // Don't use a 'buffer' function
-//        profiler.addLocalXmax(xMax); // Store local xMax
-//        nmcProfiler.localXMax.add(xMax);
+        profiler.addLocalXmax(xMax); // Store local xMax
+        nmcProfiler.addXMax(xMax);
     }
 
     private void addLatency(long latency) {
@@ -146,7 +148,7 @@ public class LongNMC implements NMC {
             addCurrentLatenciesToRecentPast();
             calculateNMCValues();
         }
-//        profiler.addProbeLatency(latency);
+        profiler.addProbeLatency(latency);
     }
 
     private void addCurrentLatenciesToRecentPast() {
@@ -192,7 +194,8 @@ public class LongNMC implements NMC {
         if (log.isDebugEnabled())
             log.debug("NMCData recorded | " + nmcData);
 
-        nmcProfiler.add(nmcData);
+        nmcProfiler.addEta(eta);
+        nmcProfiler.addOmega(omega);
         nmcProfiler.addRho(rho);
         nmcProfiler.addQ(q);
     }
@@ -241,17 +244,24 @@ public class LongNMC implements NMC {
     }
 
     private class NMCProfiler {
-        final ArrayList<Integer> localXMax = new ArrayList<Integer>();
-        final ArrayList<Integer> localOmega = new ArrayList<Integer>();
-        final ArrayList<Integer> localEta = new ArrayList<Integer>();
+        final ArrayList<Long> localXMax = new ArrayList<Long>();
+        final ArrayList<Long> localOmega = new ArrayList<Long>();
+        final ArrayList<Long> localEta = new ArrayList<Long>();
         final ArrayList<Integer> localRho = new ArrayList<Integer>();
         final ArrayList<Double> localQ = new ArrayList<Double>();
 
         PrintWriter out;
 
-        void add(NMCData data) {
-            localOmega.add(data.getOmega());
-            localEta.add(data.getEta());
+        void addXMax(long xMax) {
+            localXMax.add(xMax);
+        }
+
+        void addEta(long eta) {
+            localEta.add(eta);
+        }
+
+        void addOmega(long omega) {
+            localOmega.add(omega);
         }
 
         void addRho(int rho) {
@@ -270,7 +280,7 @@ public class LongNMC implements NMC {
             return total / (double) collection.size();
         }
 
-        double average(Collection<Integer> collection) {
+        double averageInt(Collection<Integer> collection) {
             int total = 0;
             for (int i : collection)
                 total += i;
@@ -278,7 +288,15 @@ public class LongNMC implements NMC {
             return total / (double) collection.size();
         }
 
-        int median(List<Integer> list) {
+        double average(Collection<Long> collection) {
+            int total = 0;
+            for (long i : collection)
+                total += i;
+
+            return total / (double) collection.size();
+        }
+
+        long median(List<Long> list) {
             Collections.sort(list);
             return list.get((int) Math.round(list.size() / (double) 2));
         }
@@ -288,11 +306,16 @@ public class LongNMC implements NMC {
             return list.get((int) Math.round(list.size() / (double) 2));
         }
 
-        String restrictedOutput(Collection<Integer> collection, boolean showCount) {
-            int previous = -1;
+        int medianInt(List<Integer> list) {
+            Collections.sort(list);
+            return list.get((int) Math.round(list.size() / (double) 2));
+        }
+
+        String restrictedOutput(Collection<Long> collection, boolean showCount) {
             int count = 1;
+            long previous = -1;
             String output = "";
-            for (Integer i : collection) {
+            for (Long i : collection) {
                 if (i == previous || previous == -1) {
                     count++;
                 } else {
@@ -307,14 +330,14 @@ public class LongNMC implements NMC {
             return output;
         }
 
-        String output(Collection<Integer> collection) {
+        String output(Collection<Long> collection) {
             String output = "";
-            for (Integer i : collection)
+            for (Long i : collection)
                 output += i + "\n";
             return output;
         }
 
-        void collectionToFile(Collection<Integer> collection, String name, int type) throws Exception {
+        void collectionToFile(Collection<Long> collection, String name, int type) throws Exception {
             String PATH = "/work/a7109534/";
             Address localAddress = rmsys.getLocalAddress();
 
@@ -342,7 +365,7 @@ public class LongNMC implements NMC {
             out.close();
         }
 
-        void collectionToFile(Collection<Integer> collection, String name) throws Exception {
+        void collectionToFile(Collection<Long> collection, String name) throws Exception {
             collectionToFile(collection, name, 1);
             collectionToFile(collection, name, 2);
             collectionToFile(collection, name, 0);
@@ -352,28 +375,28 @@ public class LongNMC implements NMC {
         public String toString() {
             return "NMCProfiler{" +
                     "\n\tlocalXMax{" +
-                    "\n\t\tLargest := " + Collections.max(localXMax) +
-                    "\n\t\tSmallest := " + Collections.min(localXMax) +
-                    "\n\t\tMedian := " + median(localXMax) +
-                    "\n\t\tAverage := " + average(localXMax) +
+                    "\n\t\tLargest := " + convertToMilli(Collections.max(localXMax)) +
+                    "\n\t\tSmallest := " + convertToMilli(Collections.min(localXMax)) +
+                    "\n\t\tMedian := " + convertToMilli(median(localXMax)) +
+                    "\n\t\tAverage := " + Math.round(average(localXMax) / 1e+6) / 100.0 +
                     "}, " +
                     "\n\tOmega{" +
-                    "\n\t\tLargest := " + Collections.max(localOmega) +
-                    "\n\t\tSmallest := " + Collections.min(localOmega) +
-                    "\n\t\tMedian := " + median(localOmega) +
-                    "\n\t\tAverage := " + average(localOmega) +
+                    "\n\t\tLargest := " + convertToMilli(Collections.max(localOmega)) +
+                    "\n\t\tSmallest := " + convertToMilli(Collections.min(localOmega)) +
+                    "\n\t\tMedian := " + convertToMilli(median(localOmega)) +
+                    "\n\t\tAverage := " +  Math.round(average(localOmega) / 1e+6) / 100.0 +
                     "}, " +
                     "\n\tEta{" +
-                    "\n\t\tLargest := " + Collections.max(localEta) +
-                    "\n\t\tSmallest := " + Collections.min(localEta) +
-                    "\n\t\tMedian := " + median(localEta) +
-                    "\n\t\tAverage := " + average(localEta) +
+                    "\n\t\tLargest := " + convertToMilli(Collections.max(localEta)) +
+                    "\n\t\tSmallest := " + convertToMilli(Collections.min(localEta)) +
+                    "\n\t\tMedian := " + convertToMilli(median(localEta)) +
+                    "\n\t\tAverage := " +  Math.round(average(localEta) / 1e+6) / 100.0 +
                     "}, " +
                     "\n\tRho{" +
                     "\n\t\tLargest := " + Collections.max(localRho) +
                     "\n\t\tSmallest := " + Collections.min(localRho) +
-                    "\n\t\tMedian := " + median(localRho) +
-                    "\n\t\tAverage := " + average(localRho) +
+                    "\n\t\tMedian := " + medianInt(localRho) +
+                    "\n\t\tAverage := " +  Math.round(averageInt(localRho) * 100.0) / 100.0 +
                     "}, " +
                     "\n\tQ{" +
                     "\n\t\tLargest := " + Collections.max(localQ) +
@@ -382,6 +405,11 @@ public class LongNMC implements NMC {
                     "\n\t\tAverage := " + averageDouble(localQ) +
                     "}, " +
                     '}';
+        }
+
+        private double convertToMilli(long value) {
+            double valueInMilli = value / 1e+6;
+            return Math.round(valueInMilli * 100.0) / 100.0;
         }
     }
 }
