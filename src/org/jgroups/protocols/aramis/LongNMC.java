@@ -7,6 +7,7 @@ import org.jgroups.logging.LogFactory;
 import java.io.BufferedWriter;
 import java.io.FileWriter;
 import java.io.PrintWriter;
+import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -221,8 +222,8 @@ public class LongNMC implements NMC {
             rho++; // Ensures that rho is always > 0 as it will always be executed at least once.
             rhoProbability = Math.pow(1.0 - Math.pow(q, rho + 1), activeNodes - 1);
         }
-//        return rho < 2 ? 2 : rho; // Rho artificially set to a minimum value of 2
-        return rho; // Uncomment to use calculated rho that can have the minimum rho value for reliable multicast (rho = 1)
+        return rho < 2 ? 2 : rho; // Rho artificially set to a minimum value of 2
+//        return rho; // Uncomment to use calculated rho that can have the minimum rho value for reliable multicast (rho = 1)
     }
 
     private class ExceedsXrcResult {
@@ -289,7 +290,7 @@ public class LongNMC implements NMC {
         }
 
         double average(Collection<Long> collection) {
-            int total = 0;
+            long total = 0;
             for (long i : collection)
                 total += i;
 
@@ -378,25 +379,25 @@ public class LongNMC implements NMC {
                     "\n\t\tLargest := " + convertToMilli(Collections.max(localXMax)) +
                     "\n\t\tSmallest := " + convertToMilli(Collections.min(localXMax)) +
                     "\n\t\tMedian := " + convertToMilli(median(localXMax)) +
-                    "\n\t\tAverage := " + Math.round(average(localXMax) / 1e+6) / 100.0 +
+                    "\n\t\tAverage := " + convertDoubleToMilli(average(localXMax)) +
                     "}, " +
                     "\n\tOmega{" +
                     "\n\t\tLargest := " + convertToMilli(Collections.max(localOmega)) +
                     "\n\t\tSmallest := " + convertToMilli(Collections.min(localOmega)) +
                     "\n\t\tMedian := " + convertToMilli(median(localOmega)) +
-                    "\n\t\tAverage := " +  Math.round(average(localOmega) / 1e+6) / 100.0 +
+                    "\n\t\tAverage := " +  convertDoubleToMilli(average(localOmega))+
                     "}, " +
                     "\n\tEta{" +
                     "\n\t\tLargest := " + convertToMilli(Collections.max(localEta)) +
                     "\n\t\tSmallest := " + convertToMilli(Collections.min(localEta)) +
                     "\n\t\tMedian := " + convertToMilli(median(localEta)) +
-                    "\n\t\tAverage := " +  Math.round(average(localEta) / 1e+6) / 100.0 +
+                    "\n\t\tAverage := " +  convertDoubleToMilli(average(localEta)) +
                     "}, " +
                     "\n\tRho{" +
                     "\n\t\tLargest := " + Collections.max(localRho) +
                     "\n\t\tSmallest := " + Collections.min(localRho) +
                     "\n\t\tMedian := " + medianInt(localRho) +
-                    "\n\t\tAverage := " +  Math.round(averageInt(localRho) * 100.0) / 100.0 +
+                    "\n\t\tAverage := " +  new DecimalFormat("##.00").format(averageInt(localRho)) +
                     "}, " +
                     "\n\tQ{" +
                     "\n\t\tLargest := " + Collections.max(localQ) +
@@ -407,9 +408,12 @@ public class LongNMC implements NMC {
                     '}';
         }
 
-        private double convertToMilli(long value) {
-            double valueInMilli = value / 1e+6;
-            return Math.round(valueInMilli * 100.0) / 100.0;
+        private String convertToMilli(long value) {
+            return new DecimalFormat("##.00").format(value / 1e+6);
+        }
+
+        private String convertDoubleToMilli(double value) {
+            return new DecimalFormat("##.00").format(value / 1e+6);
         }
     }
 }

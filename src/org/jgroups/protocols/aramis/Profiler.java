@@ -1,5 +1,6 @@
 package org.jgroups.protocols.aramis;
 
+import java.text.DecimalFormat;
 import java.util.EnumMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -279,9 +280,10 @@ public class Profiler {
     }
 
     private String milliOutput() {
-        double averageProbe = Math.round(Double.longBitsToDouble(averageProbeLatency.longValue()) * 100.0) / 100.0;
-        double averageDeliveryLatency = Math.round((Double.longBitsToDouble(deliveryLatencyTotal.get()) / Double.longBitsToDouble(deliveryLatencyCount.get())) * 100.0) / 100.0;
-        double averageDeliveryDelay = Math.round((Double.longBitsToDouble(deliveryDelayTotal.get()) / Double.longBitsToDouble(deliveryDelayCount.get())) * 100.0) / 100.0;
+        DecimalFormat df =  new DecimalFormat("##.00");
+        String averageProbe = df.format(Double.longBitsToDouble(averageProbeLatency.longValue()));
+        String averageDeliveryLatency = df.format(Double.longBitsToDouble(deliveryLatencyTotal.get()) / Double.longBitsToDouble(deliveryLatencyCount.get()));
+        String averageDeliveryDelay = df.format(Double.longBitsToDouble(deliveryDelayTotal.get()) / Double.longBitsToDouble(deliveryDelayCount.get()));
         return "Profiler{" +
                 "\nCounters=" + counters +
                 ",\nProbe Latencies=" + probeLatencies +
@@ -293,35 +295,24 @@ public class Profiler {
     }
 
     private String nanoOutput() {
-        double averageDeliveryLatency = Math.round((Double.longBitsToDouble(deliveryLatencyTotal.get()) / Double.longBitsToDouble(deliveryLatencyCount.get())) * 100.0) / 100.0;
-        double averageDeliveryDelay = Math.round((Double.longBitsToDouble(deliveryDelayTotal.get()) / Double.longBitsToDouble(deliveryDelayCount.get())) * 100.0) / 100.0;
+        DecimalFormat df =  new DecimalFormat("##.00");
+        String averageDeliveryLatency = df.format(Double.longBitsToDouble(deliveryLatencyTotal.get()) / Double.longBitsToDouble(deliveryLatencyCount.get()));
+        String averageDeliveryDelay = df.format(Double.longBitsToDouble(deliveryDelayTotal.get()) / Double.longBitsToDouble(deliveryDelayCount.get()));
         return "Profiler{" +
                 "\nCounters=" + counters +
                 ",\nProbe Latencies=" + enumNanoOutput(probeLatencies) +
-                ",\nAverage ProbeLatency=" + convertToMilli(Double.longBitsToDouble(averageProbeLatency.longValue())) + "ms" +
+                ",\nAverage ProbeLatency=" + df.format(Double.longBitsToDouble(averageProbeLatency.longValue()) / 1e+6) + "ms" +
                 ",\nDelivery Latencies=" + deliveryLatencies +
                 ",\nAverage DeliveryLatency=" + averageDeliveryLatency + "ms" +
                 ",\nAverage DeliveryDelay=" +  averageDeliveryDelay + "ms" +
                 '}';
     }
 
-    private double convertToMilli(AtomicLong atomicLong) {
-        return convertToMilli(atomicLong.longValue());
-    }
-
-    private double convertToMilli(double value) {
-        return Math.round(value / 1e+6 * 100.0) / 100.0;
-    }
-
-    private double convertToMilli(long value) {
-        double valueInMilli = value / 1e+6;
-        return Math.round(valueInMilli * 100.0) / 100.0;
-    }
-
     private <T extends Enum<T>> String enumNanoOutput(EnumMap<T, AtomicLong> enumMap) {
+        DecimalFormat df =  new DecimalFormat("##.00");
         String output = "{";
         for (Map.Entry<T, AtomicLong> entry : enumMap.entrySet())
-            output += entry.getKey() + "=" + convertToMilli(entry.getValue()) + ", ";
+            output += entry.getKey() + "=" + df.format(entry.getValue().longValue() / 1e+6) + ", ";
         return output.substring(0, output.length() - 2) + "}";
     }
 }
