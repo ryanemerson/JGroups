@@ -23,8 +23,8 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 public class LongNMC implements NMC {
 
-    private final double ETA_PROBABILITY = 0.99;
     private final double RELIABILITY_PROBABILITY = 0.9999;
+    private final double ETA_PROBABILITY = RELIABILITY_PROBABILITY;
     private final double MAX_Q_VALUE = 0.05;
     private final double Q_MULTIPLIER = 1 + MAX_Q_VALUE; // The threshold for calculating Q
     private final int XRC_SAMPLE_SIZE = 10; // The minimum number of values we use to calculate R
@@ -222,8 +222,8 @@ public class LongNMC implements NMC {
             rho++; // Ensures that rho is always > 0 as it will always be executed at least once.
             rhoProbability = Math.pow(1.0 - Math.pow(q, rho + 1), activeNodes - 1);
         }
-        return rho < 2 ? 2 : rho; // Rho artificially set to a minimum value of 2
-//        return rho; // Uncomment to use calculated rho that can have the minimum rho value for reliable multicast (rho = 1)
+//        return rho < 2 ? 2 : rho; // Rho artificially set to a minimum value of 2
+        return rho; // Uncomment to use calculated rho that can have the minimum rho value for reliable multicast (rho = 1)
     }
 
     private class ExceedsXrcResult {
