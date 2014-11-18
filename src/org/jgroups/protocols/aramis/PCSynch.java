@@ -59,7 +59,12 @@ public class PCSynch extends Protocol {
     public PCSynch() {
     }
 
-    public PCSynch(List<String> synchedHostnames) {
+    public PCSynch(int minimumNodes) {
+        this.minimumNodes = minimumNodes;
+    }
+
+    public PCSynch(int minimumNodes, List<String> synchedHostnames) {
+        this.minimumNodes = minimumNodes;
         this.synchedHostnames = synchedHostnames;
         synchMembers = new ArrayList<Address>();
         allNodesSynched = false;

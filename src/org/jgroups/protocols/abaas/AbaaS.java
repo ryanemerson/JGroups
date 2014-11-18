@@ -23,6 +23,8 @@ import java.util.logging.Logger;
  */
 public class AbaaS extends Protocol {
 
+    public static int minimumNodes = 2; // Static hack to allow experiments to dynamically change the value.
+
     @Property(name = "box_member", description = "Is this node a box member")
     private boolean boxMember = false;
 
@@ -112,7 +114,7 @@ public class AbaaS extends Protocol {
                 System.exit(1);
             }
 
-            PCSynch clock = new PCSynch(hostnames);
+            PCSynch clock = new PCSynch(minimumNodes, hostnames);
             Aramis aramis = new Aramis(clock, hostnames);
 
             // TODO change so that Events are passed up and down the stack (temporary hack)

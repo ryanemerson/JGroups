@@ -1,6 +1,7 @@
 package org.jgroups.tests.ABService;
 
 import org.jgroups.JChannel;
+import org.jgroups.protocols.abaas.AbaaS;
 import org.jgroups.protocols.aramis.Aramis;
 
 /**
@@ -30,8 +31,10 @@ public class AbaaSBoxMember {
         }
 
         // Hack to ensure that the Aramis protocol does not start until at least minimumNumberOfNodes have joined the current view
-        if (minimumNumberOfNodes > 0)
+        if (minimumNumberOfNodes > 0) {
             Aramis.minimumNodes = minimumNumberOfNodes;
+            AbaaS.minimumNodes = minimumNumberOfNodes;
+        }
 
         JChannel jChannel = new JChannel(properties);
         jChannel.connect(channel);

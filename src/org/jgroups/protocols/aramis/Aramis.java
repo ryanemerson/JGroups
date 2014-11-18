@@ -84,7 +84,7 @@ final public class Aramis extends Protocol {
     @Override
     public void init() throws Exception {
         if (clock == null) {
-            clock = new PCSynch();
+            clock = new PCSynch(minimumNodes);
 
             // TODO change so that Events are passed up and down the stack (temporary hack)
             getProtocolStack().insertProtocol(clock, ProtocolStack.BELOW, this.getName());
