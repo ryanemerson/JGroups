@@ -55,7 +55,7 @@ final public class Aramis extends Protocol {
 
     private boolean allNodesActive = true;
     private List<String> activeHostnames;
-    private List<Address> activeMembers = new ArrayList<Address>();
+    private List<Address> activeMembers = Collections.synchronizedList(new ArrayList<Address>());
 
     private final boolean profilingEnabled = true;
     private final Profiler profiler = new Profiler(profilingEnabled);
