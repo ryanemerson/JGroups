@@ -208,15 +208,29 @@ public class PCSynch extends Protocol {
         }
     }
 
+    private Address getMasterNode() {
+        if (allNodesSynched)
+            return view.getMembers().get(0);
+
+        for (Address address :  synchMembers)
+            if (address.toString().contains(synchedHostnames.get(0)))
+                return address;
+
+        throw new RuntimeException("A master node could not be selected as the node specified in synchedHostnames is not part of the current view");
+    }
+
     final public class RequestSender implements Runnable {
         public void run() {
             // TODO can we improve this????
-            while (view == null || view.size() < minimumNodes || synchMembers.isEmpty()) {
+            while (view == null || view.size() < minimumNodes || synchMembers.size() < minimumNodes || synchMembers.isEmpty()) {
                 Util.sleep(1); // Don't start clockSynch until at least minimum number of nodes have joined the cluster
             }
 
             int messagesSent = 0;
-            master = synchMembers.get(0); // Need to make this consistent for all nodes, when dynamic discovery is used
+//            Collections.sort(synchMembers);
+//            master = synchMembers.get(0); // Need to make this consistent for all nodes, when dynamic discovery is used
+
+            master = getMasterNode();
 
             // If this node is the master then no need to synch
             if (!localAddress.equals(master)) {
