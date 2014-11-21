@@ -30,6 +30,7 @@ public class LongNMC implements NMC {
     private final int XRC_SAMPLE_SIZE = 10; // The minimum number of values we use to calculate R
     private final int RECENT_PAST_SIZE = 1000; // The number of latencies that defines the recent past
     private final int EPOCH_SIZE = 100; // The number of latencies received before NMC values are calculated
+    private final int RHO_MIN = 3; // The lower bound for Rho
 
     private final PCSynch clock;
     private final Profiler profiler;
@@ -222,8 +223,8 @@ public class LongNMC implements NMC {
             rho++; // Ensures that rho is always > 0 as it will always be executed at least once.
             rhoProbability = Math.pow(1.0 - Math.pow(q, rho + 1), activeNodes - 1);
         }
-//        return rho < 2 ? 2 : rho; // Rho artificially set to a minimum value of 2
-        return rho; // Uncomment to use calculated rho that can have the minimum rho value for reliable multicast (rho = 1)
+
+        return rho < RHO_MIN ? RHO_MIN : rho;
     }
 
     private class ExceedsXrcResult {
