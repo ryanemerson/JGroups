@@ -38,6 +38,7 @@ public class CrashedNodeInfiniteClients extends ReceiverAdapter {
         int msgsBeforeCrash = 50000; // #Msgs to be sent before crash
         int minimumNumberOfNodes = -1;
         boolean crashingNode = false; // Is this the node that will crash
+        boolean slowCrash = false; // If true a crash will be simulated by all threads being suspended, represents a hung process.
 
         for (int i = 0; i < args.length; i++) {
             if("-config".equals(args[i])) {
@@ -68,13 +69,17 @@ public class CrashedNodeInfiniteClients extends ReceiverAdapter {
                 minimumNumberOfNodes = Integer.parseInt(args[++i]);
                 continue;
             }
+            if("-slow".equals(args[i])) {
+                slowCrash = true;
+                continue;
+            }
         }
 
         // Hack to ensure that the Aramis protocol does not start until at least minimumNumberOfNodes have joined the current view
         if (minimumNumberOfNodes > 0)
             Aramis.minimumNodes = minimumNumberOfNodes;
 
-        new CrashedNodeInfiniteClients(propsFile, numberOfMessages, totalMessages, msgsBeforeCrash, initiator, crashingNode).run();
+        new CrashedNodeInfiniteClients(propsFile, numberOfMessages, totalMessages, msgsBeforeCrash, initiator, crashingNode, slowCrash).run();
     }
 
     // Remember to incremement this in the delivery manager when messages are rejected
@@ -102,15 +107,17 @@ public class CrashedNodeInfiniteClients extends ReceiverAdapter {
 
     private final int MSGS_BEFORE_CRASH;
     private final boolean CRASHING_NODE;
+    private final boolean SLOW_CRASH;
 
     public CrashedNodeInfiniteClients(String propsFile, int numberOfMessages, int totalMessages, int msgsBeforeCrash,
-                                      String initiator, boolean crashingNode) {
+                                      String initiator, boolean crashingNode, boolean slowCrash) {
         PROPERTIES_FILE = propsFile;
         NUMBER_MESSAGES_TO_SEND = numberOfMessages;
         TOTAL_NUMBER_OF_MESSAGES = totalMessages;
         MSGS_BEFORE_CRASH = msgsBeforeCrash;
         INITIATOR = initiator;
         CRASHING_NODE = crashingNode;
+        SLOW_CRASH = slowCrash;
     }
 
     public void run() throws Exception {
@@ -141,8 +148,11 @@ public class CrashedNodeInfiniteClients extends ReceiverAdapter {
         while (true) {
             if (startSending) {
                 if (CRASHING_NODE && sentMessages == MSGS_BEFORE_CRASH) {
-                    crashNode();
-                    while (true);
+                    if (SLOW_CRASH)
+                        hangNode();
+                    else
+                        crashNode();
+                        while (true);
                 }
 
                 AnycastAddress anycastAddress = new AnycastAddress(channel.getView().getMembers());
@@ -165,6 +175,15 @@ public class CrashedNodeInfiniteClients extends ReceiverAdapter {
 
         System.out.println("Test Finished");
         System.exit(0);
+    }
+
+    // Suspend all threads in the program
+    private void hangNode() {
+        System.out.println("Hang Node");
+        for (Thread t : Thread.getAllStackTraces().keySet())
+            if (!t.equals(Thread.currentThread()))
+                t.suspend(); // Bad, but that's the behaviour we want for a hanged process!
+        Thread.currentThread().suspend();
     }
 
     private void crashNode() throws Exception {

@@ -1,6 +1,6 @@
 #!/bin/bash
 #arr=(csvm0065 csvm0066 csvm0067)
-arr=(mill028 mill029 mill030)
+arr=(mill026 mill027 mill028)
 geometry=(109x24+10+40 80x24+1060+40 65x25+5-30 65x25+631-30 65x25+1258-30)
 createDir="mkdir -p /work/a7109534/; rm /work/a7109534/*"
 config="RMSysIntegrated.xml"
