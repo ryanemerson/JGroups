@@ -25,7 +25,7 @@ for key in keywords:
     grep_string = "grep --include=*.out -Proh '(?<=" + key + "=)[1-9][0-9]*' " + args.directory
     awk_string = "| awk 'BEGIN { MAX = 0; MIN = 0 }" \
                 "{ SUM += $1; COUNT++; if ($1 > MAX) MAX = $1; if ($1 < MIN) MIN = $1}" \
-                "END { print \"%s | COUNT := \"COUNT\" | SUM := \"SUM\" | MEAN := \"SUM / COUNT\" | RANGE := \"MAX - MIN}'" % (key)
+                "END { MEAN = 0; if (COUNT + 0 != 0) MEAN = SUM / COUNT; print \"%s | COUNT := \"COUNT\" | SUM := \"SUM\" | MEAN := \"MEAN\" | RANGE := \"MAX - MIN}'" % (key)
     output.append(subprocess.check_output(grep_string + awk_string, shell=True))
 
 print '\n'.join(output)
