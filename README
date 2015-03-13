@@ -6,17 +6,16 @@ This fork is NOT actively maintained, and is instead provided as a history of my
 Code directly related to my research
 ====================================================
 
-The Hybrid atomic broadcast protocol - ABcast (Aramis and Base broadcast) - can be found in the folder src/aramis/
+The Hybrid atomic broadcast protocol - ABcast (Aramis and Base broadcast) - can be found at [src/protocols/aramis](https://github.com/ryanemerson/JGroups-HiTab/tree/ABService/src/org/jgroups/protocols/aramis)
 
-The protocols used for implementing and interacting with the AmaaS ordering service can be found at src/abaas/
+The protocols used for implementing and interacting with the AmaaS ordering service can be found at [src/protocols/abaas/](https://github.com/ryanemerson/JGroups-HiTab/tree/ABService/src/org/jgroups/protocols/abaas)
 
-The various experiments utilised throughout my resarch can be found within tests/ABService and tests/ProbingValidation
+The various experiments utilised throughout my resarch can be found at [tests/ABService](https://github.com/ryanemerson/JGroups-HiTab/tree/ABService/tests/ABService/org/jgroups/tests/ABService) and [tests/ProbingValidation](https://github.com/ryanemerson/JGroups-HiTab/tree/ABService/tests/ProbingValidation/org/jgroups/tests/probing_validation)
 
-Bash and Python scripts for deploying, maintaining and analyzing my experiments can be found in testScripts/
+Bash and Python scripts for deploying, maintaining and analyzing my experiments can be found at [testScripts/](https://github.com/ryanemerson/JGroups-HiTab/tree/ABService/testScripts)
 
-Finally, various configuration files utilised in my experiments can be found in conf/
+Finally, various configuration files utilised in my experiments can be found at [conf/](https://github.com/ryanemerson/JGroups-HiTab/tree/ABService/conf)
 
-This fork is not actively maintained, and is instead provided as a history of my research and the associated performance evaluations.  If you want to contribute to the JGroups framework you should fork the original repository: https://github.com/belaban/JGroups.
 
        JGroups - A Framework for Group Communication in Java
        ========================================================
