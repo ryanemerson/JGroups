@@ -745,6 +745,17 @@ public class Util {
         return result;
     }
 
+    public static Buffer streamableToBuffer(Streamable obj) {
+        final ByteArrayDataOutputStream out=new ByteArrayDataOutputStream(512);
+        try {
+            Util.writeStreamable(obj,out);
+            return out.getBuffer();
+        }
+        catch(Exception ex) {
+            return null;
+        }
+    }
+
 
     public static byte[] collectionToByteBuffer(Collection<Address> c) throws Exception {
         byte[] result=null;
@@ -1258,6 +1269,19 @@ public class Util {
 
         return sb.toString();
     }
+
+    public static Map<String,String> parseCommaDelimitedProps(String s) {
+        if (s == null)
+            return null;
+        Map<String,String> props=new HashMap<String,String>();
+        Pattern p=Pattern.compile("\\s*([^=\\s]+)\\s*=\\s*([^=\\s,]+)\\s*,?"); //Pattern.compile("\\s*([^=\\s]+)\\s*=\\s([^=\\s]+)\\s*,?");
+        Matcher matcher=p.matcher(s);
+        while(matcher.find()) {
+            props.put(matcher.group(1),matcher.group(2));
+        }
+        return props;
+    }
+
 
     public static String readStringFromStdin(String message) throws Exception {
         System.out.print(message);

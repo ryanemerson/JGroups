@@ -10,10 +10,7 @@ import org.jgroups.util.Util;
 
 import java.lang.reflect.Field;
 import java.net.*;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Enumeration;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.Callable;
 
 /**
@@ -206,6 +203,31 @@ public class PropertyConverters {
         }
     }
 
+    public static class StringProperties implements PropertyConverter {
+
+        @Override
+        public Object convert(Object obj, Class<?> propertyFieldType, String propertyName, String propertyValue, boolean check_scope) throws Exception {
+            return Util.parseCommaDelimitedProps(propertyValue);
+        }
+
+        @Override
+        public String toString(Object value) {
+            if (value == null)
+                return null;
+            Map<String, String> v = (Map<String, String>) value;
+            StringBuilder sb = new StringBuilder();
+            boolean first = true;
+            for(Map.Entry<String, String> entry : v.entrySet()) {
+                if (!first)
+                    sb.append(",");
+                else
+                    first = false;
+                sb.append(entry.getKey()).append("=").append(entry.getValue());
+            }
+            return sb.toString();
+        }
+
+    }
 
     public static class Default implements PropertyConverter {
         static final String prefix;
