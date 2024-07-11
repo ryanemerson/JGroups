@@ -45,6 +45,7 @@ public class ReloadingX509TrustManager extends X509ExtendedTrustManager implemen
    private void reload(Path path) {
       manager.set(action.apply(path));
       lastLoaded = Instant.now();
+      System.err.printf("Loaded '%s'%n", path);
       LOG.debug("Loaded '%s'", path);
    }
 

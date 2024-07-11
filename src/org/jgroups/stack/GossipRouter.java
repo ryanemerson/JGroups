@@ -926,6 +926,9 @@ public class GossipRouter extends ReceiverAdapter implements ConnectionListener,
                 tls.enabled(true).getSniMatchers().add(SNIHostName.createSNIMatcher(args[++i]));
                 continue;
             }
+            if(arg.startsWith("-D")) {
+                continue;
+            }
             help();
             return;
         }
