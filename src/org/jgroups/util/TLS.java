@@ -128,8 +128,7 @@ public class TLS implements Lifecycle {
     }
 
     public SSLContext createContext() {
-        SslContextFactory sslContextFactory=new SslContextFactory();
-        sslContextFactory
+        return new SslContextFactory()
           .classLoader(this.getClass().getClassLoader())
           .sslProtocol("TLS")
           .provider(provider)
@@ -140,8 +139,9 @@ public class TLS implements Lifecycle {
           .trustStoreFileName(truststore_path)
           .trustStorePassword(truststore_password)
           .trustStoreType(truststore_type)
-          .watcher(watcher);
-        return sslContextFactory.getContext();
+          .watcher(watcher)
+          .build()
+          .sslContext();
     }
 
     public SocketFactory createSocketFactory() {

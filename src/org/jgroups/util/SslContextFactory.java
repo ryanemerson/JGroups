@@ -142,8 +142,10 @@ public class SslContextFactory {
       return this;
    }
 
-   public SSLContext getContext() {
+   public Context build() {
       try {
+         KeyManager[] kms = getKeyManagers();
+         TrustManager[] tms = getTrustManagers();
          SSLContext sslContext;
          if (providerName != null) {
             Provider provider = findProvider(providerName, SSLContext.class.getSimpleName(), sslProtocol);
@@ -154,8 +156,8 @@ public class SslContextFactory {
          } else {
             sslContext = SSLContext.getInstance(sslProtocol);
          }
-         initializeContext(sslContext);
-         return sslContext;
+         sslContext.init(kms, tms, null);
+         return new Context(sslContext, kms != null ? kms[0] : null, tms != null ? tms[0] : null);
       } catch (Exception e) {
          throw new RuntimeException("Could not initialize SSL", e);
       }
@@ -163,26 +165,32 @@ public class SslContextFactory {
 
    public void initializeContext(SSLContext sslContext) {
       try {
-         KeyManager[] kms = null;
-         if (keyStoreFileName != null || keyStore != null) {
-            if (keyStoreFileName != null && watcher != null) {
-               kms = new KeyManager[]{new ReloadingX509KeyManager(watcher, Path.of(keyStoreFileName), p -> getKeyManager())};
-            } else {
-               kms = new KeyManager[]{getKeyManager()};
-            }
-         }
-         TrustManager[] tms = null;
-         if (trustStoreFileName != null || trustStore != null) {
-            if (trustStoreFileName != null && watcher != null) {
-               tms = new TrustManager[]{new ReloadingX509TrustManager(watcher, Path.of(trustStoreFileName), p -> getTrustManager())};
-            } else {
-               tms = new TrustManager[]{getTrustManager()};
-            }
-         }
+         KeyManager[] kms = getKeyManagers();
+         TrustManager[] tms = getTrustManagers();
          sslContext.init(kms, tms, null);
       } catch (Exception e) {
          throw new RuntimeException("Could not initialize SSL", e);
       }
+   }
+
+   private KeyManager[] getKeyManagers() {
+      if (keyStoreFileName == null && keyStore == null)
+         return null;
+
+      if (keyStoreFileName == null || watcher == null)
+         return new KeyManager[]{getKeyManager()};
+
+      return new KeyManager[]{new ReloadingX509KeyManager(watcher, Path.of(keyStoreFileName), p -> getKeyManager())};
+   }
+
+   private TrustManager[] getTrustManagers() {
+      if (trustStoreFileName == null && trustStore == null)
+         return null;
+
+      if (trustStoreFileName == null || watcher == null)
+         return new TrustManager[]{getTrustManager()};
+
+      return new TrustManager[]{new ReloadingX509TrustManager(watcher, Path.of(trustStoreFileName), p -> getTrustManager())};
    }
 
    private X509ExtendedKeyManager getKeyManager() {
@@ -304,5 +312,29 @@ public class SslContextFactory {
                }
             }
       );
+   }
+
+   public static class Context {
+      final SSLContext sslContext;
+      final KeyManager keyManager;
+      final TrustManager trustManager;
+
+      public Context(SSLContext sslContext, KeyManager keyManager, TrustManager trustManager) {
+         this.sslContext = sslContext;
+         this.keyManager = keyManager;
+         this.trustManager = trustManager;
+      }
+
+      public SSLContext sslContext() {
+         return sslContext;
+      }
+
+      public KeyManager keyManager() {
+         return keyManager;
+      }
+
+      public TrustManager trustManager() {
+         return trustManager;
+      }
    }
 }
